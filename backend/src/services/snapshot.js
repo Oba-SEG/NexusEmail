@@ -13,9 +13,16 @@ const path = require('path');
 //   SNAPSHOT_SECRET_ACCESS_KEY
 //   SNAPSHOT_KEY              object key (default: snapshots/nexusemail.sqlite)
 //   SNAPSHOT_INTERVAL_MIN     periodic snapshot interval (default: 30)
+//   SNAPSHOT_GRACE_MIN        delay before the first periodic snapshot after
+//                             boot (default: 5) — lets a predecessor instance's
+//                             final SIGTERM snapshot land in object storage
+//                             first, so deploys don't overwrite fresher data
+//                             with a stale-restore snapshot.
 //   SNAPSHOT_DISABLED         set to "1" to force-disable even when configured
 
 const SNAPSHOT_MARKER = '[snapshot]';
+
+let snapInProgress = false;
 
 function resolveConfig() {
   const config = {
@@ -25,12 +32,17 @@ function resolveConfig() {
     secretAccessKey: process.env.SNAPSHOT_SECRET_ACCESS_KEY || null,
     key: process.env.SNAPSHOT_KEY || 'snapshots/nexusemail.sqlite',
     intervalMin: parseInt(process.env.SNAPSHOT_INTERVAL_MIN || '30', 10) || 30,
+    graceMin: parseInt(process.env.SNAPSHOT_GRACE_MIN || '5', 10) || 0,
     disabled: process.env.SNAPSHOT_DISABLED === '1',
   };
   const missing = ['endpoint', 'bucket', 'accessKeyId', 'secretAccessKey'].filter((k) => !config[k]);
   if (config.disabled) return null;
   if (missing.length > 0) {
     console.log(`${SNAPSHOT_MARKER} disabled (missing: ${missing.join(', ')})`);
+    return null;
+  }
+  if (!/^https:\/\//.test(config.endpoint)) {
+    console.error(`${SNAPSHOT_MARKER} endpoint must be https (got ${config.endpoint})`);
     return null;
   }
   return config;
@@ -53,18 +65,23 @@ async function restoreLatestSnapshot({ sqliteFile }) {
 
   const { GetObjectCommand } = require('@aws-sdk/client-s3');
   const client = clientFor(config);
-  let res;
+
+  // Download to a temp file first — a failed/partial download must never leave
+  // a corrupt file at sqliteFile (it would be treated as a valid DB on reboot).
+  const tmpFile = `${sqliteFile}.restore.tmp`;
   try {
-    res = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: config.key }));
+    const res = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: config.key }));
+    fs.mkdirSync(path.dirname(sqliteFile), { recursive: true });
+    await require('node:stream/promises').pipeline(res.Body, fs.createWriteStream(tmpFile));
   } catch (err) {
+    try { fs.unlinkSync(tmpFile); } catch { /* nothing to clean */ }
     if (err.name === 'NoSuchKey' || (err.$metadata && err.$metadata.httpStatusCode === 404)) {
       console.log(`${SNAPSHOT_MARKER} no snapshot in storage yet — starting fresh`);
       return 'none';
     }
     throw err;
   }
-  fs.mkdirSync(path.dirname(sqliteFile), { recursive: true });
-  await require('node:stream/promises').pipeline(res.Body, fs.createWriteStream(sqliteFile));
+  fs.renameSync(tmpFile, sqliteFile);
   console.log(`${SNAPSHOT_MARKER} restored database from storage (${fs.statSync(sqliteFile).size} bytes)`);
   return 'restored';
 }
@@ -73,43 +90,75 @@ async function restoreLatestSnapshot({ sqliteFile }) {
 async function snapshotNow({ sqliteFile }) {
   const config = resolveConfig();
   if (!config) return 'disabled';
+  if (snapInProgress) return 'busy';
   if (!fs.existsSync(sqliteFile) || fs.statSync(sqliteFile).size === 0) return 'empty';
 
-  const { backup } = require('../db/database');
-  const tmpFile = `${sqliteFile}.snapshot.tmp`;
-  await backup(tmpFile);
+  snapInProgress = true;
+  try {
+    const { backup } = require('../db/database');
+    const tmpFile = `${sqliteFile}.snapshot.tmp`;
+    await backup(tmpFile);
 
-  const { PutObjectCommand } = require('@aws-sdk/client-s3');
-  const client = clientFor(config);
-  await client.send(new PutObjectCommand({
-    Bucket: config.bucket,
-    Key: config.key,
-    Body: fs.createReadStream(tmpFile),
-    ContentType: 'application/x-sqlite3',
-  }));
-  fs.unlinkSync(tmpFile);
-  console.log(`${SNAPSHOT_MARKER} uploaded snapshot (${fs.statSync(sqliteFile).size} bytes)`);
-  return 'uploaded';
+    const { PutObjectCommand } = require('@aws-sdk/client-s3');
+    const client = clientFor(config);
+    await client.send(new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: config.key,
+      Body: fs.createReadStream(tmpFile),
+      ContentType: 'application/x-sqlite3',
+    }));
+    fs.unlinkSync(tmpFile);
+    console.log(`${SNAPSHOT_MARKER} uploaded snapshot (${fs.statSync(sqliteFile).size} bytes)`);
+    return 'uploaded';
+  } finally {
+    snapInProgress = false;
+  }
 }
 
-let loopStarted = false;
-function startSnapshotLoop({ sqliteFile }) {
+// Single-flight: a snapshot already running blocks concurrent runs (interval vs
+// SIGTERM), preventing temp-file races on the shared .snapshot.tmp path.
+async function snapshotOnce(args) {
+  const state = await snapshotNow(args);
+  if (state === 'busy') console.log(`${SNAPSHOT_MARKER} snapshot already running, skipping`);
+  return state;
+}
+
+let hooksInstalled = false;
+function startSnapshotLoop({ sqliteFile, server }) {
   const config = resolveConfig();
-  if (!config || loopStarted) return;
-  loopStarted = true;
+  if (!config || hooksInstalled) return;
+  hooksInstalled = true;
 
-  const run = () => snapshotNow({ sqliteFile }).catch((err) => {
-    console.error(`${SNAPSHOT_MARKER} snapshot failed:`, err.message);
-    if (global.Sentry) global.Sentry.captureException(err);
-  });
-
-  const timer = setInterval(run, config.intervalMin * 60 * 1000);
+  // Grace delay: the first periodic snapshot waits so a predecessor instance's
+  // final SIGTERM snapshot has time to land first on deploys. Later snapshots
+  // are post-grace and always newer than the restore they were built from.
+  const timer = setTimeout(() => {
+    setInterval(() => {
+      snapshotOnce({ sqliteFile }).catch((err) => {
+        console.error(`${SNAPSHOT_MARKER} snapshot failed:`, err.message);
+        if (global.Sentry) global.Sentry.captureException(err);
+      });
+    }, config.intervalMin * 60 * 1000);
+    console.log(`${SNAPSHOT_MARKER} loop started (every ${config.intervalMin} min after ${config.graceMin} min grace, bucket=${config.bucket})`);
+  }, config.graceMin * 60 * 1000);
   timer.unref();
 
-  const shutdown = () => { run().catch(() => {}); };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
-  console.log(`${SNAPSHOT_MARKER} loop started (every ${config.intervalMin} min, bucket=${config.bucket})`);
+  // Final snapshot on shutdown: stop accepting traffic, upload, then exit —
+  // a Node signal listener suppresses the default exit, so we must exit
+  // ourselves or Render force-kills the process before the upload settles.
+  const shutdown = async (signal) => {
+    console.log(`${SNAPSHOT_MARKER} ${signal} received — final snapshot, then exit`);
+    try { if (server) server.close(() => { /* sockets drained */ }); } catch { /* already closed */ }
+    try {
+      await snapshotOnce({ sqliteFile });
+    } catch (err) {
+      console.error(`${SNAPSHOT_MARKER} final snapshot failed:`, err.message);
+      if (global.Sentry) global.Sentry.captureException(err);
+    }
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-module.exports = { restoreLatestSnapshot, snapshotNow, startSnapshotLoop };
+module.exports = { restoreLatestSnapshot, snapshotNow, snapshotOnce, startSnapshotLoop };

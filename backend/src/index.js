@@ -18,6 +18,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
+const fs = require('fs');
 const path = require('path');
 const { restoreLatestSnapshot, startSnapshotLoop } = require('./services/snapshot');
 const dataDir = process.env.NEXUSEMAIL_DATA_DIR || path.join(__dirname, '../../data');
@@ -29,11 +30,15 @@ const PORT = process.env.PORT || 4000;
 async function main() {
   // Restore the database from object storage before any route module is
   // required (they all require the database at import time).
+  // Fail hard when nothing usable exists: proceeding would create a fresh
+  // database whose first snapshot would overwrite the real one in storage.
   try {
     await restoreLatestSnapshot({ sqliteFile });
   } catch (err) {
-    console.error('[snapshot] restore failed, starting with what exists:', err.message);
+    const usable = fs.existsSync(sqliteFile) && fs.statSync(sqliteFile).size > 0;
+    console.error(`[snapshot] restore failed${usable ? ' (continuing with local copy)' : ' (no local copy — aborting)'}`, err.message);
     if (global.Sentry) global.Sentry.captureException(err);
+    if (!usable) process.exit(1);
   }
 
   const authRoutes = require('./routes/auth');
@@ -112,6 +117,8 @@ async function main() {
 
   // Keep-warm tick: wakes the instance on Render's free tier and runs any scans
   // that are due. Gated by a shared secret so the public cannot trigger scans.
+  // Snapshots after each tick — the instance may spin down before the periodic
+  // timer fires again, so every wake ends with a durable copy.
   app.post('/api/cron/tick', async (req, res) => {
     const provided = req.get('x-cron-secret') || '';
     if (!process.env.CRON_SECRET || provided !== process.env.CRON_SECRET) {
@@ -119,9 +126,12 @@ async function main() {
     }
     try {
       const { runDueScans } = require('./services/scheduler');
+      const { snapshotOnce } = require('./services/snapshot');
       const result = await runDueScans();
-      res.json({ ok: true, ...result });
+      const snapshot = await snapshotOnce({ sqliteFile });
+      res.json({ ok: true, ...result, snapshot });
     } catch (err) {
+      console.error('[cron] tick failed:', err.message);
       if (global.Sentry) global.Sentry.captureException(err);
       res.status(500).json({ error: 'tick failed' });
     }
@@ -135,11 +145,11 @@ async function main() {
     });
   }
 
-  startSnapshotLoop({ sqliteFile });
-
-  app.listen(PORT, () => {
+  const server = app.listen(PORT, () => {
     console.log(`🚀 NexusEmail API running on http://localhost:${PORT}`);
   });
+
+  startSnapshotLoop({ sqliteFile, server });
 }
 
 main().catch((err) => {

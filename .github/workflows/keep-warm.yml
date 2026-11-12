@@ -17,9 +17,28 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           API="${API_URL:-https://api.brandprotection.segbytes.xyz}"
+          if [[ "$API" != https://* ]]; then
+            echo "API must be https (got $API)"; exit 1
+          fi
+
           echo "Pinging $API/api/health ..."
-          # Allow up to ~2 min for a cold boot on Render's free tier
-          curl -fsS --max-time 120 "$API/api/health" || echo "health ping failed"
-          echo "Running cron tick ..."
-          curl -fsS --max-time 300 -X POST "$API/api/cron/tick" \
-            -H "x-cron-secret: $CRON_SECRET" || echo "tick failed"
+          # Informational only — keeps the instance warm. Persistent failures
+          # are caught by the tick below, which is the step that matters.
+          curl -fsS --max-time 120 "$API/api/health" || echo "health ping failed (non-fatal)"
+
+          echo "Running cron tick (retries tolerate cold boots)..."
+          # Distinguish transient cold-start failures (5xx/network — retry up
+          # to 5x, 30s apart) from authorization and other fatal failures.
+          attempts=0
+          while [ $attempts -lt 5 ]; do
+            attempts=$((attempts + 1))
+            code=$(curl -sS -o /tmp/tick-resp.json -w '%{http_code}' \
+              --max-time 300 -X POST "$API/api/cron/tick" \
+              -H "x-cron-secret: $CRON_SECRET" || echo "000")
+            case "$code" in
+              200) cat /tmp/tick-resp.json; echo; exit 0 ;;
+              401|403) echo "tick failed: HTTP $code (check CRON_SECRET)"; exit 1 ;;
+              *) echo "attempt $attempts: HTTP $code — retrying in 30s"; sleep 30 ;;
+            esac
+          done
+          echo "tick failed after $attempts attempts"; exit 1

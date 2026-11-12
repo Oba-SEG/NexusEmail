@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { getDomains, addScan, getScans } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
+const { captureException } = require('../capture');
 
 function startScheduledScans() {
   // Run daily at 2 AM
