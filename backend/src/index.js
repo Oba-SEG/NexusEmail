@@ -129,6 +129,11 @@ async function main() {
       const { snapshotNow } = require('./services/snapshot');
       const result = await runDueScans();
       const snapshot = await snapshotNow({ sqliteFile });
+      if (snapshot === 'stale-during-shutdown') {
+        // The durable copy does not yet include this tick's writes — do not
+        // report success (the keep-warm workflow treats 5xx as retryable).
+        return res.status(503).json({ ok: false, ...result, snapshot });
+      }
       res.json({ ok: true, ...result, snapshot });
     } catch (err) {
       console.error('[cron] tick failed:', err.message);
