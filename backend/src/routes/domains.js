@@ -4,6 +4,7 @@ const db = require('../db/database');
 const { EmailSecurityAuditor } = require('../services/auditEngine');
 const { NotificationService } = require('../services/notifications');
 const { DomainVerificationService } = require('../services/domainVerification');
+const { captureException } = require('../capture');
 
 const auditor = new EmailSecurityAuditor();
 const notificationService = new NotificationService();
@@ -87,6 +88,7 @@ router.post('/', (req, res) => {
       features_unlocked: domain.verified ? true : false
     });
   } catch (error) {
+    captureException(error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -169,6 +171,7 @@ router.post('/bulk', (req, res) => {
       const domain = db.addDomain({ name: name.toLowerCase().trim(), provider: 'manual', status: 'active' }, req.orgId);
       added.push(name);
     } catch (e) {
+    captureException(e);
       failed.push({ name, error: e.message });
     }
   }
@@ -197,6 +200,7 @@ router.post('/bulk-scan', async (req, res) => {
       }, req.orgId);
       results.push({ domain: domain.name, ...audit });
     } catch (error) {
+    captureException(error);
       results.push({ domain: domain.name, error: error.message });
     }
   }
@@ -249,6 +253,7 @@ router.post('/:id/scan', async (req, res) => {
     }, req.orgId);
     res.json({ success: true, ...audit });
   } catch (error) {
+    captureException(error);
     res.status(500).json({ error: error.message });
   }
 });

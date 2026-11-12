@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const { sign, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin, hashPassword } = require('../auth');
+const { captureException } = require('../capture');
 
 router.post('/login', (req, res) => {
   const { email, password } = req.body;

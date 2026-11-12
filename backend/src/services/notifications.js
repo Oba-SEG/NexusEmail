@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { captureException } = require('../capture');
 
 class NotificationService {
   constructor(config = {}) {
@@ -33,6 +34,7 @@ class NotificationService {
       const result = await this.transporter.verify();
       return { success: true, message: 'SMTP connection successful' };
     } catch (error) {
+      captureException(error);
       return { success: false, error: error.message };
     }
   }
@@ -56,6 +58,7 @@ class NotificationService {
 
       return { success: true, messageId: info.messageId };
     } catch (error) {
+      captureException(error);
       return { success: false, error: error.message };
     }
   }

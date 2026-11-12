@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const { getDatabase } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
+const { captureException } = require('../capture');
 
 function startScheduledScans() {
   // Run daily at 2 AM
@@ -51,6 +52,7 @@ async function runScheduledScans() {
       
       console.log(`✅ Scanned ${domain.name} - Score: ${score}`);
     } catch (error) {
+      captureException(error);
       console.error(`❌ Error scanning ${domain.name}:`, error.message);
     }
   }
@@ -84,6 +86,7 @@ async function runCriticalScans() {
         console.log(`⚠️ ${domain.name} score changed: ${domain.last_score || 'N/A'} -> ${score}`);
       }
     } catch (error) {
+      captureException(error);
       console.error(`❌ Error on critical scan ${domain.name}:`, error.message);
     }
   }

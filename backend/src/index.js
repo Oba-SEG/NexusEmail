@@ -1,10 +1,7 @@
 require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 
-// Sentry (optional): activates only when SENTRY_DSN is configured.
+// Sentry MUST be initialized before Express is loaded — Sentry's Express
+// instrumentation injects at require time (route spans + naming).
 if (process.env.SENTRY_DSN) {
   const Sentry = require('@sentry/node');
   Sentry.init({
@@ -15,6 +12,11 @@ if (process.env.SENTRY_DSN) {
   global.Sentry = Sentry;
   console.log('[sentry] backend error tracking enabled');
 }
+
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 const authRoutes = require('./routes/auth');
 const whmcsRoutes = require('./routes/whmcs');
