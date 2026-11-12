@@ -95,7 +95,15 @@ async function restoreLatestSnapshot({ sqliteFile }) {
 async function snapshotNow({ sqliteFile }) {
   const config = resolveConfig();
   if (!config) return 'disabled';
-  if (activePromise) return activePromise;
+  if (activePromise) {
+    // A caller arriving while a snapshot is in flight needs a copy that
+    // includes ITS writes, not the in-flight generation — so after the active
+    // upload settles, take a fresh one. (During shutdown, the shutdown path
+    // handles the final generation itself; return the in-flight result.)
+    const prior = await activePromise;
+    if (shuttingDown) return prior;
+    return snapshotNow({ sqliteFile });
+  }
   if (!fs.existsSync(sqliteFile) || fs.statSync(sqliteFile).size === 0) return 'empty';
 
   const run = (async () => {
@@ -162,7 +170,14 @@ function startSnapshotLoop({ sqliteFile, server }) {
       ]);
     }
     try {
-      if (activePromise) await activePromise;
+      // If a snapshot was already in flight, let it finish (a transient
+      // failure there must not skip the final attempt) ...
+      if (activePromise) {
+        try { await activePromise; } catch (err) {
+          console.error(`${SNAPSHOT_MARKER} in-flight snapshot failed during shutdown:`, err.message);
+        }
+      }
+      // ... then attempt a final snapshot of the drained state regardless.
       await snapshotNow({ sqliteFile });
     } catch (err) {
       console.error(`${SNAPSHOT_MARKER} final snapshot failed:`, err.message);
