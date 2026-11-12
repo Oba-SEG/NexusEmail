@@ -52,6 +52,16 @@ async function main() {
 
   app = express();
 
+  // In-flight request tracking — used by the snapshot shutdown path to wait
+  // for active handlers (writes) to settle before the final snapshot.
+  let inflight = 0;
+  app.use((req, res, next) => {
+    inflight += 1;
+    res.on('finish', () => { inflight -= 1; });
+    next();
+  });
+  const getInflight = () => inflight;
+
   // Security middleware
   app.use(helmet());
   app.use(cors({
@@ -154,7 +164,7 @@ async function main() {
     console.log(`🚀 NexusEmail API running on http://localhost:${PORT}`);
   });
 
-  startSnapshotLoop({ sqliteFile, server });
+  startSnapshotLoop({ sqliteFile, server, getInflight });
 }
 
 main().catch((err) => {

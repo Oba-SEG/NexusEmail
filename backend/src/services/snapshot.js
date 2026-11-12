@@ -135,7 +135,7 @@ async function snapshotNow({ sqliteFile }) {
 }
 
 let hooksInstalled = false;
-function startSnapshotLoop({ sqliteFile, server }) {
+function startSnapshotLoop({ sqliteFile, server, getInflight }) {
   const config = resolveConfig();
   if (!config || hooksInstalled) return;
   hooksInstalled = true;
@@ -156,20 +156,23 @@ function startSnapshotLoop({ sqliteFile, server }) {
   }, config.graceMin * 60 * 1000);
   timer.unref();
 
-  // Final snapshot on shutdown: drain in-flight requests (server.close callback
-  // signals when connections have settled), let any snapshot already running
-  // finish, take one last snapshot of the drained state, then exit — a Node
-  // signal listener suppresses the default exit, so we exit ourselves.
+  // Final snapshot on shutdown: stop accepting new requests, wait for in-flight
+  // handlers (tracked writes) to settle — up to a hard cap inside Render's
+  // ~30s shutdown window — then sever any remaining sockets, take the final
+  // snapshot, and exit. A Node signal listener suppresses the default exit,
+  // so we exit ourselves.
   const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`${SNAPSHOT_MARKER} ${signal} received — drain, final snapshot, exit`);
-    if (server) {
-      await Promise.race([
-        new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } }),
-        new Promise((resolve) => setTimeout(resolve, 15000)),
-      ]);
+    try { if (server) server.close(() => {}); } catch { /* already closed */ }
+    const deadline = Date.now() + 25000;
+    while (typeof getInflight === 'function' && getInflight() > 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
+    // Timeout expired or all settled — cancel any remaining client sockets so
+    // nothing new can write into the database after this point.
+    try { if (server && server.closeAllConnections) server.closeAllConnections(); } catch { /* optional API */ }
     try {
       // If a snapshot was already in flight, let it finish (a transient
       // failure there must not skip the final attempt) ...
