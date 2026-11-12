@@ -54,10 +54,15 @@ async function main() {
 
   // In-flight request tracking — used by the snapshot shutdown path to wait
   // for active handlers (writes) to settle before the final snapshot.
+  // Decrement on either finish or close (whichever fires first): a client
+  // disconnecting mid-response must not leave the counter stuck above zero.
   let inflight = 0;
   app.use((req, res, next) => {
     inflight += 1;
-    res.on('finish', () => { inflight -= 1; });
+    let settled = false;
+    const settle = () => { if (!settled) { settled = true; inflight -= 1; } };
+    res.on('finish', settle);
+    res.on('close', settle);
     next();
   });
   const getInflight = () => inflight;
