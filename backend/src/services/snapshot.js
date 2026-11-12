@@ -23,6 +23,8 @@ const path = require('path');
 const SNAPSHOT_MARKER = '[snapshot]';
 
 let snapInProgress = false;
+let activePromise = null;
+let shuttingDown = false;
 
 function resolveConfig() {
   const config = {
@@ -87,40 +89,40 @@ async function restoreLatestSnapshot({ sqliteFile }) {
 }
 
 // Uses better-sqlite3's .backup() for a consistent snapshot even under WAL mode.
+// Single-flight: concurrent callers await the active snapshot's promise instead
+// of racing on the shared temp file — important for the shutdown path, which
+// must observe completion rather than treat a skipped run as finished work.
 async function snapshotNow({ sqliteFile }) {
   const config = resolveConfig();
   if (!config) return 'disabled';
-  if (snapInProgress) return 'busy';
+  if (activePromise) return activePromise;
   if (!fs.existsSync(sqliteFile) || fs.statSync(sqliteFile).size === 0) return 'empty';
 
-  snapInProgress = true;
-  try {
-    const { backup } = require('../db/database');
-    const tmpFile = `${sqliteFile}.snapshot.tmp`;
-    await backup(tmpFile);
+  const run = (async () => {
+    snapInProgress = true;
+    try {
+      const { backup } = require('../db/database');
+      const tmpFile = `${sqliteFile}.snapshot.tmp`;
+      await backup(tmpFile);
 
-    const { PutObjectCommand } = require('@aws-sdk/client-s3');
-    const client = clientFor(config);
-    await client.send(new PutObjectCommand({
-      Bucket: config.bucket,
-      Key: config.key,
-      Body: fs.createReadStream(tmpFile),
-      ContentType: 'application/x-sqlite3',
-    }));
-    fs.unlinkSync(tmpFile);
-    console.log(`${SNAPSHOT_MARKER} uploaded snapshot (${fs.statSync(sqliteFile).size} bytes)`);
-    return 'uploaded';
-  } finally {
-    snapInProgress = false;
-  }
-}
-
-// Single-flight: a snapshot already running blocks concurrent runs (interval vs
-// SIGTERM), preventing temp-file races on the shared .snapshot.tmp path.
-async function snapshotOnce(args) {
-  const state = await snapshotNow(args);
-  if (state === 'busy') console.log(`${SNAPSHOT_MARKER} snapshot already running, skipping`);
-  return state;
+      const { PutObjectCommand } = require('@aws-sdk/client-s3');
+      const client = clientFor(config);
+      await client.send(new PutObjectCommand({
+        Bucket: config.bucket,
+        Key: config.key,
+        Body: fs.createReadStream(tmpFile),
+        ContentType: 'application/x-sqlite3',
+      }));
+      fs.unlinkSync(tmpFile);
+      console.log(`${SNAPSHOT_MARKER} uploaded snapshot (${fs.statSync(sqliteFile).size} bytes)`);
+      return 'uploaded';
+    } finally {
+      snapInProgress = false;
+      activePromise = null;
+    }
+  })();
+  activePromise = run;
+  return run;
 }
 
 let hooksInstalled = false;
@@ -133,8 +135,10 @@ function startSnapshotLoop({ sqliteFile, server }) {
   // final SIGTERM snapshot has time to land first on deploys. Later snapshots
   // are post-grace and always newer than the restore they were built from.
   const timer = setTimeout(() => {
+    if (shuttingDown) return;
     setInterval(() => {
-      snapshotOnce({ sqliteFile }).catch((err) => {
+      if (shuttingDown) return;
+      snapshotNow({ sqliteFile }).catch((err) => {
         console.error(`${SNAPSHOT_MARKER} snapshot failed:`, err.message);
         if (global.Sentry) global.Sentry.captureException(err);
       });
@@ -143,14 +147,23 @@ function startSnapshotLoop({ sqliteFile, server }) {
   }, config.graceMin * 60 * 1000);
   timer.unref();
 
-  // Final snapshot on shutdown: stop accepting traffic, upload, then exit —
-  // a Node signal listener suppresses the default exit, so we must exit
-  // ourselves or Render force-kills the process before the upload settles.
+  // Final snapshot on shutdown: drain in-flight requests (server.close callback
+  // signals when connections have settled), let any snapshot already running
+  // finish, take one last snapshot of the drained state, then exit — a Node
+  // signal listener suppresses the default exit, so we exit ourselves.
   const shutdown = async (signal) => {
-    console.log(`${SNAPSHOT_MARKER} ${signal} received — final snapshot, then exit`);
-    try { if (server) server.close(() => { /* sockets drained */ }); } catch { /* already closed */ }
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${SNAPSHOT_MARKER} ${signal} received — drain, final snapshot, exit`);
+    if (server) {
+      await Promise.race([
+        new Promise((resolve) => { try { server.close(() => resolve()); } catch { resolve(); } }),
+        new Promise((resolve) => setTimeout(resolve, 15000)),
+      ]);
+    }
     try {
-      await snapshotOnce({ sqliteFile });
+      if (activePromise) await activePromise;
+      await snapshotNow({ sqliteFile });
     } catch (err) {
       console.error(`${SNAPSHOT_MARKER} final snapshot failed:`, err.message);
       if (global.Sentry) global.Sentry.captureException(err);
@@ -161,4 +174,4 @@ function startSnapshotLoop({ sqliteFile, server }) {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-module.exports = { restoreLatestSnapshot, snapshotNow, snapshotOnce, startSnapshotLoop };
+module.exports = { restoreLatestSnapshot, snapshotNow, startSnapshotLoop };

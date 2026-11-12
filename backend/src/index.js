@@ -126,9 +126,9 @@ async function main() {
     }
     try {
       const { runDueScans } = require('./services/scheduler');
-      const { snapshotOnce } = require('./services/snapshot');
+      const { snapshotNow } = require('./services/snapshot');
       const result = await runDueScans();
-      const snapshot = await snapshotOnce({ sqliteFile });
+      const snapshot = await snapshotNow({ sqliteFile });
       res.json({ ok: true, ...result, snapshot });
     } catch (err) {
       console.error('[cron] tick failed:', err.message);
