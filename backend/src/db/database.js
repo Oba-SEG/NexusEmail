@@ -571,11 +571,11 @@ function migrateBrandsFromSettingsBlob() {
 migrateBrandsFromSettingsBlob();
 
 if (!getOrganization('segbytes')) addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
-if (!getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.co.za')) {
+if (!getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz')) {
   if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) throw new Error('Set SEED_ADMIN_PASSWORD before first production boot');
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!', salt, 120000, 32, 'sha256').toString('hex');
-  addUser({ org_id: 'segbytes', email: process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.co.za', name: 'Segbytes Admin', role: 'owner', platform_role: 'platform_admin', password_hash: `${salt}:${hash}` });
+  addUser({ org_id: 'segbytes', email: process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz', name: 'Segbytes Admin', role: 'owner', platform_role: 'platform_admin', password_hash: `${salt}:${hash}` });
 }
 if (!getSetting('notify_scan_completed')) setSetting('notify_scan_completed', '1');
 if (!getSetting('notify_critical_alerts')) setSetting('notify_critical_alerts', '1');

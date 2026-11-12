@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDatabase } = require('../db/database');
+const { captureException } = require('../capture');
 
 // Get all integrations
 router.get('/', (req, res) => {
@@ -27,6 +28,7 @@ router.post('/connect', (req, res) => {
       status: 'active'
     });
   } catch (error) {
+    captureException(error);
     res.status(400).json({ error: error.message });
   }
 });

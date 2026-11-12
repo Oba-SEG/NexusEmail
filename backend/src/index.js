@@ -1,4 +1,18 @@
 require('dotenv').config();
+
+// Sentry MUST be initialized before Express is loaded — Sentry's Express
+// instrumentation injects at require time (route spans + naming).
+if (process.env.SENTRY_DSN) {
+  const Sentry = require('@sentry/node');
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+    tracesSampleRate: 0.1,
+  });
+  global.Sentry = Sentry;
+  console.log('[sentry] backend error tracking enabled');
+}
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -79,6 +93,14 @@ app.get('/api/health', (req, res) => {
   const db = require('./db/database');
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Sentry error reporting — after all routes, before the default handler.
+if (process.env.SENTRY_DSN && global.Sentry) {
+  app.use((err, req, res, next) => {
+    global.Sentry.captureException(err);
+    next(err);
+  });
+}
 
 app.listen(PORT, () => {
   console.log(`🚀 NexusEmail API running on http://localhost:${PORT}`);

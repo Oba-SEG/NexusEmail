@@ -1,6 +1,18 @@
 "use client";
 
 import { useState, useEffect } from "react";
+
+// Sentry (optional): activates only when NEXT_PUBLIC_SENTRY_DSN is set at build
+// time; the chunk is never fetched otherwise.
+if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_SENTRY_DSN) {
+  import("@sentry/browser").then((Sentry) => {
+    Sentry.init({
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || "production",
+    });
+  });
+}
+
 import {
   Shield, Search, Settings, Activity, AlertTriangle,
   CheckCircle, XCircle, Globe, Plus, RefreshCw, Zap,
@@ -21,7 +33,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export default function Dashboard() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
-  const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.co.za', password: '' });
+  const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
   const [darkMode, setDarkMode] = useState(true);

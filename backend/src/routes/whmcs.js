@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const db = require('../db/database');
 const { publicUser, hashPassword } = require('../auth');
+const { captureException } = require('../capture');
 
 function configuredToken() {
   return process.env.WHMCS_API_TOKEN || process.env.NEXUSEMAIL_WHMCS_API_TOKEN || '';
@@ -128,6 +129,7 @@ router.post('/provision', requireWhmcs, (req, res) => {
     const owner = ensureOwner(org, payload);
     res.json({ success: true, organization: org, owner: owner ? publicUser(owner) : null });
   } catch (error) {
+    captureException(error);
     res.status(error.status || 400).json({ success: false, error: error.message });
   }
 });
@@ -163,6 +165,7 @@ router.post('/login-token', requireWhmcs, (req, res) => {
     db.setSetting(`whmcs_login:${tokenHash}`, JSON.stringify({ userId: user.id, expiresAt: Date.now() + 2 * 60 * 1000 }));
     res.json({ success: true, token: exchangeToken, expiresIn: 120, user: publicUser(user) });
   } catch (error) {
+    captureException(error);
     res.status(error.status || 400).json({ success: false, error: error.message });
   }
 });

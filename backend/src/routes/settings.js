@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
+const { captureException } = require('../capture');
 
 const notificationService = new NotificationService();
 
@@ -92,6 +93,7 @@ router.post('/providers/test', async (req, res) => {
     const result = await dnsProvider.testConnection();
     res.json(result);
   } catch (e) {
+    captureException(e);
     res.json({ success: false, error: e.message });
   }
 });

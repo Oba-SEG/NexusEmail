@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDatabase } = require('../db/database');
 const { DNSService } = require('../services/dnsProviders');
+const { captureException } = require('../capture');
 
 // Run scan on domain
 router.post('/run/:domainId', async (req, res) => {
@@ -58,6 +59,7 @@ router.post('/run/:domainId', async (req, res) => {
       issues
     });
   } catch (error) {
+    captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -104,6 +106,7 @@ router.post('/fix/:domainId', async (req, res) => {
     
     res.json({ success: true, ...result });
   } catch (error) {
+    captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
