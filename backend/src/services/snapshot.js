@@ -173,6 +173,10 @@ function startSnapshotLoop({ sqliteFile, server, getInflight }) {
     // Timeout expired or all settled — cancel any remaining client sockets so
     // nothing new can write into the database after this point.
     try { if (server && server.closeAllConnections) server.closeAllConnections(); } catch { /* optional API */ }
+    // Freeze all mutating helpers: any in-process handler that outlives the
+    // drain window now throws on write instead of racing the final backup —
+    // the snapshot below is guaranteed to be the last database state.
+    try { require('../db/database').freezeWrites(); } catch { /* already frozen */ }
     try {
       // If a snapshot was already in flight, let it finish (a transient
       // failure there must not skip the final attempt) ...

@@ -194,11 +194,13 @@ function getOrganizations() { return connection.prepare('SELECT * FROM organizat
 function getOrganization(idOrSlug) { return connection.prepare('SELECT * FROM organizations WHERE id = ? OR slug = ?').get(idOrSlug, idOrSlug); }
 function getOrganizationByWhmcsClient(clientId) { return connection.prepare('SELECT * FROM organizations WHERE whmcs_client_id = ?').get(String(clientId)); }
 function addOrganization(org) {
+  assertWritable();
   const created = { id: org.id || nextId('org'), slug: org.slug, name: org.name, status: org.status || 'active', whmcs_client_id: org.whmcs_client_id || null, whmcs_service_id: org.whmcs_service_id || null, plan: org.plan || null, created_at: org.created_at || now(), updated_at: org.updated_at || now() };
   connection.prepare(`INSERT INTO organizations (id, slug, name, status, whmcs_client_id, whmcs_service_id, plan, created_at, updated_at) VALUES (@id, @slug, @name, @status, @whmcs_client_id, @whmcs_service_id, @plan, @created_at, @updated_at)`).run(created);
   return created;
 }
 function updateOrganization(id, updates) {
+  assertWritable();
   const existing = getOrganization(id);
   if (!existing) return null;
   const next = { ...existing, ...updates, updated_at: now() };
@@ -216,6 +218,7 @@ function getUserByWhmcsContact(clientId, contactId, email) {
   return connection.prepare('SELECT * FROM users WHERE whmcs_client_id = ? AND lower(email) = lower(?)').get(String(clientId), email || '');
 }
 function addUser(user) {
+  assertWritable();
   const created = { id: user.id || nextId('usr'), org_id: user.org_id, email: user.email, name: user.name || user.email, role: user.role || 'member', platform_role: user.platform_role || null, status: user.status || 'active', password_hash: user.password_hash || null, whmcs_client_id: user.whmcs_client_id || null, whmcs_contact_id: user.whmcs_contact_id || null, created_at: user.created_at || now(), updated_at: user.updated_at || now() };
   connection.prepare(`INSERT INTO users (id, org_id, email, name, role, platform_role, status, password_hash, whmcs_client_id, whmcs_contact_id, created_at, updated_at) VALUES (@id, @org_id, @email, @name, @role, @platform_role, @status, @password_hash, @whmcs_client_id, @whmcs_contact_id, @created_at, @updated_at)`).run(created);
   return created;
@@ -223,6 +226,7 @@ function addUser(user) {
 
 function getDomains(orgId) { return connection.prepare(orgId ? 'SELECT * FROM domains WHERE org_id = ? ORDER BY created_at DESC' : 'SELECT * FROM domains ORDER BY created_at DESC').all(...(orgId ? [orgId] : [])).map(hydrateDomain); }
 function addDomain(domain, orgId) {
+  assertWritable();
   const created = { ...domain, id: domain.id || nextNumericId(), org_id: orgId || domain.org_id || 'segbytes', created_at: domain.created_at || now(), updated_at: now() };
   connection.prepare('INSERT INTO domains (id, org_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(created.id, created.org_id, json(created), created.created_at, created.updated_at);
   return created;
@@ -236,11 +240,13 @@ function updateDomain(id, updates, orgId) {
   return next;
 }
 function deleteDomain(id, orgId) {
+  assertWritable();
   connection.prepare(orgId ? 'DELETE FROM scans WHERE domain_id = ? AND org_id = ?' : 'DELETE FROM scans WHERE domain_id = ?').run(...(orgId ? [id, orgId] : [id]));
   connection.prepare(orgId ? 'DELETE FROM domains WHERE id = ? AND org_id = ?' : 'DELETE FROM domains WHERE id = ?').run(...(orgId ? [id, orgId] : [id]));
 }
 
 function addScan(scan, orgId) {
+  assertWritable();
   const created = { ...scan, id: scan.id || nextNumericId(), org_id: orgId || scan.org_id || 'segbytes', scanned_at: scan.scanned_at || now() };
   connection.prepare('INSERT INTO scans (id, org_id, domain_id, data, scanned_at) VALUES (?, ?, ?, ?, ?)').run(created.id, created.org_id, created.domain_id, json(created), created.scanned_at);
   return created;
@@ -250,6 +256,7 @@ function getLatestScan(domainId, orgId) { return hydrateScan(connection.prepare(
 
 function getIntegrations(orgId) { return connection.prepare(orgId ? 'SELECT * FROM integrations WHERE org_id = ? ORDER BY created_at DESC' : 'SELECT * FROM integrations ORDER BY created_at DESC').all(...(orgId ? [orgId] : [])).map(hydrateIntegration); }
 function addIntegration(integration, orgId) {
+  assertWritable();
   const created = { ...integration, id: integration.id || nextNumericId(), org_id: orgId || integration.org_id || 'segbytes', created_at: integration.created_at || now(), updated_at: now() };
   connection.prepare('INSERT INTO integrations (id, org_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(created.id, created.org_id, json(created), created.created_at, created.updated_at);
   return created;
@@ -261,6 +268,7 @@ function setSetting(key, value, orgId) { connection.prepare('INSERT INTO setting
 function deleteSetting(key, orgId) { connection.prepare('DELETE FROM settings WHERE org_id = ? AND key = ?').run(orgId || 'global', key); }
 
 function addReport(report, orgId) {
+  assertWritable();
   const created = { ...report, id: report.id || nextNumericId(), org_id: orgId || report.org_id || 'segbytes', generated_at: report.generated_at || now() };
   connection.prepare('INSERT INTO reports (id, org_id, domain_id, data, generated_at) VALUES (?, ?, ?, ?, ?)').run(created.id, created.org_id, created.domain_id || null, json(created), created.generated_at);
   return created;
@@ -362,6 +370,7 @@ function getBrandsFull(orgId) {
   }));
 }
 function addBrand(brand, orgId) {
+  assertWritable();
   if (!orgId) throw new Error('orgId required to add a brand');
   const created = {
     id: brand.id || nextNumericId(),
@@ -395,6 +404,7 @@ function updateBrand(id, updates, orgId) {
   return getBrand(id, orgId);
 }
 function deleteBrand(id, orgId) {
+  assertWritable();
   if (!orgId) return false;
   const result = connection.prepare('DELETE FROM brands WHERE id = ? AND org_id = ?').run(id, orgId);
   return result.changes > 0;
@@ -405,6 +415,7 @@ function getBrandThreats(brandId, orgId) {
   return connection.prepare('SELECT * FROM brand_threats WHERE brand_id = ? AND org_id = ? ORDER BY detected_at DESC').all(brandId, orgId).map(hydrateThreat);
 }
 function addBrandThreat(threat, brandId, orgId) {
+  assertWritable();
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: threat.id || nextNumericId(),
@@ -417,6 +428,7 @@ function addBrandThreat(threat, brandId, orgId) {
   return hydrateThreat(connection.prepare('SELECT * FROM brand_threats WHERE id = ?').get(created.id));
 }
 function deleteBrandThreatByDomain(brandId, domain, orgId) {
+  assertWritable();
   if (!orgId) return;
   connection.prepare('DELETE FROM brand_threats WHERE brand_id = ? AND org_id = ? AND domain = ?').run(brandId, orgId, domain);
 }
@@ -452,6 +464,7 @@ function addBrandTakedown(takedown, brandId, orgId) {
   return { ...hydrateTakedown(connection.prepare('SELECT * FROM brand_takedowns WHERE id = ?').get(created.id)), replies: [] };
 }
 function updateBrandTakedown(takedownId, brandId, updates, orgId) {
+  assertWritable();
   if (!orgId) return null;
   const existing = connection.prepare('SELECT * FROM brand_takedowns WHERE id = ? AND brand_id = ? AND org_id = ?').get(takedownId, brandId, orgId);
   if (!existing) return null;
@@ -465,6 +478,8 @@ function updateBrandTakedown(takedownId, brandId, updates, orgId) {
   return hydrateTakedown(connection.prepare('SELECT * FROM brand_takedowns WHERE id = ?').get(takedownId));
 }
 function addTakedownReply(reply, takedownId, brandId, orgId) {
+  assertWritable();
+  assertWritable();
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: reply.id || nextNumericId(),
@@ -482,6 +497,7 @@ function getBrandSafeList(brandId, orgId) {
   return connection.prepare('SELECT domain FROM brand_safe_entries WHERE brand_id = ? AND org_id = ? ORDER BY added_at DESC').all(brandId, orgId).map(r => r.domain);
 }
 function addSafeEntry(brandId, domain, orgId) {
+  assertWritable();
   if (!orgId) return;
   try {
     connection.prepare('INSERT INTO brand_safe_entries (id, brand_id, org_id, domain, added_at) VALUES (?, ?, ?, ?, ?)').run(nextNumericId(), brandId, orgId, domain.toLowerCase(), now());
@@ -490,6 +506,7 @@ function addSafeEntry(brandId, domain, orgId) {
   }
 }
 function removeSafeEntry(brandId, domain, orgId) {
+  assertWritable();
   if (!orgId) return;
   connection.prepare('DELETE FROM brand_safe_entries WHERE brand_id = ? AND org_id = ? AND domain = ?').run(brandId, orgId, domain.toLowerCase());
 }
@@ -499,6 +516,7 @@ function getBrandAlerts(orgId, limit = 50) {
   return connection.prepare('SELECT * FROM brand_alerts WHERE org_id = ? ORDER BY created_at DESC LIMIT ?').all(orgId, limit).map(hydrateAlert);
 }
 function addBrandAlert(alert, orgId) {
+  assertWritable();
   if (!orgId) throw new Error('orgId required');
   const { id: _, brand_id, brand_name, alert_type, severity, message, acknowledged, created_at, ...extras } = alert;
   const created = {
@@ -513,10 +531,12 @@ function addBrandAlert(alert, orgId) {
   return hydrateAlert(connection.prepare('SELECT * FROM brand_alerts WHERE id = ?').get(created.id));
 }
 function deleteBrandAlert(alertId, orgId) {
+  assertWritable();
   if (!orgId) return;
   connection.prepare('DELETE FROM brand_alerts WHERE id = ? AND org_id = ?').run(alertId, orgId);
 }
 function clearBrandAlerts(orgId) {
+  assertWritable();
   if (!orgId) return;
   connection.prepare('DELETE FROM brand_alerts WHERE org_id = ?').run(orgId);
 }
@@ -581,11 +601,19 @@ if (!getSetting('notify_scan_completed')) setSetting('notify_scan_completed', '1
 if (!getSetting('notify_critical_alerts')) setSetting('notify_critical_alerts', '1');
 if (!getSetting('notify_weekly_report')) setSetting('notify_weekly_report', '0');
 
+// Shutdown coordination: once set, all mutating helpers throw instead of
+// writing, so the final object-storage snapshot can never race new writes.
+let writesFrozen = false;
+function freezeWrites() { writesFrozen = true; }
+function assertWritable() {
+  if (writesFrozen) throw new Error('writes frozen: instance shutting down');
+}
+
 function saveDB() { connection.pragma('wal_checkpoint(PASSIVE)'); }
 function backup(destPath) { return connection.backup(destPath); }
 const sqliteFilePath = sqliteFile;
 
-module.exports = { getDomains, addDomain, getDomain, updateDomain, deleteDomain, addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration, getSetting, setSetting, deleteSetting, addReport, getReports, getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization, getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, saveDB, backup, sqliteFilePath, nextNumericId,
+module.exports = { getDomains, addDomain, getDomain, updateDomain, deleteDomain, addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration, getSetting, setSetting, deleteSetting, addReport, getReports, getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization, getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, saveDB, backup, sqliteFilePath, freezeWrites, nextNumericId,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
   getBrandThreats, addBrandThreat, deleteBrandThreatByDomain,
