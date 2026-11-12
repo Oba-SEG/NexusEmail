@@ -31,6 +31,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={cn(inter.variable, manrope.variable)} suppressHydrationWarning>
+      <head>
+        {/* Static-export (GitHub Pages) builds can't receive response headers,
+            so the CSP ships as a <meta> tag instead. Server builds (Docker/VPS
+            staging) get it from next.config headers() and skip the meta. */}
+        {process.env.NEXUSEMAIL_STATIC_EXPORT ? (
+          <meta
+            httpEquiv="Content-Security-Policy"
+            content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://api.brandprotection.segbytes.xyz http://localhost:4000; base-uri 'self'; form-action 'self'"
+          />
+        ) : null}
+      </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         {children}
       </body>
