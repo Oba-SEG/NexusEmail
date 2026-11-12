@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 
 const db = require('../db/database');
+const { captureException } = require('../capture');
 
 // Ensure reports directory exists
 const reportsDir = path.join(__dirname, '../../data/reports');
@@ -34,6 +35,7 @@ router.get('/domains/:id/report', async (req, res) => {
     const html = generateReportHtml(domain, scans, issues);
     res.type('html').send(html);
   } catch (e) {
+    captureException(e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -54,6 +56,7 @@ router.get('/export/csv', (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename=nexusemail-domains.csv');
     res.send(csv);
   } catch (e) {
+    captureException(e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -64,6 +67,7 @@ router.get('/export/json', (req, res) => {
     const domains = db.getDomains(req.orgId);
     res.json(domains);
   } catch (e) {
+    captureException(e);
     res.status(500).json({ error: e.message });
   }
 });

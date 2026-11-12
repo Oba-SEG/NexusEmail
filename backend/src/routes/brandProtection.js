@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { BrandProtectionService } = require('../services/brandProtection');
 const db = require('../db/database');
+const { captureException } = require('../capture');
 
 const brandService = new BrandProtectionService();
 
@@ -63,6 +64,7 @@ router.post('/scan/all', async (req, res) => {
         }
       }
     } catch (e) {
+    captureException(e);
       results.push({ domain: brand.domain, error: e.message, brand_id: brand.id });
     }
   }
@@ -202,6 +204,7 @@ router.post('/:id/takedown', async (req, res) => {
         }
       }
     } catch (e) {
+    captureException(e);
       console.error('Failed to send takedown email:', e.message);
     }
   }

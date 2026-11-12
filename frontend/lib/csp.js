@@ -1,0 +1,40 @@
+// CSP builder shared by next.config.js (server headers for Docker/VPS
+// staging) and app/layout.tsx (meta tag for static-export/GitHub Pages
+// builds, which can't set response headers). Every connect target is derived
+// from the same build-time inputs the client uses, so a
+// vars.NEXT_PUBLIC_API_URL override (e.g. a Render hostname) can never be
+// blocked by a stale hardcoded origin.
+
+function apiOrigin() {
+  try {
+    const raw = process.env.NEXT_PUBLIC_API_URL || "https://api.brandprotection.segbytes.xyz/api";
+    return new URL(raw).origin;
+  } catch {
+    return "https://api.brandprotection.segbytes.xyz";
+  }
+}
+
+function cspValue({ withFrameAncestors } = {}) {
+  const connect = [
+    "'self'",
+    apiOrigin(),
+    "http://localhost:4000",
+    // Sentry ingestion (browser fetch transport); the DSN's own host is
+    // covered by the wildcards.
+    "https://*.ingest.sentry.io",
+    "https://*.sentry.io",
+  ].join(" ");
+  const directives = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "font-src 'self' data:",
+    `connect-src ${connect}`,
+  ];
+  if (withFrameAncestors) directives.push("frame-ancestors 'none'");
+  directives.push("base-uri 'self'", "form-action 'self'");
+  return directives.join("; ");
+}
+
+module.exports = { apiOrigin, cspValue };

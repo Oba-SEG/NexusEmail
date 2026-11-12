@@ -2,12 +2,14 @@ const express = require('express');
 const router = express.Router();
 const dns = require('dns').promises;
 const db = require('../db/database');
+const { captureException } = require('../capture');
 
 async function getMXRecords(domain) {
   try {
     const mx = await dns.resolveMx(domain);
     return mx.sort((a, b) => a.priority - b.priority).map(r => ({ host: r.exchange, priority: r.priority }));
   } catch (e) {
+    captureException(e);
     return [];
   }
 }
@@ -17,6 +19,7 @@ async function getNSRecords(domain) {
     const ns = await dns.resolveNs(domain);
     return ns;
   } catch (e) {
+    captureException(e);
     return [];
   }
 }
@@ -163,6 +166,7 @@ router.post('/:id/analyze-fix', async (req, res) => {
         : 'Manual DNS configuration required. Check with your domain provider.'
     });
   } catch (error) {
+    captureException(error);
     res.status(500).json({ error: error.message });
   }
 });
