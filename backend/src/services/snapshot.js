@@ -98,10 +98,11 @@ async function snapshotNow({ sqliteFile }) {
   if (activePromise) {
     // A caller arriving while a snapshot is in flight needs a copy that
     // includes ITS writes, not the in-flight generation — so after the active
-    // upload settles, take a fresh one. (During shutdown, the shutdown path
-    // handles the final generation itself; return the in-flight result.)
+    // upload settles, take a fresh one. During shutdown the fresh one is the
+    // shutdown path's job; report a non-success value so the caller never
+    // treats the in-flight (older) generation as a durable copy.
     const prior = await activePromise;
-    if (shuttingDown) return prior;
+    if (shuttingDown) return prior === 'uploaded' ? 'stale-during-shutdown' : prior;
     return snapshotNow({ sqliteFile });
   }
   if (!fs.existsSync(sqliteFile) || fs.statSync(sqliteFile).size === 0) return 'empty';
