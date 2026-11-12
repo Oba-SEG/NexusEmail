@@ -56,3 +56,5 @@ secrets.*
 .next/
 dist/
 build/
+# Next.js static export output
+frontend/out/
