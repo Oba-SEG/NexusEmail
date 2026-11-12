@@ -9,6 +9,15 @@ fs.mkdirSync(dataDir, { recursive: true });
 const legacyJsonFile = path.join(dataDir, 'nexusemail.json');
 const sqliteFile = process.env.NEXUSEMAIL_DB_PATH || path.join(dataDir, 'nexusemail.sqlite');
 const connection = new Database(sqliteFile);
+
+// Shutdown coordination: once set, all mutating helpers throw instead of
+// writing, so the final object-storage snapshot can never race new writes.
+let writesFrozen = false;
+function freezeWrites() { writesFrozen = true; }
+function assertWritable() {
+  if (writesFrozen) throw new Error('writes frozen: instance shutting down');
+}
+
 connection.pragma('journal_mode = WAL');
 connection.pragma('foreign_keys = ON');
 
@@ -233,6 +242,7 @@ function addDomain(domain, orgId) {
 }
 function getDomain(id, orgId) { return hydrateDomain(connection.prepare(orgId ? 'SELECT * FROM domains WHERE id = ? AND org_id = ?' : 'SELECT * FROM domains WHERE id = ?').get(...(orgId ? [id, orgId] : [id]))); }
 function updateDomain(id, updates, orgId) {
+  assertWritable();
   const existing = getDomain(id, orgId);
   if (!existing) return null;
   const next = { ...existing, ...updates, updated_at: now() };
@@ -261,11 +271,11 @@ function addIntegration(integration, orgId) {
   connection.prepare('INSERT INTO integrations (id, org_id, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(created.id, created.org_id, json(created), created.created_at, created.updated_at);
   return created;
 }
-function deleteIntegration(id, orgId) { connection.prepare(orgId ? 'DELETE FROM integrations WHERE id = ? AND org_id = ?' : 'DELETE FROM integrations WHERE id = ?').run(...(orgId ? [id, orgId] : [id])); }
+function deleteIntegration(id, orgId) { assertWritable(); connection.prepare(orgId ? 'DELETE FROM integrations WHERE id = ? AND org_id = ?' : 'DELETE FROM integrations WHERE id = ?').run(...(orgId ? [id, orgId] : [id])); }
 
 function getSetting(key, orgId) { const row = connection.prepare('SELECT value FROM settings WHERE org_id = ? AND key = ?').get(orgId || 'global', key) || connection.prepare('SELECT value FROM settings WHERE org_id = ? AND key = ?').get('global', key); return row?.value; }
-function setSetting(key, value, orgId) { connection.prepare('INSERT INTO settings (org_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(org_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(orgId || 'global', key, String(value), now()); }
-function deleteSetting(key, orgId) { connection.prepare('DELETE FROM settings WHERE org_id = ? AND key = ?').run(orgId || 'global', key); }
+function setSetting(key, value, orgId) { assertWritable(); connection.prepare('INSERT INTO settings (org_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(org_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at').run(orgId || 'global', key, String(value), now()); }
+function deleteSetting(key, orgId) { assertWritable(); connection.prepare('DELETE FROM settings WHERE org_id = ? AND key = ?').run(orgId || 'global', key); }
 
 function addReport(report, orgId) {
   assertWritable();
@@ -390,6 +400,7 @@ function addBrand(brand, orgId) {
   return hydrateBrand(connection.prepare('SELECT * FROM brands WHERE id = ?').get(created.id));
 }
 function updateBrand(id, updates, orgId) {
+  assertWritable();
   const existing = getBrand(id, orgId);
   if (!existing) return null;
   const next = { ...existing, ...updates, updated_at: now() };
@@ -443,6 +454,7 @@ function getBrandTakedowns(brandId, orgId) {
   return rows;
 }
 function addBrandTakedown(takedown, brandId, orgId) {
+  assertWritable();
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: takedown.id || nextNumericId(),
@@ -600,14 +612,6 @@ if (!getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.co.za')) {
 if (!getSetting('notify_scan_completed')) setSetting('notify_scan_completed', '1');
 if (!getSetting('notify_critical_alerts')) setSetting('notify_critical_alerts', '1');
 if (!getSetting('notify_weekly_report')) setSetting('notify_weekly_report', '0');
-
-// Shutdown coordination: once set, all mutating helpers throw instead of
-// writing, so the final object-storage snapshot can never race new writes.
-let writesFrozen = false;
-function freezeWrites() { writesFrozen = true; }
-function assertWritable() {
-  if (writesFrozen) throw new Error('writes frozen: instance shutting down');
-}
 
 function saveDB() { connection.pragma('wal_checkpoint(PASSIVE)'); }
 function backup(destPath) { return connection.backup(destPath); }
