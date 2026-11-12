@@ -1,0 +1,25 @@
+name: Keep warm
+
+on:
+  schedule:
+    # Hourly at an off-minute — wakes the Render free instance, runs due scans
+    # and triggers an on-demand DB snapshot while the instance is up.
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health + cron tick
+        env:
+          API_URL: ${{ vars.NEXUS_API_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          API="${API_URL:-https://api.brandprotection.segbytes.xyz}"
+          echo "Pinging $API/api/health ..."
+          # Allow up to ~2 min for a cold boot on Render's free tier
+          curl -fsS --max-time 120 "$API/api/health" || echo "health ping failed"
+          echo "Running cron tick ..."
+          curl -fsS --max-time 300 -X POST "$API/api/cron/tick" \
+            -H "x-cron-secret: $CRON_SECRET" || echo "tick failed"

@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { getDatabase } = require('../db/database');
+const { getDomains, addScan, getScans } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
 
 function startScheduledScans() {
@@ -18,75 +18,82 @@ function startScheduledScans() {
   console.log('✅ Scheduled scans initialized');
 }
 
+async function scanDomain(domain, dnsService) {
+  const [spf, dkim, dmarc] = await Promise.all([
+    dnsService.checkSPF(domain.name),
+    dnsService.checkDKIM(domain.name),
+    dnsService.checkDMARC(domain.name)
+  ]);
+
+  const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
+  addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues: [] }, domain.org_id);
+  console.log(`✅ Scanned ${domain.name} - Score: ${score}`);
+  return score;
+}
+
+// Scans every active domain regardless of recency (used by the 2 AM cron).
 async function runScheduledScans() {
-  const db = getDatabase();
-  const domains = db.prepare('SELECT * FROM domains WHERE status = ?').all('active');
   const dnsService = new DNSService();
-  
-  for (const domain of domains) {
+  let scanned = 0;
+  for (const domain of getDomains()) {
+    if (domain.status !== 'active') continue;
     try {
-      const [spf, dkim, dmarc] = await Promise.all([
-        dnsService.checkSPF(domain.name),
-        dnsService.checkDKIM(domain.name),
-        dnsService.checkDMARC(domain.name)
-      ]);
-      
-      const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
-      
-      db.prepare(`
-        INSERT INTO scans (domain_id, score, spf_status, dkim_status, dmarc_status, 
-          spf_record, dkim_selectors, dmarc_record, issues)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        domain.id,
-        score,
-        spf.status,
-        dkim.status,
-        dmarc.status,
-        JSON.stringify(spf),
-        JSON.stringify(dkim.selectors),
-        JSON.stringify(dmarc),
-        JSON.stringify([])
-      );
-      
-      console.log(`✅ Scanned ${domain.name} - Score: ${score}`);
+      await scanDomain(domain, dnsService);
+      scanned += 1;
     } catch (error) {
+      captureException(error);
       console.error(`❌ Error scanning ${domain.name}:`, error.message);
     }
   }
+  console.log(`🔄 Scheduled scans finished (${scanned} scanned)`);
+  return { scanned };
+}
+
+// Scans only domains whose latest scan is older than maxAgeHours.
+// Used by the keep-warm tick so hourly pings don't hammer the DNS lookups.
+async function runDueScans(maxAgeHours = 12) {
+  const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
+  const dnsService = new DNSService();
+  let scanned = 0;
+  for (const domain of getDomains()) {
+    if (domain.status !== 'active') continue;
+    const latest = getScans(domain.id, 1)[0];
+    if (latest && latest.scanned_at > cutoff) continue;
+    try {
+      await scanDomain(domain, dnsService);
+      scanned += 1;
+    } catch (error) {
+      captureException(error);
+      console.error(`❌ Error scanning ${domain.name}:`, error.message);
+    }
+  }
+  console.log(`🔄 Due scans finished (${scanned} scanned)`);
+  return { scanned };
 }
 
 async function runCriticalScans() {
-  const db = getDatabase();
-  const criticalDomains = db.prepare(`
-    SELECT d.*, s.score as last_score 
-    FROM domains d 
-    LEFT JOIN scans s ON d.id = s.domain_id 
-    WHERE d.status = 'active' 
-    ORDER BY s.score ASC 
-    LIMIT 10
-  `).all();
-  
   const dnsService = new DNSService();
-  
-  for (const domain of criticalDomains) {
+  const active = getDomains().filter((d) => d.status === 'active');
+  const withScores = active
+    .map((domain) => {
+      const latest = getScans(domain.id, 1)[0];
+      return { domain, lastScore: latest ? latest.score : 0 };
+    })
+    .sort((a, b) => (a.lastScore || 0) - (b.lastScore || 0))
+    .slice(0, 10);
+
+  for (const { domain, lastScore } of withScores) {
     try {
-      const [spf, dkim, dmarc] = await Promise.all([
-        dnsService.checkSPF(domain.name),
-        dnsService.checkDKIM(domain.name),
-        dnsService.checkDMARC(domain.name)
-      ]);
-      
-      const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
-      
+      const score = await scanDomain(domain, dnsService);
       // Save but don't flood - only alert if score changed significantly
-      if (Math.abs(score - (domain.last_score || 0)) > 10) {
-        console.log(`⚠️ ${domain.name} score changed: ${domain.last_score || 'N/A'} -> ${score}`);
+      if (Math.abs(score - (lastScore || 0)) > 10) {
+        console.log(`⚠️ ${domain.name} score changed: ${lastScore || 'N/A'} -> ${score}`);
       }
     } catch (error) {
+      captureException(error);
       console.error(`❌ Error on critical scan ${domain.name}:`, error.message);
     }
   }
 }
 
-module.exports = { startScheduledScans, runScheduledScans };
+module.exports = { startScheduledScans, runScheduledScans, runDueScans };

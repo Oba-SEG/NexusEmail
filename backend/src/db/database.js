@@ -582,8 +582,10 @@ if (!getSetting('notify_critical_alerts')) setSetting('notify_critical_alerts', 
 if (!getSetting('notify_weekly_report')) setSetting('notify_weekly_report', '0');
 
 function saveDB() { connection.pragma('wal_checkpoint(PASSIVE)'); }
+function backup(destPath) { return connection.backup(destPath); }
+const sqliteFilePath = sqliteFile;
 
-module.exports = { getDomains, addDomain, getDomain, updateDomain, deleteDomain, addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration, getSetting, setSetting, deleteSetting, addReport, getReports, getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization, getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, saveDB, nextNumericId,
+module.exports = { getDomains, addDomain, getDomain, updateDomain, deleteDomain, addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration, getSetting, setSetting, deleteSetting, addReport, getReports, getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization, getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, saveDB, backup, sqliteFilePath, nextNumericId,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
   getBrandThreats, addBrandThreat, deleteBrandThreatByDomain,
