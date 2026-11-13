@@ -62,8 +62,11 @@ class CloudflareProvider {
 
       // The list endpoint matches on FQDN. Qualify relative record names
       // with the zone domain, keeping already-qualified names (exact domain
-      // or a subdomain of it) untouched.
-      const fqdn = (name === domain || name.toLowerCase().endsWith('.' + domain.toLowerCase()))
+      // or a subdomain of it) untouched. Comparisons are case-insensitive
+      // since Cloudflare name filters are too.
+      const lowerName = name.toLowerCase();
+      const lowerDomain = domain.toLowerCase();
+      const fqdn = (lowerName === lowerDomain || lowerName.endsWith('.' + lowerDomain))
         ? name
         : `${name}.${domain}`;
       const records = await this.cf.dns.records.list({ zone_id: zoneId, name: fqdn, type: 'TXT' });
