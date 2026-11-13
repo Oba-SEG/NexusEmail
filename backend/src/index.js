@@ -79,7 +79,10 @@ async function main() {
     // organization endpoints share.
     skip: (req) => {
       const path = req.path.toLowerCase();
-      return path === '/api/auth/login' || path === '/api/auth/whmcs-exchange';
+      return path === '/api/auth/login'
+        || path === '/api/auth/whmcs-exchange'
+        || path === '/api/health'
+        || path === '/api/cron/tick';
     }
   });
   app.use(limiter);
