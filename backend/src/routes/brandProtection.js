@@ -212,11 +212,9 @@ router.post('/:id/takedown', async (req, res, next) => {
   if (registrar.abuse_email) {
     try {
       const { NotificationService } = require('../services/notifications');
-      const notifService = new NotificationService();
-      const smtpConfig = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+      const notifService = await NotificationService.createForOrg(req.orgId);
 
-      if (smtpConfig.host && smtpConfig.host.trim()) {
-        notifService.configureSMTP(smtpConfig);
+      if (notifService.transporter || notifService.resend) {
         const emailResult = await notifService.sendNotification(
           registrar.abuse_email,
           `[Brand Abuse Report] ${domain} - ${threat_type || 'Impersonation'}`,
@@ -229,6 +227,11 @@ router.post('/:id/takedown', async (req, res, next) => {
           baseTakedown.sent_at = new Date().toISOString();
           baseTakedown.sender_email = senderEmail;
         }
+      }
+      if (notifService.slackWebhook) {
+        await notifService.sendSlack({
+          text: `⚖️ *Takedown submitted:* ${domain} (${threat_type || 'impersonation'}) → ${registrar.registrar} <${registrar.abuse_email}>`
+        });
       }
     } catch (e) {
     captureException(e);

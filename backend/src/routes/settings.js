@@ -20,26 +20,39 @@ router.get('/notifications', async (req, res, next) => {
 });
 
 // Get all config (without sensitive data)
+function maskSecret(value) {
+  if (value && typeof value === 'string' && value.length > 4) {
+    return value.substring(0, 4) + '****';
+  }
+  return value;
+}
+
 router.get('/config', async (req, res, next) => {
   try {
     const credentials = await db.getSetting('provider_credentials', req.orgId) || '{}';
     const parsed = JSON.parse(credentials);
-  
+
     // Mask sensitive values for response
     const masked = {};
     for (const [provider, config] of Object.entries(parsed)) {
       masked[provider] = {};
       for (const [key, value] of Object.entries(config)) {
-        if (value && typeof value === 'string' && value.length > 4) {
-          masked[provider][key] = value.substring(0, 4) + '****';
-        } else {
-          masked[provider][key] = value;
-        }
+        masked[provider][key] = maskSecret(value);
       }
     }
 
+    // Mask the SMTP password and Resend API key; the rest is display data.
+    const smtpRaw = await db.getSetting('smtp_config', req.orgId);
+    const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
+    if (smtpMasked && smtpMasked.pass) smtpMasked.pass = maskSecret(smtpMasked.pass);
+    const resendRaw = await db.getSetting('resend_config', req.orgId);
+    const resendMasked = resendRaw ? JSON.parse(resendRaw) : null;
+    if (resendMasked && resendMasked.api_key) resendMasked.api_key = maskSecret(resendMasked.api_key);
+
     res.json({
-      smtp_config: await db.getSetting('smtp_config', req.orgId) ? JSON.parse(await db.getSetting('smtp_config', req.orgId)) : null,
+      smtp_config: smtpMasked,
+      resend_config: resendMasked,
+      slack_webhook: maskSecret(await db.getSetting('slack_webhook', req.orgId)),
       provider_credentials: masked,
       notifications: {
         scan_completed: await db.getSetting('notify_scan_completed', req.orgId) === '1',
@@ -137,25 +150,83 @@ async function getProviderCredentials(provider) {
 // SMTP Config
 router.post('/smtp', async (req, res, next) => {
   try {
-    const { host, port, secure, user, pass, from } = req.body;
-    const config = { host, port: parseInt(port) || 587, secure: !!secure, user, from };
+    const { host, port, secure, user, from } = req.body;
+    let { pass } = req.body;
+    // The GET view masks the password; if the caller echoes the masked value
+    // back, keep the stored password instead of persisting '****'.
+    if (typeof pass === 'string' && /\*{4}$/.test(pass)) {
+      const stored = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+      pass = stored.pass;
+    }
+    const config = { host, port: parseInt(port) || 587, secure: !!secure, user, pass, from };
     await db.setSetting('smtp_config', JSON.stringify(config), req.orgId);
-  
-    notificationService.configureSMTP({ 
-      host, 
-      port: parseInt(port) || 587, 
-      secure: !!secure, 
-      auth: user && pass ? { user, pass } : undefined, 
-      from 
+
+    notificationService.configureSMTP({
+      host,
+      port: parseInt(port) || 587,
+      secure: !!secure,
+      auth: user && pass ? { user, pass } : undefined,
+      from
     });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
 
-// Test SMTP
+// Test SMTP — always tests the stored config (survives restarts)
 router.post('/smtp/test', async (req, res, next) => {
   try {
-    const result = await notificationService.testConnection();
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testConnection();
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Resend (HTTP email API — works even where outbound SMTP is blocked)
+router.post('/resend', async (req, res, next) => {
+  try {
+    const { from } = req.body;
+    let { api_key } = req.body;
+    if (typeof api_key === 'string' && /\*{4}$/.test(api_key)) {
+      const stored = JSON.parse(await db.getSetting('resend_config', req.orgId) || '{}');
+      api_key = stored.api_key;
+    }
+    if (!api_key) {
+      return res.status(400).json({ error: 'Resend API key required' });
+    }
+    await db.setSetting('resend_config', JSON.stringify({ api_key, from }), req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Test Resend — sends a real email to the given address
+router.post('/resend/test', async (req, res, next) => {
+  try {
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testResend(req.body.to);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Slack (incoming webhook)
+router.post('/slack', async (req, res, next) => {
+  try {
+    let { webhook_url } = req.body;
+    if (typeof webhook_url === 'string' && /\*{4}$/.test(webhook_url)) {
+      webhook_url = await db.getSetting('slack_webhook', req.orgId);
+    }
+    if (!webhook_url) {
+      return res.status(400).json({ error: 'Slack webhook URL required' });
+    }
+    await db.setSetting('slack_webhook', webhook_url, req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Test Slack — posts a real message to the stored webhook
+router.post('/slack/test', async (req, res, next) => {
+  try {
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testSlack();
     res.json(result);
   } catch (err) { next(err); }
 });
