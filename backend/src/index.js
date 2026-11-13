@@ -105,7 +105,18 @@ async function main() {
 
   // Health check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    // TEMP PROXY-DIAGNOSTICS (PR #27): evidence for trust-proxy resolution
+    // behind the tunnel; reverted before merge.
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      _diag: {
+        remoteAddress: req.socket.remoteAddress,
+        ip: req.ip,
+        xff: req.headers['x-forwarded-for'] || null,
+        trustProxy: req.app.get('trust proxy')
+      }
+    });
   });
 
   // Keep-warm tick: wakes the instance on Render's free tier and runs any scans
