@@ -10,40 +10,58 @@ const notificationService = new NotificationService();
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
   try {
+    const smtpRaw = await db.getSetting('smtp_config', req.orgId);
+    const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
+    if (smtpMasked) delete smtpMasked.pass;
     res.json({
-      notify_scan_completed: await db.getSetting('notify_scan_completed', req.orgId) === '1',
-      notify_critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) === '1',
+      notify_scan_completed: await db.getSetting('notify_scan_completed', req.orgId) !== '0',
+      notify_critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) !== '0',
       notify_weekly_report: await db.getSetting('notify_weekly_report', req.orgId) === '1',
-      smtp_config: await db.getSetting('smtp_config', req.orgId) ? JSON.parse(await db.getSetting('smtp_config', req.orgId)) : null
+      smtp_config: smtpMasked
     });
   } catch (err) { next(err); }
 });
 
 // Get all config (without sensitive data)
+function maskSecret(value) {
+  if (value && typeof value === 'string' && value.length > 4) {
+    return value.substring(0, 4) + '****';
+  }
+  return value;
+}
+
 router.get('/config', async (req, res, next) => {
   try {
     const credentials = await db.getSetting('provider_credentials', req.orgId) || '{}';
     const parsed = JSON.parse(credentials);
-  
+
     // Mask sensitive values for response
     const masked = {};
     for (const [provider, config] of Object.entries(parsed)) {
       masked[provider] = {};
       for (const [key, value] of Object.entries(config)) {
-        if (value && typeof value === 'string' && value.length > 4) {
-          masked[provider][key] = value.substring(0, 4) + '****';
-        } else {
-          masked[provider][key] = value;
-        }
+        masked[provider][key] = maskSecret(value);
       }
     }
 
+    // Mask the SMTP password and Resend API key; the rest is display data.
+    // The SMTP password is never returned at all — masks still leak short
+    // secrets and prefixes.
+    const smtpRaw = await db.getSetting('smtp_config', req.orgId);
+    const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
+    if (smtpMasked) delete smtpMasked.pass;
+    const resendRaw = await db.getSetting('resend_config', req.orgId);
+    const resendMasked = resendRaw ? JSON.parse(resendRaw) : null;
+    if (resendMasked && resendMasked.api_key) resendMasked.api_key = maskSecret(resendMasked.api_key);
+
     res.json({
-      smtp_config: await db.getSetting('smtp_config', req.orgId) ? JSON.parse(await db.getSetting('smtp_config', req.orgId)) : null,
+      smtp_config: smtpMasked,
+      resend_config: resendMasked,
+      slack_webhook: maskSecret(await db.getSetting('slack_webhook', req.orgId)),
       provider_credentials: masked,
       notifications: {
-        scan_completed: await db.getSetting('notify_scan_completed', req.orgId) === '1',
-        critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) === '1',
+        scan_completed: await db.getSetting('notify_scan_completed', req.orgId) !== '0',
+        critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) !== '0',
         weekly_report: await db.getSetting('notify_weekly_report', req.orgId) === '1'
       },
       scan_schedule: {
@@ -137,25 +155,89 @@ async function getProviderCredentials(provider) {
 // SMTP Config
 router.post('/smtp', async (req, res, next) => {
   try {
-    const { host, port, secure, user, pass, from } = req.body;
-    const config = { host, port: parseInt(port) || 587, secure: !!secure, user, from };
+    const { host, port, secure, user, from } = req.body;
+    let { pass } = req.body;
+    const stored = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+    // The GET view never returns the password (it masks it, and the UI form
+    // prefills empty). An unchanged/blank password must preserve the stored
+    // one instead of wiping it.
+    if (typeof pass !== 'string' || pass === '' || /\*{4}$/.test(pass)) {
+      pass = stored.pass;
+    }
+    const config = { host, port: parseInt(port) || 587, secure: !!secure, user, pass, from };
     await db.setSetting('smtp_config', JSON.stringify(config), req.orgId);
-  
-    notificationService.configureSMTP({ 
-      host, 
-      port: parseInt(port) || 587, 
-      secure: !!secure, 
-      auth: user && pass ? { user, pass } : undefined, 
-      from 
+
+    notificationService.configureSMTP({
+      host,
+      port: parseInt(port) || 587,
+      secure: !!secure,
+      auth: user && pass ? { user, pass } : undefined,
+      from
     });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
 
-// Test SMTP
+// Test SMTP — always tests the stored config (survives restarts)
 router.post('/smtp/test', async (req, res, next) => {
   try {
-    const result = await notificationService.testConnection();
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testConnection();
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Resend (HTTP email API — works even where outbound SMTP is blocked)
+router.post('/resend', async (req, res, next) => {
+  try {
+    const { from } = req.body;
+    let { api_key } = req.body;
+    if (typeof api_key === 'string' && /\*{4}$/.test(api_key)) {
+      const stored = JSON.parse(await db.getSetting('resend_config', req.orgId) || '{}');
+      api_key = stored.api_key;
+    }
+    if (!api_key) {
+      return res.status(400).json({ error: 'Resend API key required' });
+    }
+    await db.setSetting('resend_config', JSON.stringify({ api_key, from }), req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Test Resend — sends a real email to the given address
+router.post('/resend/test', async (req, res, next) => {
+  try {
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testResend(req.body.to);
+    res.json(result);
+  } catch (err) { next(err); }
+});
+
+// Slack (incoming webhook)
+router.post('/slack', async (req, res, next) => {
+  try {
+    let { webhook_url } = req.body;
+    if (typeof webhook_url === 'string' && /\*{4}$/.test(webhook_url)) {
+      webhook_url = await db.getSetting('slack_webhook', req.orgId);
+    }
+    if (!webhook_url) {
+      return res.status(400).json({ error: 'Slack webhook URL required' });
+    }
+    // The backend POSTs to whatever URL is stored — restrict it to Slack's
+    // own endpoint to prevent SSRF into internal services.
+    if (!NotificationService.isValidSlackWebhook(webhook_url)) {
+      return res.status(400).json({ error: 'Webhook URL must be an https://hooks.slack.com/services/… URL' });
+    }
+    await db.setSetting('slack_webhook', webhook_url, req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Test Slack — posts a real message to the stored webhook
+router.post('/slack/test', async (req, res, next) => {
+  try {
+    const svc = await NotificationService.createForOrg(req.orgId);
+    const result = await svc.testSlack();
     res.json(result);
   } catch (err) { next(err); }
 });

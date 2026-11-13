@@ -206,34 +206,38 @@ router.post('/:id/takedown', async (req, res, next) => {
     notes: ''
   };
 
-  // Try to send email via SMTP
+  // Try to send the abuse email; notify Slack regardless of whether an
+  // abuse address was resolved.
   const senderEmail = contact_email || 'legal@yourcompany.com';
 
-  if (registrar.abuse_email) {
-    try {
-      const { NotificationService } = require('../services/notifications');
-      const notifService = new NotificationService();
-      const smtpConfig = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+  try {
+    const { NotificationService } = require('../services/notifications');
+    const notifService = await NotificationService.createForOrg(req.orgId);
 
-      if (smtpConfig.host && smtpConfig.host.trim()) {
-        notifService.configureSMTP(smtpConfig);
-        const emailResult = await notifService.sendNotification(
-          registrar.abuse_email,
-          `[Brand Abuse Report] ${domain} - ${threat_type || 'Impersonation'}`,
-          baseTakedown.email_template,
-          { replyTo: senderEmail, cc: senderEmail }
-        );
-        if (emailResult.success) {
-          baseTakedown.sent = true;
-          baseTakedown.status = 'sent';
-          baseTakedown.sent_at = new Date().toISOString();
-          baseTakedown.sender_email = senderEmail;
-        }
+    if (registrar.abuse_email && (notifService.transporter || notifService.resend)) {
+      const emailResult = await notifService.sendNotification(
+        registrar.abuse_email,
+        `[Brand Abuse Report] ${domain} - ${threat_type || 'Impersonation'}`,
+        baseTakedown.email_template,
+        { replyTo: senderEmail, cc: senderEmail }
+      );
+      if (emailResult.success) {
+        baseTakedown.sent = true;
+        baseTakedown.status = 'sent';
+        baseTakedown.sent_at = new Date().toISOString();
+        baseTakedown.sender_email = senderEmail;
       }
-    } catch (e) {
-    captureException(e);
-      console.error('Failed to send takedown email:', e.message);
     }
+    if (notifService.slackWebhook) {
+      await notifService.sendSlack({
+        text: registrar.abuse_email
+          ? `⚖️ *Takedown submitted:* ${domain} (${threat_type || 'impersonation'}) → ${registrar.registrar} <${registrar.abuse_email}>`
+          : `⚖️ *Takedown submitted (manual send needed):* ${domain} (${threat_type || 'impersonation'}) — no abuse contact resolved for ${registrar.registrar}`
+      });
+    }
+  } catch (e) {
+  captureException(e);
+    console.error('Failed to send takedown notification:', e.message);
   }
 
   const takedown = await db.addBrandTakedown(baseTakedown, brandId, req.orgId);
