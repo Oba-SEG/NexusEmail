@@ -1,12 +1,14 @@
-FROM node:18-alpine
-
+# Backend production image (staging/VPS). Postgres-only data layer.
+FROM node:20-alpine AS deps
 WORKDIR /app
-
 COPY package*.json ./
-RUN npm install
+RUN npm ci --omit=dev
 
-COPY . .
-
+FROM node:20-alpine
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY package*.json ./
+COPY src ./src
 EXPOSE 3001
-
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]

@@ -1,0 +1,10 @@
+node_modules
+.next
+out
+.git
+.github
+*.log
+.env*
+!.env.production
+tsconfig.tsbuildinfo
+next-env.d.ts
