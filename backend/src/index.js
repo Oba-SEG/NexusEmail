@@ -40,6 +40,11 @@ async function main() {
 
   app = express();
 
+  // Behind the Cloudflare Tunnel the socket peer is cloudflared on localhost,
+  // so every request would otherwise share the 127.0.0.1 rate-limit bucket.
+  // Trust only loopback proxies and take the client from X-Forwarded-For.
+  app.set('trust proxy', 'loopback');
+
   // Security middleware
   app.use(helmet());
   app.use(cors({
@@ -59,9 +64,13 @@ async function main() {
   // src/utils/html.js, and JSON responses are framework-encoded.
 
   // Rate limiting
+  // Global API budget. Client IP is real now that trust proxy is scoped to
+  // loopback (behind the tunnel it comes from X-Forwarded-For).
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false
   });
   app.use(limiter);
 
