@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const { captureException } = require('../capture');
 const db = require('../db/database');
+const { escapeHtml } = require('../utils/html');
 
 const DEFAULT_RESEND_API_BASE = 'https://api.resend.com';
 const DEFAULT_FROM = 'Nexus Brand Protection <noreply@brandprotection.segbytes.co.za>';
@@ -276,7 +277,7 @@ class NotificationService {
         <div class="container">
           <div class="header">
             <h1 style="margin: 0;">Brand Protection Scan Results</h1>
-            <p style="margin: 10px 0 0 0;">Domain: ${domain}</p>
+            <p style="margin: 10px 0 0 0;">Domain: ${escapeHtml(domain)}</p>
           </div>
           <div class="content">
             <div style="text-align: center; margin-bottom: 30px;">
@@ -290,7 +291,7 @@ class NotificationService {
                 <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>SPF</strong></td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
                   <span style="color: ${results.spf?.found ? (results.spf.policy === 'hardfail' ? 'green' : 'orange') : 'red'}">
-                    ${results.spf?.found ? (results.spf.policy || 'weak') : 'Not Found'}
+                    ${escapeHtml(results.spf?.found ? (results.spf.policy || 'weak') : 'Not Found')}
                   </span>
                 </td>
               </tr>
@@ -298,7 +299,7 @@ class NotificationService {
                 <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>DKIM</strong></td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
                   <span style="color: ${results.dkim?.found ? 'green' : 'red'}">
-                    ${results.dkim?.found ? `${results.dkim.selectors.length} selector(s)` : 'Not Found'}
+                    ${escapeHtml(results.dkim?.found ? `${results.dkim.selectors.length} selector(s)` : 'Not Found')}
                   </span>
                 </td>
               </tr>
@@ -306,7 +307,7 @@ class NotificationService {
                 <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>DMARC</strong></td>
                 <td style="padding: 10px; border-bottom: 1px solid #eee;">
                   <span style="color: ${results.dmarc?.found ? (results.dmarc.policy === 'reject' ? 'green' : 'orange') : 'red'}">
-                    ${results.dmarc?.found ? (results.dmarc.policy || 'none') : 'Not Found'}
+                    ${escapeHtml(results.dmarc?.found ? (results.dmarc.policy || 'none') : 'Not Found')}
                   </span>
                 </td>
               </tr>
@@ -316,9 +317,9 @@ class NotificationService {
             <h3>Issues Found (${results.issues.length})</h3>
             <div class="issues">
               ${results.issues.map(issue => `
-                <div class="issue ${issue.severity}">
-                  <strong>${issue.type}</strong><br>
-                  ${issue.message}
+                <div class="issue ${escapeHtml(issue.severity)}">
+                  <strong>${escapeHtml(issue.type)}</strong><br>
+                  ${escapeHtml(issue.message)}
                 </div>
               `).join('')}
             </div>
@@ -328,8 +329,8 @@ class NotificationService {
             <h3>Recommendations</h3>
             ${results.recommendations.map(rec => `
               <div class="rec">
-                <strong>${rec.action}</strong> (${rec.priority})<br>
-                <div class="rec-code">${rec.command || rec.action}</div>
+                <strong>${escapeHtml(rec.action)}</strong> (${escapeHtml(rec.priority)})<br>
+                <div class="rec-code">${escapeHtml(rec.command || rec.action)}</div>
               </div>
             `).join('')}
             ` : ''}
@@ -372,7 +373,7 @@ class NotificationService {
       <h3>Domains Requiring Attention</h3>
       <ul>
         ${results.filter(r => r.score < 70).map(r => `
-          <li>${r.domain} - Score: ${r.score}</li>
+          <li>${escapeHtml(r.domain)} - Score: ${Number(r.score) || 0}</li>
         `).join('')}
       </ul>
     `;
@@ -388,10 +389,10 @@ class NotificationService {
   async sendCriticalAlert(domain, issues, to) {
     const html = `
       <h2 style="color: red;">⚠️ Critical Security Alert</h2>
-      <p><strong>Domain:</strong> ${domain}</p>
+      <p><strong>Domain:</strong> ${escapeHtml(domain)}</p>
       <p><strong>Issues:</strong></p>
       <ul>
-        ${issues.map(i => `<li>${i.message}</li>`).join('')}
+        ${issues.map(i => `<li>${escapeHtml(i.message)}</li>`).join('')}
       </ul>
       <p>Please take immediate action to secure this domain.</p>
     `;
