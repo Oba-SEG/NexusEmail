@@ -110,6 +110,11 @@ export default function Dashboard() {
   const handleAuthFailure = () => {
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    // Secrets must not survive an identity change in the SPA state.
+    setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
+    setSlackForm({ webhook_url: '' });
+    setResendForm({ api_key: '', from: '' });
+    setSettings(null);
     setToken(null);
     setUser(null);
   };
@@ -356,6 +361,10 @@ export default function Dashboard() {
 
   const loadSettings = async () => {
     try {
+      // Reset to a known-empty state first so settings from a previous
+      // session never leak into a new identity's forms.
+      setSlackForm({ webhook_url: '' });
+      setResendForm({ api_key: '', from: '' });
       const res = await apiFetch(`${API_BASE}/settings/config`);
       const data = await res.json();
       setSettings(data);
@@ -369,6 +378,8 @@ export default function Dashboard() {
           pass: '',
           from: data.smtp_config.from || ''
         });
+      } else {
+        setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
       }
       if (data.slack_webhook) setSlackForm({ webhook_url: data.slack_webhook });
       if (data.resend_config) {

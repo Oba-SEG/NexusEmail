@@ -12,7 +12,7 @@ router.get('/notifications', async (req, res, next) => {
   try {
     const smtpRaw = await db.getSetting('smtp_config', req.orgId);
     const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
-    if (smtpMasked && smtpMasked.pass) smtpMasked.pass = maskSecret(smtpMasked.pass);
+    if (smtpMasked) delete smtpMasked.pass;
     res.json({
       notify_scan_completed: await db.getSetting('notify_scan_completed', req.orgId) !== '0',
       notify_critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) !== '0',
@@ -45,9 +45,11 @@ router.get('/config', async (req, res, next) => {
     }
 
     // Mask the SMTP password and Resend API key; the rest is display data.
+    // The SMTP password is never returned at all — masks still leak short
+    // secrets and prefixes.
     const smtpRaw = await db.getSetting('smtp_config', req.orgId);
     const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
-    if (smtpMasked && smtpMasked.pass) smtpMasked.pass = maskSecret(smtpMasked.pass);
+    if (smtpMasked) delete smtpMasked.pass;
     const resendRaw = await db.getSetting('resend_config', req.orgId);
     const resendMasked = resendRaw ? JSON.parse(resendRaw) : null;
     if (resendMasked && resendMasked.api_key) resendMasked.api_key = maskSecret(resendMasked.api_key);
