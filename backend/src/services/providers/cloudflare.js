@@ -27,7 +27,7 @@ class CloudflareProvider {
       return {
         success: zones.success !== false,
         latency: Date.now() - start,
-        zones: (zones.result || []).length
+        zones: zones.result_info?.total_count ?? (zones.result || []).length
       };
     } catch (e) {
       console.error('[Cloudflare] Test connection failed:', e.message);
@@ -60,8 +60,12 @@ class CloudflareProvider {
       const zoneId = await this.getZoneId(domain);
       if (!zoneId) return { success: false, error: 'Zone not found' };
 
-      // The list endpoint matches on FQDN; qualify short record names.
-      const fqdn = name.includes('.') ? name : `${name}.${domain}`;
+      // The list endpoint matches on FQDN. Qualify relative record names
+      // with the zone domain, keeping already-qualified names (exact domain
+      // or a subdomain of it) untouched.
+      const fqdn = (name === domain || name.toLowerCase().endsWith('.' + domain.toLowerCase()))
+        ? name
+        : `${name}.${domain}`;
       const records = await this.cf.dns.records.list({ zone_id: zoneId, name: fqdn, type: 'TXT' });
       if (records.result?.[0]) {
         await this.cf.dns.records.delete(records.result[0].id, { zone_id: zoneId });
