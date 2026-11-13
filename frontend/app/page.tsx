@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // Sentry (optional): activates only when NEXT_PUBLIC_SENTRY_DSN is set at build
 // time; the chunk is never fetched otherwise.
@@ -34,6 +34,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 export default function Dashboard() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  // Bumped on every identity change (login, logout, auth failure). Async
+  // settings responses carry the generation they were started under and
+  // are dropped if a newer identity exists.
+  const sessionGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
@@ -110,6 +114,7 @@ export default function Dashboard() {
   const handleAuthFailure = () => {
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
@@ -131,6 +136,12 @@ export default function Dashboard() {
         });
         if (!res.ok) throw new Error('WHMCS sign-in link is invalid or expired');
         const data = await res.json();
+        // New identity: invalidate any in-flight settings responses.
+        sessionGenRef.current += 1;
+        setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
+        setSlackForm({ webhook_url: '' });
+        setResendForm({ api_key: '', from: '' });
+        setSettings(null);
         localStorage.setItem('nexusemail_token', data.token);
         localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
         setToken(data.token);
@@ -178,6 +189,12 @@ export default function Dashboard() {
       });
       if (!res.ok) throw new Error('Invalid email or password');
       const data = await res.json();
+      // New identity: invalidate any in-flight settings responses.
+      sessionGenRef.current += 1;
+      setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
+      setSlackForm({ webhook_url: '' });
+      setResendForm({ api_key: '', from: '' });
+      setSettings(null);
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -192,6 +209,7 @@ export default function Dashboard() {
   const logout = () => {
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
@@ -360,6 +378,10 @@ export default function Dashboard() {
   };
 
   const loadSettings = async () => {
+    // Tag this request with the current session generation; if logout,
+    // auth failure, or a new login happens while it is in flight, the
+    // response is stale and must not touch the new identity's forms.
+    const gen = sessionGenRef.current;
     try {
       // Reset to a known-empty state first so settings from a previous
       // session never leak into a new identity's forms.
@@ -367,6 +389,7 @@ export default function Dashboard() {
       setResendForm({ api_key: '', from: '' });
       const res = await apiFetch(`${API_BASE}/settings/config`);
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
       setSettings(data);
       setNotifications(data.notifications || {});
       if (data.smtp_config) {
