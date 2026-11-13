@@ -42,11 +42,16 @@ async function main() {
 
   // Rate limiting keys on req.ip, which only reflects the real client when
   // the enforced ingress hop is trusted. The hop differs per deployment:
-  // behind the Cloudflare Tunnel the socket peer is cloudflared on localhost
-  // ('loopback'); behind Render's ingress the peer is Render's proxy
-  // (1 hop). TRUST_PROXY takes 'loopback' (default) or a hop count ('1').
-  const trustProxy = process.env.TRUST_PROXY || 'loopback';
-  app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
+  // behind the Cloudflare Tunnel connections arrive with the Docker bridge
+  // gateway as the socket peer (userland proxy), so staging trusts the
+  // pinned bridge subnet; behind Render's ingress the peer is Render's
+  // proxy (1 hop). TRUST_PROXY takes a comma-separated list: 'loopback',
+  // CIDR subnets, or a hop count ('1').
+  const trustProxyEnv = process.env.TRUST_PROXY || 'loopback';
+  app.set('trust proxy', trustProxyEnv.split(',').map((entry) => {
+    const t = entry.trim();
+    return /^\d+$/.test(t) ? Number(t) : t;
+  }));
 
   // Security middleware
   app.use(helmet());
@@ -105,18 +110,7 @@ async function main() {
 
   // Health check
   app.get('/api/health', (req, res) => {
-    // TEMP PROXY-DIAGNOSTICS (PR #27): evidence for trust-proxy resolution
-    // behind the tunnel; reverted before merge.
-    res.json({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      _diag: {
-        remoteAddress: req.socket.remoteAddress,
-        ip: req.ip,
-        xff: req.headers['x-forwarded-for'] || null,
-        trustProxy: req.app.get('trust proxy')
-      }
-    });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
   // Keep-warm tick: wakes the instance on Render's free tier and runs any scans
