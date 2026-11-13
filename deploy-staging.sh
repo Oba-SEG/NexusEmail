@@ -18,6 +18,7 @@ RSYNC_SSH="ssh -i $KEY -o UserKnownHostsFile=$HOME/.ssh/known_hosts_ob1_192.168.
 JW=$(cat "$SECRETS_DIR/jwt-secret")
 CR=$(cat "$SECRETS_DIR/cron-secret")
 PW=$(cat "$SECRETS_DIR/admin-password")
+PGPW=$(cat "$SECRETS_DIR/postgres-password")
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
 sshr "mkdir -p $REMOTE_DIR"
@@ -26,27 +27,35 @@ rsync -az --delete \
   --exclude '*.log' --exclude data --exclude .env --exclude .env.local \
   -e "$RSYNC_SSH" "$REPO_DIR/" "$SSH_TARGET:$REMOTE_DIR/"
 
-echo "==> Writing .env (chmod 600)"
-sshr "umask 077 && cat > $REMOTE_DIR/.env <<'ENVEOF'
-JWT_SECRET=$JW
-CRON_SECRET=$CR
-SEED_ADMIN_EMAIL=admin@segbytes.xyz
-SEED_ADMIN_PASSWORD=$PW
-ENVEOF"
+echo "==> Writing .env (chmod 600, secrets sent via SSH stdin, not argv)"
+{
+  printf 'JWT_SECRET=%s\n' "$JW"
+  printf 'CRON_SECRET=%s\n' "$CR"
+  printf 'SEED_ADMIN_EMAIL=admin@segbytes.xyz\n'
+  printf 'SEED_ADMIN_PASSWORD=%s\n' "$PW"
+  printf 'POSTGRES_PASSWORD=%s\n' "$PGPW"
+} | sshr "umask 077 && cat > $REMOTE_DIR/.env"
 
 echo "==> Building and starting stack"
 sshr "cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml up -d --build"
 
 echo "==> Health checks"
 sleep 5
+health_failed=0
 if curl -fsS --max-time 10 "http://$STAGING_HOST:4100/api/health" >/dev/null; then
   echo "backend health: OK (http://$STAGING_HOST:4100)"
 else
+  health_failed=1
   echo "backend health: FAILED — logs: ssh $SSH_TARGET 'cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml logs backend'"
 fi
 if curl -fsS --max-time 10 -o /dev/null "http://$STAGING_HOST:4102"; then
   echo "frontend: OK (http://$STAGING_HOST:4102)"
 else
+  health_failed=1
   echo "frontend: FAILED — logs: ssh $SSH_TARGET 'cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml logs frontend'"
+fi
+if [ "$health_failed" -ne 0 ]; then
+  echo "==> Deployment unhealthy — exiting nonzero"
+  exit 1
 fi
 echo "==> Login: admin@segbytes.xyz / (segkeys/nexusemail/admin-password)"
