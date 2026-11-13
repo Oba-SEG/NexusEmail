@@ -66,8 +66,8 @@ class CloudflareProvider {
       // since Cloudflare name filters are too.
       const lowerName = name.toLowerCase();
       const lowerDomain = domain.toLowerCase();
-      const fqdn = (lowerName === lowerDomain || lowerName.endsWith('.' + lowerDomain))
-        ? name
+      const fqdn = (lowerName === '@' || lowerName === lowerDomain || lowerName.endsWith('.' + lowerDomain))
+        ? domain
         : `${name}.${domain}`;
       const records = await this.cf.dns.records.list({ zone_id: zoneId, name: fqdn, type: 'TXT' });
       if (records.result?.[0]) {
