@@ -1,0 +1,67 @@
+# Staging deployment (192.168.8.4). Production builds, persistent Postgres,
+# real secrets loaded from .env beside this file. See deploy-staging.sh.
+
+services:
+  # PostgreSQL (shared data layer)
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      - POSTGRES_USER=nexusemail
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=nexusemail
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexusemail"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Backend (Express API)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: prod
+    ports:
+      - "4100:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=postgres://nexusemail:${POSTGRES_PASSWORD}@postgres:5432/nexusemail
+      - JWT_SECRET=${JWT_SECRET}
+      - CRON_SECRET=${CRON_SECRET}
+      - SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}
+      - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
+      - ALLOWED_ORIGINS=http://192.168.8.4:4102,http://localhost:3000
+      - SENTRY_DSN=https://35daeff54c63b969a3a4c5231e2b247c@o4512322868936704.ingest.de.sentry.io/4512422741934160
+      - SENTRY_ENVIRONMENT=staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Frontend (Next.js, server build)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://192.168.8.4:4100/api
+        - NEXT_PUBLIC_SENTRY_DSN=https://35daeff54c63b969a3a4c5231e2b247c@o4512322868936704.ingest.de.sentry.io/4512422741934160
+        - NEXT_PUBLIC_SENTRY_ENVIRONMENT=staging
+    ports:
+      - "4102:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+
+networks:
+  default:
+    name: nexusemail-staging
