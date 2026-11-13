@@ -17,6 +17,23 @@ services:
       - /app/node_modules
     command: npm run dev
 
+  # PostgreSQL (shared data layer)
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      - POSTGRES_USER=nexusemail
+      - POSTGRES_PASSWORD=nexusemail
+      - POSTGRES_DB=nexusemail
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexusemail"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   # Backend (Express API)
   backend:
     build:
@@ -27,12 +44,19 @@ services:
     volumes:
       - ./backend:/app
       - /app/node_modules
-      - ./backend/data:/app/data
     environment:
       - NODE_ENV=development
       - PORT=3001
-      - DB_PATH=/app/data/nexusemail.db
+      - DATABASE_URL=postgres://nexusemail:nexusemail@postgres:5432/nexusemail
+      - JWT_SECRET=${JWT_SECRET:-dev-secret-change-me}
+      - CRON_SECRET=${CRON_SECRET:-dev-cron-secret}
+    depends_on:
+      postgres:
+        condition: service_healthy
     command: npm run dev
+
+volumes:
+  pgdata:
 
 networks:
   default:

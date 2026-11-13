@@ -18,7 +18,7 @@ function safeEqual(a, b) {
   return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-function authorized(req) {
+async function authorized(req) {
   const configured = configuredToken();
   const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (configured && token && safeEqual(token, configured)) return true;
@@ -31,32 +31,35 @@ function authorized(req) {
   if (!timestamp || !nonce || !signature) return false;
   if (Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false;
 
-  const seen = JSON.parse(db.getSetting('whmcs_seen_nonces') || '[]');
-  if (seen.some(n => n.nonce === nonce)) return false;
   const body = JSON.stringify(req.body || {});
   const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${nonce}.${body}`).digest('hex');
   const ok = safeEqual(signature, expected);
   if (!ok) return false;
-  seen.push({ nonce, at: Date.now() });
-  db.setSetting('whmcs_seen_nonces', JSON.stringify(seen.filter(n => Date.now() - n.at < 10 * 60 * 1000).slice(-500)));
-  return true;
+  // Replay protection: claim the nonce atomically (unique constraint). Two
+  // copies of the same signed request can no longer both pass.
+  return db.claimNonce(nonce);
 }
 
-function requireWhmcs(req, res, next) {
+async function requireWhmcs(req, res, next) {
   if (process.env.NODE_ENV === 'production' && !configuredToken() && !configuredHmacSecret()) {
     return res.status(500).json({ success: false, error: 'WHMCS server-to-server auth is not configured' });
   }
-  if (!authorized(req)) return res.status(401).json({ success: false, error: 'Unauthorized' });
-  next();
+  try {
+    const authed = await authorized(req);
+    if (!authed) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 function slugify(value) {
   return String(value || 'client').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 64) || `client-${Date.now()}`;
 }
 
-function orgForClient(clientId) {
+async function orgForClient(clientId) {
   if (!clientId) return null;
-  return db.getOrganizationByWhmcsClient(String(clientId));
+  return await db.getOrganizationByWhmcsClient(String(clientId));
 }
 
 function validateUserOrg(user, org) {
@@ -69,7 +72,7 @@ function validateUserOrg(user, org) {
   return user;
 }
 
-function ensureOrganization(payload) {
+async function ensureOrganization(payload) {
   const clientId = String(payload.clientId || payload.client_id || '').trim();
   if (!clientId) throw new Error('Missing field: clientId');
   const updates = {
@@ -78,12 +81,12 @@ function ensureOrganization(payload) {
     name: payload.companyName || payload.company || `WHMCS Client ${clientId}`,
     status: 'active'
   };
-  const existing = orgForClient(clientId);
-  if (existing) return db.updateOrganization(existing.id, { ...updates, whmcs_client_id: clientId, slug: existing.slug });
+  const existing = await orgForClient(clientId);
+  if (existing) return await db.updateOrganization(existing.id, { ...updates, whmcs_client_id: clientId, slug: existing.slug });
 
   const baseSlug = slugify(payload.slug || payload.companyName || payload.company || `whmcs-${clientId}`);
-  const slug = db.getOrganization(baseSlug) ? slugify(`${baseSlug}-${clientId}`) : baseSlug;
-  return db.addOrganization({
+  const slug = await db.getOrganization(baseSlug) ? slugify(`${baseSlug}-${clientId}`) : baseSlug;
+  return await db.addOrganization({
     slug,
     name: updates.name,
     whmcs_client_id: clientId,
@@ -93,13 +96,13 @@ function ensureOrganization(payload) {
   });
 }
 
-function ensureOwner(org, payload) {
+async function ensureOwner(org, payload) {
   const email = String(payload.adminEmail || payload.email || '').toLowerCase().trim();
   if (!email) return null;
   const contactId = payload.contactId || payload.contact_id || null;
-  const existing = validateUserOrg(db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email) || db.getUserByEmail(email), org);
+  const existing = validateUserOrg((await db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email)) || (await db.getUserByEmail(email)), org);
   if (existing) return existing;
-  return db.addUser({
+  return await db.addUser({
     org_id: org.id,
     email,
     name: payload.adminName || payload.contactName || email,
@@ -114,41 +117,47 @@ function requestPayload(req) {
   return { ...(req.query || {}), ...(req.body || {}) };
 }
 
-function lifecycle(req, res, status) {
-  const payload = requestPayload(req);
-  const org = orgForClient(payload.clientId || payload.client_id);
-  if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
-  const updated = db.updateOrganization(org.id, { status });
-  res.json({ success: true, organization: updated });
-}
-
-router.post('/provision', requireWhmcs, (req, res) => {
+async function lifecycle(req, res, status) {
   try {
     const payload = requestPayload(req);
-    const org = ensureOrganization(payload);
-    const owner = ensureOwner(org, payload);
-    res.json({ success: true, organization: org, owner: owner ? publicUser(owner) : null });
+    const org = await orgForClient(payload.clientId || payload.client_id);
+    if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
+    const updated = await db.updateOrganization(org.id, { status });
+    res.json({ success: true, organization: updated });
+  } catch (err) {
+    captureException(err);
+    res.status(err.status || 400).json({ success: false, error: err.message });
+  }
+}
+
+router.post('/provision', requireWhmcs, async (req, res) => {
+  try {
+    const payload = requestPayload(req);
+    const org = await ensureOrganization(payload);
+    const owner = await ensureOwner(org, payload);
+    res.json({ success: true, organization: org, owner: owner ? await publicUser(owner) : null });
   } catch (error) {
     captureException(error);
     res.status(error.status || 400).json({ success: false, error: error.message });
   }
 });
 
-router.post('/suspend', requireWhmcs, (req, res) => lifecycle(req, res, 'suspended'));
-router.post('/unsuspend', requireWhmcs, (req, res) => lifecycle(req, res, 'active'));
-router.post('/terminate', requireWhmcs, (req, res) => lifecycle(req, res, 'cancelled'));
+router.post('/suspend', requireWhmcs, async (req, res) => lifecycle(req, res, 'suspended'));
+router.post('/unsuspend', requireWhmcs, async (req, res) => lifecycle(req, res, 'active'));
+router.post('/terminate', requireWhmcs, async (req, res) => lifecycle(req, res, 'cancelled'));
 
-router.post('/login-token', requireWhmcs, (req, res) => {
+router.post('/login-token', requireWhmcs, async (req, res) => {
   try {
     const payload = requestPayload(req);
-    const org = ensureOrganization(payload);
+    const org = await ensureOrganization(payload);
     const email = String(payload.email || payload.adminEmail || '').toLowerCase().trim();
     if (!email) return res.status(400).json({ success: false, error: 'Missing field: email' });
 
     const contactId = payload.contactId || payload.contact_id || null;
-    let user = validateUserOrg(db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email) || db.getUserByEmail(email), org);
+    const contactUser = await db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email);
+    let user = validateUserOrg(contactUser || (await db.getUserByEmail(email)), org);
     if (!user) {
-      user = db.addUser({
+      user = await db.addUser({
         org_id: org.id,
         email,
         name: payload.name || payload.contactName || email,
@@ -162,18 +171,22 @@ router.post('/login-token', requireWhmcs, (req, res) => {
     if (org.status && org.status !== 'active') return res.status(403).json({ success: false, error: 'Organization is not active' });
     const exchangeToken = crypto.randomBytes(32).toString('base64url');
     const tokenHash = crypto.createHash('sha256').update(exchangeToken).digest('hex');
-    db.setSetting(`whmcs_login:${tokenHash}`, JSON.stringify({ userId: user.id, expiresAt: Date.now() + 2 * 60 * 1000 }));
-    res.json({ success: true, token: exchangeToken, expiresIn: 120, user: publicUser(user) });
+    await db.setSetting(`whmcs_login:${tokenHash}`, JSON.stringify({ userId: user.id, expiresAt: Date.now() + 2 * 60 * 1000 }));
+    res.json({ success: true, token: exchangeToken, expiresIn: 120, user: await publicUser(user) });
   } catch (error) {
     captureException(error);
     res.status(error.status || 400).json({ success: false, error: error.message });
   }
 });
 
-router.get('/status/:clientId', requireWhmcs, (req, res) => {
-  const org = orgForClient(req.params.clientId);
-  if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
-  res.json({ success: true, organization: org, users: db.getUsers(org.id).map(publicUser), domains: db.getDomains(org.id).length });
+router.get('/status/:clientId', requireWhmcs, async (req, res, next) => {
+  try {
+    const org = await orgForClient(req.params.clientId);
+    if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
+    const users = await db.getUsers(org.id);
+    const domains = await db.getDomains(org.id);
+    res.json({ success: true, organization: org, users: await Promise.all(users.map((u) => publicUser(u))), domains: domains.length });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

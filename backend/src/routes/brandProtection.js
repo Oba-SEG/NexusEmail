@@ -15,35 +15,44 @@ const brandService = new BrandProtectionService();
 // doesn't need to change. Hydration happens server-side via getBrandFull /
 // getBrandsFull, which join the relational tables.
 
-router.get('/settings', (req, res) => {
-  res.json({
-    reply_to: db.getSetting('brand_protection_reply_to', req.orgId) || 'legal@yourcompany.com'
-  });
+router.get('/settings', async (req, res, next) => {
+  try {
+    res.json({
+      reply_to: await db.getSetting('brand_protection_reply_to', req.orgId) || 'legal@yourcompany.com'
+    });
+  } catch (err) { next(err); }
 });
 
-router.put('/settings', (req, res) => {
-  const { reply_to } = req.body;
-  if (reply_to) {
-    db.setSetting('brand_protection_reply_to', reply_to, req.orgId);
-  }
-  res.json({ success: true });
+router.put('/settings', async (req, res, next) => {
+  try {
+    const { reply_to } = req.body;
+    if (reply_to) {
+      await db.setSetting('brand_protection_reply_to', reply_to, req.orgId);
+    }
+    res.json({ success: true });
+  } catch (err) { next(err); }
 });
 
-router.get('/', (req, res) => {
-  res.json(db.getBrandsFull(req.orgId));
+router.get('/', async (req, res, next) => {
+  try {
+    res.json(await db.getBrandsFull(req.orgId));
+  } catch (err) { next(err); }
 });
 
-router.post('/', (req, res) => {
-  const { domain, brand_name } = req.body;
-  if (!domain) {
-    return res.status(400).json({ error: 'Domain is required' });
-  }
-  const created = db.addBrand({ domain, brand_name }, req.orgId);
-  res.json({ success: true, ...created, threats: [], takedowns: [], safe_list: [] });
+router.post('/', async (req, res, next) => {
+  try {
+    const { domain, brand_name } = req.body;
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
+    }
+    const created = await db.addBrand({ domain, brand_name }, req.orgId);
+    res.json({ success: true, ...created, threats: [], takedowns: [], safe_list: [] });
+  } catch (err) { next(err); }
 });
 
-router.post('/scan/all', async (req, res) => {
-  const brands = db.getBrandsFull(req.orgId);
+router.post('/scan/all', async (req, res, next) => {
+  try {
+  const brands = await db.getBrandsFull(req.orgId);
   const results = [];
 
   for (const brand of brands) {
@@ -53,14 +62,14 @@ router.post('/scan/all', async (req, res) => {
       result.brand_id = brand.id;
       results.push(result);
 
-      db.updateBrand(brand.id, {
+      await db.updateBrand(brand.id, {
         last_scan: new Date().toISOString(),
         last_results: result,
       }, req.orgId);
 
       if (result.newThreats && result.newThreats.length > 0 && brand.alerts_enabled) {
         for (const alert of (result.alerts || [])) {
-          db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
+          await db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
         }
       }
     } catch (e) {
@@ -70,95 +79,113 @@ router.post('/scan/all', async (req, res) => {
   }
 
   res.json({ scanned: brands.length, results });
+  } catch (err) { next(err); }
 });
 
-router.post('/check/:id', async (req, res) => {
-  const brand = db.getBrandFull(parseInt(req.params.id), req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.post('/check/:id', async (req, res, next) => {
+  try {
+    const brand = await db.getBrandFull(parseInt(req.params.id), req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  const result = await brandService.checkBrandProtection(brand.domain, brand.last_results);
+    const result = await brandService.checkBrandProtection(brand.domain, brand.last_results);
 
-  db.updateBrand(brand.id, {
-    last_scan: new Date().toISOString(),
-    last_results: result,
-  }, req.orgId);
+    await db.updateBrand(brand.id, {
+      last_scan: new Date().toISOString(),
+      last_results: result,
+    }, req.orgId);
 
-  if (result.newThreats && result.newThreats.length > 0 && brand.alerts_enabled) {
-    for (const alert of (result.alerts || [])) {
-      db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
+    if (result.newThreats && result.newThreats.length > 0 && brand.alerts_enabled) {
+      for (const alert of (result.alerts || [])) {
+        await db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
+      }
     }
-  }
 
-  res.json(result);
+    res.json(result);
+  } catch (err) { next(err); }
 });
 
 // Alerts routes (must be before /:id)
-router.get('/alerts', (req, res) => {
-  res.json(db.getBrandAlerts(req.orgId, 50));
+router.get('/alerts', async (req, res, next) => {
+  try {
+    res.json(await db.getBrandAlerts(req.orgId, 50));
+  } catch (err) { next(err); }
 });
 
-router.delete('/alerts/:alertId', (req, res) => {
-  db.deleteBrandAlert(parseInt(req.params.alertId), req.orgId);
-  res.json({ success: true });
+router.delete('/alerts/:alertId', async (req, res, next) => {
+  try {
+    await db.deleteBrandAlert(parseInt(req.params.alertId), req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
 });
 
-router.post('/alerts/clear', (req, res) => {
-  db.clearBrandAlerts(req.orgId);
-  res.json({ success: true, message: 'All alerts cleared' });
+router.post('/alerts/clear', async (req, res, next) => {
+  try {
+    await db.clearBrandAlerts(req.orgId);
+    res.json({ success: true, message: 'All alerts cleared' });
+  } catch (err) { next(err); }
 });
 
-router.get('/:id', (req, res) => {
-  const brand = db.getBrandFull(parseInt(req.params.id), req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
-  res.json(brand);
+router.get('/:id', async (req, res, next) => {
+  try {
+    const brand = await db.getBrandFull(parseInt(req.params.id), req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    res.json(brand);
+  } catch (err) { next(err); }
 });
 
-router.patch('/:id', (req, res) => {
-  const { scan_schedule, alerts_enabled, brand_name } = req.body;
-  const updates = {};
-  if (scan_schedule !== undefined) updates.scan_schedule = scan_schedule;
-  if (alerts_enabled !== undefined) updates.alerts_enabled = alerts_enabled;
-  if (brand_name) updates.brand_name = brand_name;
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const { scan_schedule, alerts_enabled, brand_name } = req.body;
+    const updates = {};
+    if (scan_schedule !== undefined) updates.scan_schedule = scan_schedule;
+    if (alerts_enabled !== undefined) updates.alerts_enabled = alerts_enabled;
+    if (brand_name) updates.brand_name = brand_name;
 
-  if (scan_schedule && scan_schedule !== 'manual') {
-    const interval = { daily: 1, weekly: 7, monthly: 30 }[scan_schedule];
-    if (interval) {
-      updates.next_scan = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
+    if (scan_schedule && scan_schedule !== 'manual') {
+      const interval = { daily: 1, weekly: 7, monthly: 30 }[scan_schedule];
+      if (interval) {
+        updates.next_scan = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
+      }
     }
-  }
 
-  const updated = db.updateBrand(parseInt(req.params.id), updates, req.orgId);
-  if (!updated) return res.status(404).json({ error: 'Brand not found' });
-  res.json({ success: true, ...updated });
+    const updated = await db.updateBrand(parseInt(req.params.id), updates, req.orgId);
+    if (!updated) return res.status(404).json({ error: 'Brand not found' });
+    res.json({ success: true, ...updated });
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/safe', (req, res) => {
-  const { domain } = req.body;
-  const brandId = parseInt(req.params.id);
-  const brand = db.getBrand(brandId, req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.post('/:id/safe', async (req, res, next) => {
+  try {
+    const { domain } = req.body;
+    const brandId = parseInt(req.params.id);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  db.addSafeEntry(brandId, domain, req.orgId);
-  // Auto-purge any existing threats for this domain on this brand
-  db.deleteBrandThreatByDomain(brandId, domain, req.orgId);
+    await db.addSafeEntry(brandId, domain, req.orgId);
+    // Auto-purge any existing threats for this domain on this brand
+    await db.deleteBrandThreatByDomain(brandId, domain, req.orgId);
 
-  res.json({ success: true, message: `Added ${domain} to safe list` });
+    res.json({ success: true, message: `Added ${domain} to safe list` });
+  } catch (err) { next(err); }
 });
 
-router.delete('/:id/safe', (req, res) => {
-  const { domain } = req.body;
-  const brandId = parseInt(req.params.id);
-  const brand = db.getBrand(brandId, req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.delete('/:id/safe', async (req, res, next) => {
+  try {
+    const { domain } = req.body;
+    const brandId = parseInt(req.params.id);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  db.removeSafeEntry(brandId, domain, req.orgId);
-  res.json({ success: true });
+    await db.removeSafeEntry(brandId, domain, req.orgId);
+    res.json({ success: true });
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/takedown', async (req, res) => {
+router.post('/:id/takedown', async (req, res, next) => {
+  try {
   const { domain, threat_type, evidence, contact_email } = req.body;
   const brandId = parseInt(req.params.id);
-  const brand = db.getBrand(brandId, req.orgId);
+  const brand = await db.getBrand(brandId, req.orgId);
   if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
   // Lookup registrar for the BAD domain (not the brand)
@@ -186,7 +213,7 @@ router.post('/:id/takedown', async (req, res) => {
     try {
       const { NotificationService } = require('../services/notifications');
       const notifService = new NotificationService();
-      const smtpConfig = JSON.parse(db.getSetting('smtp_config', req.orgId) || '{}');
+      const smtpConfig = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
 
       if (smtpConfig.host && smtpConfig.host.trim()) {
         notifService.configureSMTP(smtpConfig);
@@ -209,80 +236,94 @@ router.post('/:id/takedown', async (req, res) => {
     }
   }
 
-  const takedown = db.addBrandTakedown(baseTakedown, brandId, req.orgId);
+  const takedown = await db.addBrandTakedown(baseTakedown, brandId, req.orgId);
   res.json({ success: true, takedown_id: takedown.id, takedown });
+  } catch (err) { next(err); }
 });
 
-router.get('/:id/takedowns', (req, res) => {
-  const brand = db.getBrand(parseInt(req.params.id), req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
-  res.json(db.getBrandTakedowns(brand.id, req.orgId));
+router.get('/:id/takedowns', async (req, res, next) => {
+  try {
+    const brand = await db.getBrand(parseInt(req.params.id), req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    res.json(await db.getBrandTakedowns(brand.id, req.orgId));
+  } catch (err) { next(err); }
 });
 
 // Add reply to takedown
-router.post('/:id/takedown/:takedownId/reply', (req, res) => {
-  const { from, subject, body, direction } = req.body;
-  const brandId = parseInt(req.params.id);
-  const takedownId = parseInt(req.params.takedownId);
-  const brand = db.getBrand(brandId, req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.post('/:id/takedown/:takedownId/reply', async (req, res, next) => {
+  try {
+    const { from, subject, body, direction } = req.body;
+    const brandId = parseInt(req.params.id);
+    const takedownId = parseInt(req.params.takedownId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  const reply = db.addTakedownReply({ from, subject, body, direction: direction || 'incoming' }, takedownId, brandId, req.orgId);
-  if (!reply) return res.status(404).json({ error: 'Takedown not found' });
+    const reply = await db.addTakedownReply({ from, subject, body, direction: direction || 'incoming' }, takedownId, brandId, req.orgId);
+    if (!reply) return res.status(404).json({ error: 'Takedown not found' });
 
-  // If incoming reply on a 'sent' takedown, advance status to waiting_response
-  if ((direction || 'incoming') === 'incoming') {
-    const tdRow = db.getBrandTakedowns(brandId, req.orgId).find(t => t.id === takedownId);
+    // If incoming reply on a 'sent' takedown, advance status to waiting_response
+    if ((direction || 'incoming') === 'incoming') {
+    const tdRow = (await db.getBrandTakedowns(brandId, req.orgId)).find(t => t.id === takedownId);
     if (tdRow && tdRow.status === 'sent') {
-      db.updateBrandTakedown(takedownId, brandId, { status: 'waiting_response' }, req.orgId);
+      // expectedStatus guards against clobbering a concurrent status change.
+      await db.updateBrandTakedown(takedownId, brandId, { status: 'waiting_response' }, req.orgId, 'sent');
     }
-  }
+    }
 
-  res.json({ success: true, reply });
+    res.json({ success: true, reply });
+  } catch (err) { next(err); }
 });
 
-router.patch('/:id/takedown/:takedownId', (req, res) => {
-  const { status, notes } = req.body;
-  const brandId = parseInt(req.params.id);
-  const takedownId = parseInt(req.params.takedownId);
-  const brand = db.getBrand(brandId, req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.patch('/:id/takedown/:takedownId', async (req, res, next) => {
+  try {
+    const { status, notes } = req.body;
+    const brandId = parseInt(req.params.id);
+    const takedownId = parseInt(req.params.takedownId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  const updates = {};
-  if (status) updates.status = status;
-  if (notes !== undefined) updates.notes = notes;
-  const updated = db.updateBrandTakedown(takedownId, brandId, updates, req.orgId);
-  if (!updated) return res.status(404).json({ error: 'Takedown not found' });
+    const updates = {};
+    if (status) updates.status = status;
+    if (notes !== undefined) updates.notes = notes;
+    const updated = await db.updateBrandTakedown(takedownId, brandId, updates, req.orgId);
+    if (!updated) return res.status(404).json({ error: 'Takedown not found' });
 
-  res.json({ success: true });
+    res.json({ success: true });
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/threat', (req, res) => {
-  const { domain, threat_type, severity, notes } = req.body;
-  const brandId = parseInt(req.params.id);
-  const brand = db.getBrand(brandId, req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
+router.post('/:id/threat', async (req, res, next) => {
+  try {
+    const { domain, threat_type, severity, notes } = req.body;
+    const brandId = parseInt(req.params.id);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-  const threat = db.addBrandThreat({
-    domain, threat_type, severity, notes,
-    detected_at: new Date().toISOString(),
-  }, brandId, req.orgId);
+    const threat = await db.addBrandThreat({
+      domain, threat_type, severity, notes,
+      detected_at: new Date().toISOString(),
+    }, brandId, req.orgId);
 
-  res.json({ success: true, threat_id: threat.id });
+    res.json({ success: true, threat_id: threat.id });
+  } catch (err) { next(err); }
 });
 
-router.get('/:id/threats', (req, res) => {
-  const brand = db.getBrand(parseInt(req.params.id), req.orgId);
-  if (!brand) return res.status(404).json({ error: 'Brand not found' });
-  res.json(db.getBrandThreats(brand.id, req.orgId));
+router.get('/:id/threats', async (req, res, next) => {
+  try {
+    const brand = await db.getBrand(parseInt(req.params.id), req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    res.json(await db.getBrandThreats(brand.id, req.orgId));
+  } catch (err) { next(err); }
 });
 
-router.delete('/:id', (req, res) => {
-  const brandId = parseInt(req.params.id);
-  // Foreign keys with ON DELETE CASCADE handle threats / takedowns /
-  // replies / safe_entries / alerts cleanup automatically.
-  const ok = db.deleteBrand(brandId, req.orgId);
-  res.json({ success: ok });
+router.delete('/:id', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    // Foreign keys with ON DELETE CASCADE handle threats / takedowns /
+    // replies / safe_entries / alerts cleanup automatically.
+    const ok = await db.deleteBrand(brandId, req.orgId);
+    res.json({ success: ok });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

@@ -27,7 +27,7 @@ async function scanDomain(domain, dnsService) {
   ]);
 
   const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
-  addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues: [] }, domain.org_id);
+  await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, spf_record: JSON.stringify(spf), dkim_selectors: JSON.stringify(dkim.selectors || []), dmarc_record: JSON.stringify(dmarc), issues: [] }, domain.org_id);
   console.log(`✅ Scanned ${domain.name} - Score: ${score}`);
   return score;
 }
@@ -36,7 +36,7 @@ async function scanDomain(domain, dnsService) {
 async function runScheduledScans() {
   const dnsService = new DNSService();
   let scanned = 0;
-  for (const domain of getDomains()) {
+  for (const domain of await getDomains()) {
     if (domain.status !== 'active') continue;
     try {
       await scanDomain(domain, dnsService);
@@ -56,9 +56,9 @@ async function runDueScans(maxAgeHours = 12) {
   const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
   const dnsService = new DNSService();
   let scanned = 0;
-  for (const domain of getDomains()) {
+  for (const domain of await getDomains()) {
     if (domain.status !== 'active') continue;
-    const latest = getScans(domain.id, 1)[0];
+    const latest = (await getScans(domain.id, 1))[0];
     if (latest && latest.scanned_at > cutoff) continue;
     try {
       await scanDomain(domain, dnsService);
@@ -74,12 +74,11 @@ async function runDueScans(maxAgeHours = 12) {
 
 async function runCriticalScans() {
   const dnsService = new DNSService();
-  const active = getDomains().filter((d) => d.status === 'active');
-  const withScores = active
-    .map((domain) => {
-      const latest = getScans(domain.id, 1)[0];
-      return { domain, lastScore: latest ? latest.score : 0 };
-    })
+  const active = (await getDomains()).filter((d) => d.status === 'active');
+  const withScores = (await Promise.all(active.map(async (domain) => {
+    const latest = (await getScans(domain.id, 1))[0];
+    return { domain, lastScore: latest ? latest.score : 0 };
+  })))
     .sort((a, b) => (a.lastScore || 0) - (b.lastScore || 0))
     .slice(0, 10);
 

@@ -18,28 +18,15 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
-const fs = require('fs');
-const path = require('path');
-const { restoreLatestSnapshot, startSnapshotLoop } = require('./services/snapshot');
-const dataDir = process.env.NEXUSEMAIL_DATA_DIR || path.join(__dirname, '../../data');
-const sqliteFile = process.env.NEXUSEMAIL_DB_PATH || path.join(dataDir, 'nexusemail.sqlite');
+const { initDatabase } = require('./db/database');
 
 let app = null;
 const PORT = process.env.PORT || 4000;
 
 async function main() {
-  // Restore the database from object storage before any route module is
-  // required (they all require the database at import time).
-  // Fail hard when nothing usable exists: proceeding would create a fresh
-  // database whose first snapshot would overwrite the real one in storage.
-  try {
-    await restoreLatestSnapshot({ sqliteFile });
-  } catch (err) {
-    const usable = fs.existsSync(sqliteFile) && fs.statSync(sqliteFile).size > 0;
-    console.error(`[snapshot] restore failed${usable ? ' (continuing with local copy)' : ' (no local copy — aborting)'}`, err.message);
-    if (global.Sentry) global.Sentry.captureException(err);
-    if (!usable) process.exit(1);
-  }
+  // Create tables, run migrations, and seed defaults before any route module
+  // is required (they all require the database at import time).
+  await initDatabase();
 
   const authRoutes = require('./routes/auth');
   const whmcsRoutes = require('./routes/whmcs');
@@ -48,24 +35,10 @@ async function main() {
   const brandProtectionRoutes = require('./routes/brandProtection');
   const remediationRoutes = require('./routes/remediation');
   const reportsRoutes = require('./routes/reports');
+  const scanRoutes = require('./routes/scans');
   const { requireAuth } = require('./auth');
 
   app = express();
-
-  // In-flight request tracking — used by the snapshot shutdown path to wait
-  // for active handlers (writes) to settle before the final snapshot.
-  // Decrement on either finish or close (whichever fires first): a client
-  // disconnecting mid-response must not leave the counter stuck above zero.
-  let inflight = 0;
-  app.use((req, res, next) => {
-    inflight += 1;
-    let settled = false;
-    const settle = () => { if (!settled) { settled = true; inflight -= 1; } };
-    res.on('finish', settle);
-    res.on('close', settle);
-    next();
-  });
-  const getInflight = () => inflight;
 
   // Security middleware
   app.use(helmet());
@@ -124,6 +97,7 @@ async function main() {
   app.use('/api/brands', requireAuth, brandProtectionRoutes);
   app.use('/api/domains', requireAuth, remediationRoutes);
   app.use('/api/reports', requireAuth, reportsRoutes);
+  app.use('/api/scans', requireAuth, scanRoutes);
 
   // Health check
   app.get('/api/health', (req, res) => {
@@ -132,8 +106,6 @@ async function main() {
 
   // Keep-warm tick: wakes the instance on Render's free tier and runs any scans
   // that are due. Gated by a shared secret so the public cannot trigger scans.
-  // Snapshots after each tick — the instance may spin down before the periodic
-  // timer fires again, so every wake ends with a durable copy.
   app.post('/api/cron/tick', async (req, res) => {
     const provided = req.get('x-cron-secret') || '';
     if (!process.env.CRON_SECRET || provided !== process.env.CRON_SECRET) {
@@ -141,15 +113,8 @@ async function main() {
     }
     try {
       const { runDueScans } = require('./services/scheduler');
-      const { snapshotNow } = require('./services/snapshot');
       const result = await runDueScans();
-      const snapshot = await snapshotNow({ sqliteFile });
-      if (snapshot === 'stale-during-shutdown') {
-        // The durable copy does not yet include this tick's writes — do not
-        // report success (the keep-warm workflow treats 5xx as retryable).
-        return res.status(503).json({ ok: false, ...result, snapshot });
-      }
-      res.json({ ok: true, ...result, snapshot });
+      res.json({ ok: true, ...result });
     } catch (err) {
       console.error('[cron] tick failed:', err.message);
       if (global.Sentry) global.Sentry.captureException(err);
@@ -169,7 +134,7 @@ async function main() {
     console.log(`🚀 NexusEmail API running on http://localhost:${PORT}`);
   });
 
-  startSnapshotLoop({ sqliteFile, server, getInflight });
+  return server;
 }
 
 main().catch((err) => {

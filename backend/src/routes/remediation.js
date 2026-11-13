@@ -86,8 +86,9 @@ function generateTLSRPTRecord() {
   };
 }
 
-router.post('/:id/analyze-fix', async (req, res) => {
-  const domain = db.getDomain(parseInt(req.params.id), req.orgId);
+router.post('/:id/analyze-fix', async (req, res, next) => {
+  try {
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
   try {
@@ -101,8 +102,8 @@ router.post('/:id/analyze-fix', async (req, res) => {
     const emailProvider = await detectEmailProvider(mxRecords);
 
     // Get current scan results
-    const latestScan = db.getLatestScan(domain.id, req.orgId);
-    const issues = latestScan ? JSON.parse(latestScan.issues || '[]') : [];
+    const latestScan = await db.getLatestScan(domain.id, req.orgId);
+    const issues = db.parseField(latestScan?.issues, []);
     const spfRecord = latestScan ? JSON.parse(latestScan.spf_record || '{}') : {};
     const dkimSelectors = latestScan ? JSON.parse(latestScan.dkim_selectors || '[]') : [];
     const dmarcRecord = latestScan ? JSON.parse(latestScan.dmarc_record || '{}') : {};
@@ -169,16 +170,18 @@ router.post('/:id/analyze-fix', async (req, res) => {
     captureException(error);
     res.status(500).json({ error: error.message });
   }
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/apply-fix', async (req, res) => {
-  const domain = db.getDomain(parseInt(req.params.id), req.orgId);
+router.post('/:id/apply-fix', async (req, res, next) => {
+  try {
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
   const { records, manual_verification } = req.body;
   
   // Get stored provider credentials
-  const allCredentials = JSON.parse(db.getSetting('provider_credentials', req.orgId) || '{}');
+  const allCredentials = JSON.parse(await db.getSetting('provider_credentials', req.orgId) || '{}');
   const providerCredentials = allCredentials[domain.provider.toLowerCase()];
 
   if (!providerCredentials || !providerCredentials.api_key) {
@@ -198,6 +201,7 @@ router.post('/:id/apply-fix', async (req, res) => {
     manual_verification_required: !domain.provider_credentials?.api_key,
     message: 'Auto-fix requires provider API integration. Records generated for manual review.'
   });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

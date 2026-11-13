@@ -1,29 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const { getDatabase } = require('../db/database');
+const { getIntegrations, addIntegration, deleteIntegration } = require('../db/database');
 const { captureException } = require('../capture');
 
 // Get all integrations
-router.get('/', (req, res) => {
-  const db = getDatabase();
-  const integrations = db.prepare('SELECT * FROM integrations').all();
+router.get('/', async (req, res) => {
+  const integrations = await getIntegrations();
   res.json(integrations);
 });
 
 // Connect new integration
-router.post('/connect', (req, res) => {
+router.post('/connect', async (req, res) => {
   const { provider, config } = req.body;
-  const db = getDatabase();
-  
-  const stmt = db.prepare(`
-    INSERT INTO integrations (provider, config, status) VALUES (?, ?, ?)
-  `);
-  
+
   try {
-    const result = stmt.run(provider, JSON.stringify(config), 'active');
-    res.json({ 
-      success: true, 
-      id: result.lastInsertRowid,
+    const created = await addIntegration({ provider, config, status: 'active' });
+    res.json({
+      success: true,
+      id: created.id,
       provider,
       status: 'active'
     });
@@ -34,25 +28,25 @@ router.post('/connect', (req, res) => {
 });
 
 // Disconnect integration
-router.delete('/:provider', (req, res) => {
-  const db = getDatabase();
-  db.prepare('DELETE FROM integrations WHERE provider = ?').run(req.params.provider);
+router.delete('/:provider', async (req, res) => {
+  const rows = await getIntegrations();
+  const match = rows.find((r) => r.provider === req.params.provider);
+  if (match) await deleteIntegration(match.id);
   res.json({ success: true });
 });
 
 // Test integration
 router.post('/test/:provider', async (req, res) => {
-  const db = getDatabase();
-  const integration = db.prepare('SELECT * FROM integrations WHERE provider = ?')
-    .get(req.params.provider);
-  
+  const rows = await getIntegrations();
+  const integration = rows.find((r) => r.provider === req.params.provider);
+
   if (!integration) {
     return res.status(404).json({ error: 'Integration not found' });
   }
-  
+
   // Simulate test
-  res.json({ 
-    success: true, 
+  res.json({
+    success: true,
     message: `Connection to ${req.params.provider} verified`,
     latency: Math.floor(Math.random() * 100)
   });
