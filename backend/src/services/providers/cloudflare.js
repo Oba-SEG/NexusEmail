@@ -17,6 +17,23 @@ class CloudflareProvider {
     }
   }
 
+  // Real auth probe: list zones (page 1). Fails on invalid/expired tokens
+  // and on tokens without Zone:Read, instead of hardcoding success.
+  async testConnection() {
+    const start = Date.now();
+    try {
+      const zones = await this.cf.zones.browse({ per_page: 1 });
+      return {
+        success: zones.success !== false,
+        latency: Date.now() - start,
+        zones: (zones.result || []).length
+      };
+    } catch (e) {
+      console.error('[Cloudflare] Test connection failed:', e.message);
+      return { success: false, error: e.message };
+    }
+  }
+
   async createTXTRecord(name, content, domain) {
     try {
       const zoneId = await this.getZoneId(domain);
