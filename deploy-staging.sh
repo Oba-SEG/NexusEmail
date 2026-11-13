@@ -34,7 +34,7 @@ echo "==> Writing .env (chmod 600, secrets sent via SSH stdin, not argv)"
   printf 'SEED_ADMIN_EMAIL=admin@segbytes.xyz\n'
   printf 'SEED_ADMIN_PASSWORD=%s\n' "$PW"
   printf 'POSTGRES_PASSWORD=%s\n' "$PGPW"
-} | sshr "umask 077 && cat > $REMOTE_DIR/.env"
+} | sshr "umask 077 && cat > $REMOTE_DIR/.env && chmod 600 $REMOTE_DIR/.env"
 
 echo "==> Building and starting stack"
 sshr "cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml up -d --build"
