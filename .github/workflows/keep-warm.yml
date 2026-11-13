@@ -16,7 +16,7 @@ jobs:
           API_URL: ${{ vars.NEXUS_API_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          API="${API_URL:-https://api.brandprotection.segbytes.xyz}"
+          API="${API_URL:-https://nexusapi.segbytes.xyz}"
           if [[ "$API" != https://* ]]; then
             echo "API must be https (got $API)"; exit 1
           fi

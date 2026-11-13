@@ -7,7 +7,7 @@ RUN npm ci
 
 FROM node:20-alpine AS build
 WORKDIR /app
-ARG NEXT_PUBLIC_API_URL=https://api.brandprotection.segbytes.xyz/api
+ARG NEXT_PUBLIC_API_URL=https://nexusapi.segbytes.xyz/api
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT=production
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL

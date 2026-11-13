@@ -35,11 +35,11 @@ jobs:
         run: npm run build
         working-directory: frontend
         env:
-          # Static export for GitHub Pages hosting. The custom domain is
-          # configured in the repository's Pages settings
-          # (brandprotection.segbytes.xyz) and mirrored in public/CNAME.
+          # NEXUS_API_URL (bare origin, also used by keep-warm) takes
+          # precedence; /api is appended here. NEXT_PUBLIC_API_URL wins if
+          # set explicitly, then the tunnel default.
           NEXUSEMAIL_STATIC_EXPORT: "1"
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL || 'https://api.brandprotection.segbytes.xyz/api' }}
+          NEXT_PUBLIC_API_URL: ${{ (vars.NEXUS_API_URL && format('{0}/api', vars.NEXUS_API_URL)) || vars.NEXT_PUBLIC_API_URL || 'https://nexusapi.segbytes.xyz/api' }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN || '' }}
           NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${{ vars.NEXT_PUBLIC_SENTRY_ENVIRONMENT || 'production' }}
       - name: Configure pages
