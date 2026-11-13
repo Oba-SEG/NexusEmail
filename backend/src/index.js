@@ -77,7 +77,10 @@ async function main() {
     // Credential endpoints have their own tight budget; excluding them here
     // keeps failed logins from eating the global allowance that /auth/me and
     // organization endpoints share.
-    skip: (req) => ['/api/auth/login', '/api/auth/whmcs-exchange'].includes(req.path)
+    skip: (req) => {
+      const path = req.path.toLowerCase();
+      return path === '/api/auth/login' || path === '/api/auth/whmcs-exchange';
+    }
   });
   app.use(limiter);
 
