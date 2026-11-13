@@ -101,29 +101,34 @@ class NotificationService {
     }
   }
 
-  async sendViaResend(to, subject, html) {
+  async sendViaResend(to, subject, html, options = {}) {
     try {
       if (!this.resend) return { success: false, error: 'Resend not configured' };
+      const payload = {
+        from: this.resend.from,
+        to: [to],
+        subject,
+        html,
+        text: this.stripHtml(html)
+      };
+      // Map common SMTP-style options to Resend's fields.
+      if (options.replyTo) payload.reply_to = options.replyTo;
+      if (options.cc) payload.cc = Array.isArray(options.cc) ? options.cc : [options.cc];
+      if (options.bcc) payload.bcc = Array.isArray(options.bcc) ? options.bcc : [options.bcc];
       const response = await fetch(`${this.resend.apiBase}/emails`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${this.resend.apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          from: this.resend.from,
-          to: [to],
-          subject,
-          html,
-          text: this.stripHtml(html)
-        })
+        body: JSON.stringify(payload)
       });
-      const payload = await response.json().catch(() => ({}));
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const err = payload.message || `HTTP ${response.status}`;
+        const err = result.message || `HTTP ${response.status}`;
         return { success: false, error: err };
       }
-      return { success: true, provider: 'resend', id: payload.id };
+      return { success: true, provider: 'resend', id: result.id };
     } catch (error) {
       captureException(error);
       return { success: false, error: error.message };
@@ -166,7 +171,7 @@ class NotificationService {
   // Send email notification (Resend preferred, SMTP fallback)
   async sendNotification(to, subject, body, options = {}) {
     if (this.resend) {
-      return await this.sendViaResend(to, subject, body);
+      return await this.sendViaResend(to, subject, body, options);
     }
     if (!this.transporter) {
       console.log('[Notifications] No email channel configured, skipping email');
@@ -191,7 +196,7 @@ class NotificationService {
   }
 
   // Dispatch a scan result to email + Slack based on org notification prefs.
-  async dispatchScanResults(orgId, domain, results) {
+  static async dispatchScanResults(orgId, domain, results) {
     const out = {};
     const prefs = await NotificationService.getPrefs(orgId);
     if (!prefs.scan_completed) return { skipped: true };
@@ -209,7 +214,7 @@ class NotificationService {
   }
 
   // Dispatch a critical alert to email + Slack.
-  async dispatchCriticalAlert(orgId, domain, message) {
+  static async dispatchCriticalAlert(orgId, domain, message) {
     const out = {};
     const prefs = await NotificationService.getPrefs(orgId);
     if (!prefs.critical_alerts) return { skipped: true };
@@ -235,6 +240,12 @@ class NotificationService {
       critical_alerts: vals[1] !== '0',     // default on
       weekly_report: vals[2] === '1'        // default off
     };
+  }
+
+  // Slack webhooks only live on hooks.slack.com — anything else is an SSRF
+  // vector (the backend would happily POST to internal services otherwise).
+  static isValidSlackWebhook(url) {
+    return /^https:\/\/hooks\.slack\.com\/services\//.test(url);
   }
 
   // Send scan results notification

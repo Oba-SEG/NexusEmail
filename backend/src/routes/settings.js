@@ -10,11 +10,14 @@ const notificationService = new NotificationService();
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
   try {
+    const smtpRaw = await db.getSetting('smtp_config', req.orgId);
+    const smtpMasked = smtpRaw ? JSON.parse(smtpRaw) : null;
+    if (smtpMasked && smtpMasked.pass) smtpMasked.pass = maskSecret(smtpMasked.pass);
     res.json({
-      notify_scan_completed: await db.getSetting('notify_scan_completed', req.orgId) === '1',
-      notify_critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) === '1',
+      notify_scan_completed: await db.getSetting('notify_scan_completed', req.orgId) !== '0',
+      notify_critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) !== '0',
       notify_weekly_report: await db.getSetting('notify_weekly_report', req.orgId) === '1',
-      smtp_config: await db.getSetting('smtp_config', req.orgId) ? JSON.parse(await db.getSetting('smtp_config', req.orgId)) : null
+      smtp_config: smtpMasked
     });
   } catch (err) { next(err); }
 });
@@ -55,8 +58,8 @@ router.get('/config', async (req, res, next) => {
       slack_webhook: maskSecret(await db.getSetting('slack_webhook', req.orgId)),
       provider_credentials: masked,
       notifications: {
-        scan_completed: await db.getSetting('notify_scan_completed', req.orgId) === '1',
-        critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) === '1',
+        scan_completed: await db.getSetting('notify_scan_completed', req.orgId) !== '0',
+        critical_alerts: await db.getSetting('notify_critical_alerts', req.orgId) !== '0',
         weekly_report: await db.getSetting('notify_weekly_report', req.orgId) === '1'
       },
       scan_schedule: {
@@ -152,10 +155,11 @@ router.post('/smtp', async (req, res, next) => {
   try {
     const { host, port, secure, user, from } = req.body;
     let { pass } = req.body;
-    // The GET view masks the password; if the caller echoes the masked value
-    // back, keep the stored password instead of persisting '****'.
-    if (typeof pass === 'string' && /\*{4}$/.test(pass)) {
-      const stored = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+    const stored = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
+    // The GET view never returns the password (it masks it, and the UI form
+    // prefills empty). An unchanged/blank password must preserve the stored
+    // one instead of wiping it.
+    if (typeof pass !== 'string' || pass === '' || /\*{4}$/.test(pass)) {
       pass = stored.pass;
     }
     const config = { host, port: parseInt(port) || 587, secure: !!secure, user, pass, from };
@@ -216,6 +220,11 @@ router.post('/slack', async (req, res, next) => {
     }
     if (!webhook_url) {
       return res.status(400).json({ error: 'Slack webhook URL required' });
+    }
+    // The backend POSTs to whatever URL is stored — restrict it to Slack's
+    // own endpoint to prevent SSRF into internal services.
+    if (!NotificationService.isValidSlackWebhook(webhook_url)) {
+      return res.status(400).json({ error: 'Webhook URL must be an https://hooks.slack.com/services/… URL' });
     }
     await db.setSetting('slack_webhook', webhook_url, req.orgId);
     res.json({ success: true });

@@ -187,6 +187,11 @@ export default function Dashboard() {
   const logout = () => {
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    // Secrets must not survive an identity change in the SPA state.
+    setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
+    setSlackForm({ webhook_url: '' });
+    setResendForm({ api_key: '', from: '' });
+    setSettings(null);
     setToken(null);
     setUser(null);
   };
@@ -418,11 +423,16 @@ export default function Dashboard() {
   const saveSlack = async () => {
     setSavingSlack(true);
     try {
-      await apiFetch(`${API_BASE}/settings/slack`, {
+      const res = await apiFetch(`${API_BASE}/settings/slack`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(slackForm)
       });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert('Failed to save Slack: ' + (data.error || `HTTP ${res.status}`));
+        return;
+      }
       alert('Slack webhook saved!');
     } catch (e) {
       alert('Failed to save Slack: ' + e.message);
@@ -447,11 +457,16 @@ export default function Dashboard() {
   const saveResend = async () => {
     setSavingResend(true);
     try {
-      await apiFetch(`${API_BASE}/settings/resend`, {
+      const res = await apiFetch(`${API_BASE}/settings/resend`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(resendForm)
       });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert('Failed to save Resend: ' + (data.error || `HTTP ${res.status}`));
+        return;
+      }
       alert('Resend settings saved!');
     } catch (e) {
       alert('Failed to save Resend: ' + e.message);
