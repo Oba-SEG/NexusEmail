@@ -7,10 +7,10 @@
 
 function apiOrigin() {
   try {
-    const raw = process.env.NEXT_PUBLIC_API_URL || "https://api.brandprotection.segbytes.xyz/api";
+    const raw = process.env.NEXT_PUBLIC_API_URL || "https://nexusapi.segbytes.xyz/api";
     return new URL(raw).origin;
   } catch {
-    return "https://api.brandprotection.segbytes.xyz";
+    return "https://nexusapi.segbytes.xyz";
   }
 }
 
