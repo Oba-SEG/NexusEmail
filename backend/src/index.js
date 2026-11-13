@@ -48,10 +48,18 @@ async function main() {
   // proxy (1 hop). TRUST_PROXY takes a comma-separated list: 'loopback',
   // CIDR subnets, or a hop count ('1').
   const trustProxyEnv = process.env.TRUST_PROXY || 'loopback';
-  app.set('trust proxy', trustProxyEnv.split(',').map((entry) => {
+  const trustProxyEntries = trustProxyEnv.split(',').map((entry) => {
     const t = entry.trim();
     return /^\d+$/.test(t) ? Number(t) : t;
-  }));
+  });
+  // A standalone hop count must be a plain number — Express rejects
+  // numeric entries inside a subnet array (proxy-addr only takes strings).
+  app.set(
+    'trust proxy',
+    trustProxyEntries.length === 1 && typeof trustProxyEntries[0] === 'number'
+      ? trustProxyEntries[0]
+      : trustProxyEntries
+  );
 
   // Security middleware
   app.use(helmet());
