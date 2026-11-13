@@ -39,13 +39,13 @@ sshr "cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml up -d --bui
 
 echo "==> Health checks"
 sleep 5
-if curl -fsS --max-time 10 "http://$STAGING_HOST:3001/api/health" >/dev/null; then
-  echo "backend health: OK (http://$STAGING_HOST:3001)"
+if curl -fsS --max-time 10 "http://$STAGING_HOST:4100/api/health" >/dev/null; then
+  echo "backend health: OK (http://$STAGING_HOST:4100)"
 else
   echo "backend health: FAILED — logs: ssh $SSH_TARGET 'cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml logs backend'"
 fi
-if curl -fsS --max-time 10 -o /dev/null "http://$STAGING_HOST:3000"; then
-  echo "frontend: OK (http://$STAGING_HOST:3000)"
+if curl -fsS --max-time 10 -o /dev/null "http://$STAGING_HOST:4102"; then
+  echo "frontend: OK (http://$STAGING_HOST:4102)"
 else
   echo "frontend: FAILED — logs: ssh $SSH_TARGET 'cd $REMOTE_DIR && docker compose -f docker-compose.staging.yml logs frontend'"
 fi
