@@ -31,6 +31,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - TRUST_PROXY=loopback
       - DATABASE_URL=postgres://nexusemail:${POSTGRES_PASSWORD}@postgres:5432/nexusemail
       - JWT_SECRET=${JWT_SECRET}
       - CRON_SECRET=${CRON_SECRET}
