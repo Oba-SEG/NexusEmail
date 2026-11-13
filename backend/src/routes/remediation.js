@@ -86,7 +86,8 @@ function generateTLSRPTRecord() {
   };
 }
 
-router.post('/:id/analyze-fix', async (req, res) => {
+router.post('/:id/analyze-fix', async (req, res, next) => {
+  try {
   const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
@@ -102,7 +103,7 @@ router.post('/:id/analyze-fix', async (req, res) => {
 
     // Get current scan results
     const latestScan = await db.getLatestScan(domain.id, req.orgId);
-    const issues = latestScan ? JSON.parse(latestScan.issues || '[]') : [];
+    const issues = db.parseField(latestScan?.issues, []);
     const spfRecord = latestScan ? JSON.parse(latestScan.spf_record || '{}') : {};
     const dkimSelectors = latestScan ? JSON.parse(latestScan.dkim_selectors || '[]') : [];
     const dmarcRecord = latestScan ? JSON.parse(latestScan.dmarc_record || '{}') : {};
@@ -169,9 +170,11 @@ router.post('/:id/analyze-fix', async (req, res) => {
     captureException(error);
     res.status(500).json({ error: error.message });
   }
+  } catch (err) { next(err); }
 });
 
-router.post('/:id/apply-fix', async (req, res) => {
+router.post('/:id/apply-fix', async (req, res, next) => {
+  try {
   const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
@@ -198,6 +201,7 @@ router.post('/:id/apply-fix', async (req, res) => {
     manual_verification_required: !domain.provider_credentials?.api_key,
     message: 'Auto-fix requires provider API integration. Records generated for manual review.'
   });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

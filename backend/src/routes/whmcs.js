@@ -31,24 +31,26 @@ async function authorized(req) {
   if (!timestamp || !nonce || !signature) return false;
   if (Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false;
 
-  const seen = JSON.parse(await db.getSetting('whmcs_seen_nonces') || '[]');
-  if (seen.some(n => n.nonce === nonce)) return false;
   const body = JSON.stringify(req.body || {});
   const expected = crypto.createHmac('sha256', secret).update(`${timestamp}.${nonce}.${body}`).digest('hex');
   const ok = safeEqual(signature, expected);
   if (!ok) return false;
-  seen.push({ nonce, at: Date.now() });
-  await db.setSetting('whmcs_seen_nonces', JSON.stringify(seen.filter(n => Date.now() - n.at < 10 * 60 * 1000).slice(-500)));
-  return true;
+  // Replay protection: claim the nonce atomically (unique constraint). Two
+  // copies of the same signed request can no longer both pass.
+  return db.claimNonce(nonce);
 }
 
 async function requireWhmcs(req, res, next) {
   if (process.env.NODE_ENV === 'production' && !configuredToken() && !configuredHmacSecret()) {
     return res.status(500).json({ success: false, error: 'WHMCS server-to-server auth is not configured' });
   }
-  const authed = await authorized(req);
-  if (!authed) return res.status(401).json({ success: false, error: 'Unauthorized' });
-  next();
+  try {
+    const authed = await authorized(req);
+    if (!authed) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 function slugify(value) {
@@ -116,11 +118,16 @@ function requestPayload(req) {
 }
 
 async function lifecycle(req, res, status) {
-  const payload = requestPayload(req);
-  const org = await orgForClient(payload.clientId || payload.client_id);
-  if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
-  const updated = await db.updateOrganization(org.id, { status });
-  res.json({ success: true, organization: updated });
+  try {
+    const payload = requestPayload(req);
+    const org = await orgForClient(payload.clientId || payload.client_id);
+    if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
+    const updated = await db.updateOrganization(org.id, { status });
+    res.json({ success: true, organization: updated });
+  } catch (err) {
+    captureException(err);
+    res.status(err.status || 400).json({ success: false, error: err.message });
+  }
 }
 
 router.post('/provision', requireWhmcs, async (req, res) => {
@@ -147,7 +154,8 @@ router.post('/login-token', requireWhmcs, async (req, res) => {
     if (!email) return res.status(400).json({ success: false, error: 'Missing field: email' });
 
     const contactId = payload.contactId || payload.contact_id || null;
-    let user = validateUserOrg(db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email) || db.getUserByEmail(email), org);
+    const contactUser = await db.getUserByWhmcsContact(org.whmcs_client_id, contactId, email);
+    let user = validateUserOrg(contactUser || (await db.getUserByEmail(email)), org);
     if (!user) {
       user = await db.addUser({
         org_id: org.id,
@@ -171,10 +179,14 @@ router.post('/login-token', requireWhmcs, async (req, res) => {
   }
 });
 
-router.get('/status/:clientId', requireWhmcs, async (req, res) => {
-  const org = orgForClient(req.params.clientId);
-  if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
-  res.json({ success: true, organization: org, users: await db.getUsers(org.id).map(publicUser), domains: await db.getDomains(org.id).length });
+router.get('/status/:clientId', requireWhmcs, async (req, res, next) => {
+  try {
+    const org = await orgForClient(req.params.clientId);
+    if (!org) return res.status(404).json({ success: false, error: 'Organization not found' });
+    const users = await db.getUsers(org.id);
+    const domains = await db.getDomains(org.id);
+    res.json({ success: true, organization: org, users: await Promise.all(users.map((u) => publicUser(u))), domains: domains.length });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 
 // Postgres data layer (Render free Postgres in production, a local/Compose
 // Postgres in staging). All helpers are async and preserve the exact call
@@ -10,11 +10,21 @@ const { Pool } = require('pg');
 //
 // Connection: DATABASE_URL (Render injects "Internal Database URL" here).
 // Set PGSSLREQUIRED=1 when connecting over the public internet.
+// Certificate verification stays ON by default; set PGSSL_REJECT_UNAUTHORIZED=false
+// only for a provider with a private/unverifiable CA chain.
+
+// pg returns BIGINT columns as strings; our numeric IDs (Date.now()*1000+counter)
+// are well inside the safe-integer range, so coerce them back to numbers so the
+// response contract matches the add* helpers (which return numeric ids).
+types.setTypeParser(20, (value) => {
+  const num = Number(value);
+  return Number.isSafeInteger(num) ? num : value;
+});
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || process.env.INTERNAL_DATABASE_URL,
   max: 10,
-  ...(process.env.PGSSLREQUIRED ? { ssl: { rejectUnauthorized: false } } : {}),
+  ...(process.env.PGSSLREQUIRED ? { ssl: { rejectUnauthorized: process.env.PGSSL_REJECT_UNAUTHORIZED !== 'false' } } : {}),
 });
 
 function now() { return new Date().toISOString(); }
@@ -29,6 +39,13 @@ function nextNumericId() {
 }
 function json(value) { return JSON.stringify(value ?? null); }
 function parse(value, fallback = null) { try { return value == null ? fallback : JSON.parse(value); } catch { return fallback; } }
+// Route-side JSON reader: scans/issues may be stored as arrays (hydrated) or
+// JSON strings (legacy). Accepts both, never throws on valid data.
+function parseField(value, fallback = null) {
+  if (value == null) return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
 
 async function q(sql, params = []) {
   const result = await pool.query(sql, params);
@@ -41,6 +58,18 @@ async function one(sql, params = []) {
 async function all(sql, params = []) {
   const result = await pool.query(sql, params);
   return result.rows;
+}
+
+// Client-bound executor for migrations: every statement inside a transaction
+// MUST run on the same checked-out client, or ROLLBACK cannot undo it.
+// Idempotent: passing an already-bound executor returns it unchanged.
+function bindTx(clientOrExecutor) {
+  if (clientOrExecutor && clientOrExecutor.q) return clientOrExecutor;
+  return {
+    q: (sql, params = []) => clientOrExecutor.query(sql, params),
+    one: async (sql, params = []) => (await clientOrExecutor.query(sql, params)).rows[0] ?? null,
+    all: async (sql, params = []) => (await clientOrExecutor.query(sql, params)).rows,
+  };
 }
 
 async function initSchema() {
@@ -97,6 +126,10 @@ async function initSchema() {
       value TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY (org_id, key)
+    );
+    CREATE TABLE IF NOT EXISTS whmcs_nonces (
+      nonce TEXT PRIMARY KEY,
+      seen_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS reports (
       id BIGINT PRIMARY KEY,
@@ -204,11 +237,15 @@ function hydrateIntegration(row) { return row ? { ...parse(row.data, {}), id: ro
 function hydrateReport(row) { return row ? { ...parse(row.data, {}), id: row.id, org_id: row.org_id, domain_id: row.domain_id, generated_at: row.generated_at } : null; }
 
 async function getOrganizations() { return all('SELECT * FROM organizations ORDER BY created_at DESC'); }
-async function getOrganization(idOrSlug) { return one('SELECT * FROM organizations WHERE id = $1 OR slug = $1', [idOrSlug]); }
+async function getOrganization(idOrSlug, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return exec.one('SELECT * FROM organizations WHERE id = $1 OR slug = $1', [idOrSlug]);
+}
 async function getOrganizationByWhmcsClient(clientId) { return one('SELECT * FROM organizations WHERE whmcs_client_id = $1', [String(clientId)]); }
-async function addOrganization(org) {
+async function addOrganization(org, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { id: org.id || nextId('org'), slug: org.slug, name: org.name, status: org.status || 'active', whmcs_client_id: org.whmcs_client_id || null, whmcs_service_id: org.whmcs_service_id || null, plan: org.plan || null, created_at: org.created_at || now(), updated_at: org.updated_at || now() };
-  await q('INSERT INTO organizations (id, slug, name, status, whmcs_client_id, whmcs_service_id, plan, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+  await exec.q('INSERT INTO organizations (id, slug, name, status, whmcs_client_id, whmcs_service_id, plan, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
     [created.id, created.slug, created.name, created.status, created.whmcs_client_id, created.whmcs_service_id, created.plan, created.created_at, created.updated_at]);
   return created;
 }
@@ -230,9 +267,10 @@ async function getUserByWhmcsContact(clientId, contactId, email) {
   }
   return one('SELECT * FROM users WHERE whmcs_client_id = $1 AND lower(email) = lower($2)', [String(clientId), email || '']);
 }
-async function addUser(user) {
+async function addUser(user, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { id: user.id || nextId('usr'), org_id: user.org_id, email: user.email, name: user.name || user.email, role: user.role || 'member', platform_role: user.platform_role || null, status: user.status || 'active', password_hash: user.password_hash || null, whmcs_client_id: user.whmcs_client_id || null, whmcs_contact_id: user.whmcs_contact_id || null, created_at: user.created_at || now(), updated_at: user.updated_at || now() };
-  await q('INSERT INTO users (id, org_id, email, name, role, platform_role, status, password_hash, whmcs_client_id, whmcs_contact_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
+  await exec.q('INSERT INTO users (id, org_id, email, name, role, platform_role, status, password_hash, whmcs_client_id, whmcs_contact_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
     [created.id, created.org_id, created.email, created.name, created.role, created.platform_role, created.status, created.password_hash, created.whmcs_client_id, created.whmcs_contact_id, created.created_at, created.updated_at]);
   return created;
 }
@@ -241,20 +279,25 @@ async function getDomains(orgId) {
   const rows = await all(orgId ? 'SELECT * FROM domains WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM domains ORDER BY created_at DESC', orgId ? [orgId] : []);
   return rows.map(hydrateDomain);
 }
-async function addDomain(domain, orgId) {
+async function addDomain(domain, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { ...domain, id: domain.id || nextNumericId(), org_id: orgId || domain.org_id || 'segbytes', created_at: domain.created_at || now(), updated_at: now() };
-  await q('INSERT INTO domains (id, org_id, data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, json(created), created.created_at, created.updated_at]);
+  await exec.q('INSERT INTO domains (id, org_id, data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, json(created), created.created_at, created.updated_at]);
   return created;
 }
 async function getDomain(id, orgId) {
   return hydrateDomain(await one(orgId ? 'SELECT * FROM domains WHERE id = $1 AND org_id = $2' : 'SELECT * FROM domains WHERE id = $1', orgId ? [id, orgId] : [id]));
 }
 async function updateDomain(id, updates, orgId) {
-  const existing = await getDomain(id, orgId);
-  if (!existing) return null;
-  const next = { ...existing, ...updates, updated_at: now() };
-  await q('UPDATE domains SET data = $2, updated_at = $3 WHERE id = $1 AND org_id = $4', [id, json(next), next.updated_at, next.org_id]);
-  return next;
+  // Atomic JSONB merge: concurrent updates touching different fields no longer
+  // clobber each other (the previous read-modify-write could).
+  const payload = json({ ...updates, updated_at: now() });
+  const { rows } = await q(
+    `UPDATE domains SET data = (data::jsonb || $2::jsonb)::text, updated_at = $3
+     WHERE id = $1 ${orgId ? 'AND org_id = $4' : ''} RETURNING *`,
+    orgId ? [id, payload, now(), orgId] : [id, payload, now()]
+  );
+  return hydrateDomain(rows[0] ?? null);
 }
 async function deleteDomain(id, orgId) {
   if (orgId) {
@@ -266,9 +309,10 @@ async function deleteDomain(id, orgId) {
   }
 }
 
-async function addScan(scan, orgId) {
+async function addScan(scan, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { ...scan, id: scan.id || nextNumericId(), org_id: orgId || scan.org_id || 'segbytes', scanned_at: scan.scanned_at || now() };
-  await q('INSERT INTO scans (id, org_id, domain_id, data, scanned_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, created.domain_id, json(created), created.scanned_at]);
+  await exec.q('INSERT INTO scans (id, org_id, domain_id, data, scanned_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, created.domain_id, json(created), created.scanned_at]);
   return created;
 }
 async function getScans(domainId, limit = 30, orgId) {
@@ -283,9 +327,10 @@ async function getIntegrations(orgId) {
   const rows = await all(orgId ? 'SELECT * FROM integrations WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM integrations ORDER BY created_at DESC', orgId ? [orgId] : []);
   return rows.map(hydrateIntegration);
 }
-async function addIntegration(integration, orgId) {
+async function addIntegration(integration, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { ...integration, id: integration.id || nextNumericId(), org_id: orgId || integration.org_id || 'segbytes', created_at: integration.created_at || now(), updated_at: now() };
-  await q('INSERT INTO integrations (id, org_id, data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, json(created), created.created_at, created.updated_at]);
+  await exec.q('INSERT INTO integrations (id, org_id, data, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, json(created), created.created_at, created.updated_at]);
   return created;
 }
 async function deleteIntegration(id, orgId) {
@@ -298,16 +343,47 @@ async function getSetting(key, orgId) {
     || (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', ['global', key]));
   return row ? row.value : undefined;
 }
-async function setSetting(key, value, orgId) {
-  await q('INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, key) DO UPDATE SET value = $3, updated_at = $4', [orgId || 'global', key, String(value), now()]);
+async function setSetting(key, value, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  await exec.q('INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, key) DO UPDATE SET value = $3, updated_at = $4', [orgId || 'global', key, String(value), now()]);
 }
 async function deleteSetting(key, orgId) {
   await q('DELETE FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]);
 }
+// Atomic single-reader consume: returns the deleted value, or undefined when
+// absent. Used for one-time tokens so a race cannot double-spend them.
+async function consumeSetting(key, orgId) {
+  const result = await q('DELETE FROM settings WHERE org_id = $1 AND key = $2 RETURNING value', [orgId || 'global', key]);
+  return result.rows[0]?.value;
+}
+// Atomic JSON map merge (e.g. provider_credentials): last-write no longer
+// discards another provider saved concurrently.
+async function mergeSetting(key, patch, orgId) {
+  await q(`INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb || $3::jsonb)::text, updated_at = $4`,
+    [orgId || 'global', key, JSON.stringify(patch ?? {}), now()]);
+}
+// Atomic removal of one key from a stored JSON map.
+async function removeSettingKey(key, prop, orgId) {
+  await q(`UPDATE settings SET value = (value::jsonb - $3::text)::text, updated_at = $4
+           WHERE org_id = $1 AND key = $2`,
+    [orgId || 'global', key, String(prop), now()]);
+}
 
-async function addReport(report, orgId) {
+// WHMCS replay protection: each nonce is claimed exactly once via the
+// primary-key constraint. Expired nonces are pruned opportunistically.
+const NONCE_WINDOW_MS = 10 * 60 * 1000;
+async function claimNonce(nonce) {
+  const result = await q('INSERT INTO whmcs_nonces (nonce, seen_at) VALUES ($1, $2) ON CONFLICT (nonce) DO NOTHING', [String(nonce), now()]);
+  if (result.rowCount === 0) return false;
+  await q('DELETE FROM whmcs_nonces WHERE seen_at < $1', [new Date(Date.now() - NONCE_WINDOW_MS).toISOString()]);
+  return true;
+}
+
+async function addReport(report, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { ...report, id: report.id || nextNumericId(), org_id: orgId || report.org_id || 'segbytes', generated_at: report.generated_at || now() };
-  await q('INSERT INTO reports (id, org_id, domain_id, data, generated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, created.domain_id || null, json(created), created.generated_at]);
+  await exec.q('INSERT INTO reports (id, org_id, domain_id, data, generated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, created.domain_id || null, json(created), created.generated_at]);
   return created;
 }
 async function getReports(domainId, orgId) {
@@ -327,20 +403,24 @@ async function migrateLegacyJsonIfNeeded() {
   const legacy = parse(fs.readFileSync(legacyJsonFile, 'utf8'), {});
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
-    for (const org of legacy.organizations || []) await addOrganization(org);
-    if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
-    for (const user of legacy.users || []) await addUser(user);
-    for (const domain of legacy.domains || []) await addDomain(domain, domain.org_id || 'segbytes');
-    for (const scan of legacy.scans || []) await addScan(scan, scan.org_id || 'segbytes');
-    for (const integration of legacy.integrations || []) await addIntegration(integration, integration.org_id || 'segbytes');
+    // Every statement runs on the checked-out client so ROLLBACK actually
+    // undoes a partial import (helpers that write through pool.query would
+    // commit outside this transaction).
+    const tx = bindTx(client);
+    await tx.q('BEGIN');
+    for (const org of legacy.organizations || []) await addOrganization(org, tx);
+    if (!(await getOrganization('segbytes', tx))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' }, tx);
+    for (const user of legacy.users || []) await addUser(user, tx);
+    for (const domain of legacy.domains || []) await addDomain(domain, domain.org_id || 'segbytes', tx);
+    for (const scan of legacy.scans || []) await addScan(scan, scan.org_id || 'segbytes', tx);
+    for (const integration of legacy.integrations || []) await addIntegration(integration, integration.org_id || 'segbytes', tx);
     for (const [key, value] of Object.entries(legacy.settings || {})) {
       const idx = key.indexOf(':');
-      if (idx > 0 && key.startsWith('org_')) await setSetting(key.slice(idx + 1), value, key.slice(0, idx));
-      else await setSetting(key, value);
+      if (idx > 0 && key.startsWith('org_')) await setSetting(key.slice(idx + 1), value, key.slice(0, idx), tx);
+      else await setSetting(key, value, undefined, tx);
     }
-    for (const report of legacy.reports || []) await addReport(report, report.org_id || 'segbytes');
-    await client.query('COMMIT');
+    for (const report of legacy.reports || []) await addReport(report, report.org_id || 'segbytes', tx);
+    await tx.q('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[legacy json migration] failed:', e.message);
@@ -421,7 +501,8 @@ async function getBrandsFull(orgId) {
     safe_list: await getBrandSafeList(b.id, orgId),
   })));
 }
-async function addBrand(brand, orgId) {
+async function addBrand(brand, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required to add a brand');
   const created = {
     id: brand.id || nextNumericId(),
@@ -437,9 +518,9 @@ async function addBrand(brand, orgId) {
     added_at: brand.added_at || now(),
     updated_at: now(),
   };
-  await q('INSERT INTO brands (id, org_id, domain, brand_name, status, scan_schedule, alerts_enabled, last_scan, next_scan, last_results, added_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
+  await exec.q('INSERT INTO brands (id, org_id, domain, brand_name, status, scan_schedule, alerts_enabled, last_scan, next_scan, last_results, added_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
     [created.id, created.org_id, created.domain, created.brand_name, created.status, created.scan_schedule, created.alerts_enabled, created.last_scan, created.next_scan, created.last_results, created.added_at, created.updated_at]);
-  return hydrateBrand(await one('SELECT * FROM brands WHERE id = $1', [created.id]));
+  return hydrateBrand(await exec.one('SELECT * FROM brands WHERE id = $1', [created.id]));
 }
 async function updateBrand(id, updates, orgId) {
   const existing = await getBrand(id, orgId);
@@ -460,7 +541,8 @@ async function getBrandThreats(brandId, orgId) {
   const rows = await all('SELECT * FROM brand_threats WHERE brand_id = $1 AND org_id = $2 ORDER BY detected_at DESC', [brandId, orgId]);
   return rows.map(hydrateThreat);
 }
-async function addBrandThreat(threat, brandId, orgId) {
+async function addBrandThreat(threat, brandId, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: threat.id || nextNumericId(),
@@ -469,9 +551,9 @@ async function addBrandThreat(threat, brandId, orgId) {
     severity: threat.severity || 'medium', notes: threat.notes || '',
     status: threat.status || 'active', detected_at: threat.detected_at || now(),
   };
-  await q('INSERT INTO brand_threats (id, brand_id, org_id, domain, threat_type, severity, notes, status, detected_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+  await exec.q('INSERT INTO brand_threats (id, brand_id, org_id, domain, threat_type, severity, notes, status, detected_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
     [created.id, created.brand_id, created.org_id, created.domain, created.threat_type, created.severity, created.notes, created.status, created.detected_at]);
-  return hydrateThreat(await one('SELECT * FROM brand_threats WHERE id = $1', [created.id]));
+  return hydrateThreat(await exec.one('SELECT * FROM brand_threats WHERE id = $1', [created.id]));
 }
 async function deleteBrandThreatByDomain(brandId, domain, orgId) {
   if (!orgId) return;
@@ -488,7 +570,8 @@ async function getBrandTakedowns(brandId, orgId) {
   }));
   return rows;
 }
-async function addBrandTakedown(takedown, brandId, orgId) {
+async function addBrandTakedown(takedown, brandId, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: takedown.id || nextNumericId(),
@@ -506,9 +589,9 @@ async function addBrandTakedown(takedown, brandId, orgId) {
     notes: takedown.notes || '',
     submitted_at: takedown.submitted_at || now(),
   };
-  await q('INSERT INTO brand_takedowns (id, brand_id, org_id, domain, threat_type, evidence, contact_email, sender_email, status, provider, abuse_email, email_template, sent, sent_at, notes, submitted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)',
+  await exec.q('INSERT INTO brand_takedowns (id, brand_id, org_id, domain, threat_type, evidence, contact_email, sender_email, status, provider, abuse_email, email_template, sent, sent_at, notes, submitted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)',
     [created.id, created.brand_id, created.org_id, created.domain, created.threat_type, created.evidence, created.contact_email, created.sender_email, created.status, created.provider, created.abuse_email, created.email_template, created.sent, created.sent_at, created.notes, created.submitted_at]);
-  return { ...hydrateTakedown(await one('SELECT * FROM brand_takedowns WHERE id = $1', [created.id])), replies: [] };
+  return { ...hydrateTakedown(await exec.one('SELECT * FROM brand_takedowns WHERE id = $1', [created.id])), replies: [] };
 }
 async function updateBrandTakedown(takedownId, brandId, updates, orgId) {
   if (!orgId) return null;
@@ -519,7 +602,8 @@ async function updateBrandTakedown(takedownId, brandId, updates, orgId) {
     [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null]);
   return hydrateTakedown(await one('SELECT * FROM brand_takedowns WHERE id = $1', [takedownId]));
 }
-async function addTakedownReply(reply, takedownId, brandId, orgId) {
+async function addTakedownReply(reply, takedownId, brandId, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required');
   const created = {
     id: reply.id || nextNumericId(),
@@ -528,9 +612,9 @@ async function addTakedownReply(reply, takedownId, brandId, orgId) {
     body: reply.body || '', direction: reply.direction || 'incoming',
     timestamp: reply.timestamp || now(),
   };
-  await q('INSERT INTO brand_takedown_replies (id, takedown_id, brand_id, org_id, from_email, subject, body, direction, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+  await exec.q('INSERT INTO brand_takedown_replies (id, takedown_id, brand_id, org_id, from_email, subject, body, direction, timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
     [created.id, created.takedown_id, created.brand_id, created.org_id, created.from_email, created.subject, created.body, created.direction, created.timestamp]);
-  return hydrateReply(await one('SELECT * FROM brand_takedown_replies WHERE id = $1', [created.id]));
+  return hydrateReply(await exec.one('SELECT * FROM brand_takedown_replies WHERE id = $1', [created.id]));
 }
 
 async function getBrandSafeList(brandId, orgId) {
@@ -538,10 +622,11 @@ async function getBrandSafeList(brandId, orgId) {
   const rows = await all('SELECT domain FROM brand_safe_entries WHERE brand_id = $1 AND org_id = $2 ORDER BY added_at DESC', [brandId, orgId]);
   return rows.map(r => r.domain);
 }
-async function addSafeEntry(brandId, domain, orgId) {
+async function addSafeEntry(brandId, domain, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) return;
   try {
-    await q('INSERT INTO brand_safe_entries (id, brand_id, org_id, domain, added_at) VALUES ($1, $2, $3, $4, $5)', [nextNumericId(), brandId, orgId, domain.toLowerCase(), now()]);
+    await exec.q('INSERT INTO brand_safe_entries (id, brand_id, org_id, domain, added_at) VALUES ($1, $2, $3, $4, $5)', [nextNumericId(), brandId, orgId, domain.toLowerCase(), now()]);
   } catch (e) {
     if (!String(e.message).includes('duplicate key')) throw e;
   }
@@ -556,7 +641,8 @@ async function getBrandAlerts(orgId, limit = 50) {
   const rows = await all('SELECT * FROM brand_alerts WHERE org_id = $1 ORDER BY created_at DESC LIMIT $2', [orgId, limit]);
   return rows.map(hydrateAlert);
 }
-async function addBrandAlert(alert, orgId) {
+async function addBrandAlert(alert, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required');
   const { id: _, brand_id, brand_name, alert_type, severity, message, acknowledged, created_at, ...extras } = alert;
   const created = {
@@ -567,9 +653,9 @@ async function addBrandAlert(alert, orgId) {
     data: json(extras), acknowledged: acknowledged ? 1 : 0,
     created_at: created_at || now(),
   };
-  await q('INSERT INTO brand_alerts (id, brand_id, org_id, brand_name, alert_type, severity, message, data, acknowledged, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+  await exec.q('INSERT INTO brand_alerts (id, brand_id, org_id, brand_name, alert_type, severity, message, data, acknowledged, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
     [created.id, created.brand_id, created.org_id, created.brand_name, created.alert_type, created.severity, created.message, created.data, created.acknowledged, created.created_at]);
-  return hydrateAlert(await one('SELECT * FROM brand_alerts WHERE id = $1', [created.id]));
+  return hydrateAlert(await exec.one('SELECT * FROM brand_alerts WHERE id = $1', [created.id]));
 }
 async function deleteBrandAlert(alertId, orgId) {
   if (!orgId) return;
@@ -588,14 +674,17 @@ async function migrateBrandsFromSettingsBlob() {
 
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    // Every statement runs on the checked-out client so ROLLBACK undoes a
+    // partial import; the source blob is only deleted after everything lands.
+    const tx = bindTx(client);
+    await tx.q('BEGIN');
     for (const row of blobs) {
       if (row.key === 'monitored_brands') {
         const arr = parse(row.value, []) || [];
         for (const b of arr) {
           // Skip if a brand with this id already exists for the org (avoid
           // duplicating on re-runs).
-          const exists = await one('SELECT 1 FROM brands WHERE id = $1 AND org_id = $2', [b.id, row.org_id]);
+          const exists = await tx.one('SELECT 1 FROM brands WHERE id = $1 AND org_id = $2', [b.id, row.org_id]);
           if (exists) continue;
           const created = await addBrand({
             id: b.id, domain: b.domain, brand_name: b.brand_name,
@@ -603,22 +692,22 @@ async function migrateBrandsFromSettingsBlob() {
             alerts_enabled: b.alerts_enabled !== false,
             last_scan: b.last_scan, next_scan: b.next_scan, last_results: b.last_results,
             added_at: b.added_at,
-          }, row.org_id);
-          for (const t of (b.threats || [])) await addBrandThreat(t, created.id, row.org_id);
+          }, row.org_id, tx);
+          for (const t of (b.threats || [])) await addBrandThreat(t, created.id, row.org_id, tx);
           for (const td of (b.takedowns || [])) {
-            const tdRow = await addBrandTakedown(td, created.id, row.org_id);
-            for (const r of (td.replies || [])) await addTakedownReply(r, tdRow.id, created.id, row.org_id);
+            const tdRow = await addBrandTakedown(td, created.id, row.org_id, tx);
+            for (const r of (td.replies || [])) await addTakedownReply(r, tdRow.id, created.id, row.org_id, tx);
           }
-          for (const sd of (b.safe_list || [])) await addSafeEntry(created.id, sd, row.org_id);
+          for (const sd of (b.safe_list || [])) await addSafeEntry(created.id, sd, row.org_id, tx);
         }
       } else if (row.key === 'brand_alerts') {
         const arr = parse(row.value, []) || [];
-        for (const a of arr) await addBrandAlert(a, row.org_id);
+        for (const a of arr) await addBrandAlert(a, row.org_id, tx);
       }
     }
     // Drop the migrated blob rows so we don't re-run.
-    await client.query("DELETE FROM settings WHERE key IN ('monitored_brands', 'brand_alerts')");
-    await client.query('COMMIT');
+    await tx.q("DELETE FROM settings WHERE key IN ('monitored_brands', 'brand_alerts')");
+    await tx.q('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[T162] brand migration failed:', e.message);
@@ -646,6 +735,7 @@ async function initDatabase() {
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
+  consumeSetting, mergeSetting, removeSettingKey, claimNonce, parseField,
   getSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization,
   getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, nextNumericId,

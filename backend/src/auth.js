@@ -70,22 +70,27 @@ async function publicUser(user) {
 }
 
 async function requireAuth(req, res, next) {
-  if (process.env.AUTH_DISABLED === 'true') {
-    req.user = (await db.getUsers())[0];
-    req.orgId = req.user?.org_id || 'segbytes';
-    return next();
+  try {
+    if (process.env.AUTH_DISABLED === 'true') {
+      req.user = (await db.getUsers())[0];
+      req.orgId = req.user?.org_id || 'segbytes';
+      return next();
+    }
+
+    const bearer = req.headers.authorization || '';
+    const token = bearer.startsWith('Bearer ') ? bearer.slice(7) : null;
+    const payload = verifyToken(token);
+    if (!payload?.sub) return res.status(401).json({ error: 'Authentication required' });
+
+    const user = await db.getUser(payload.sub);
+    if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid user' });
+    req.user = user;
+    req.orgId = user.org_id;
+    next();
+  } catch (err) {
+    // Express 4 does not forward rejected async middleware — forward manually.
+    next(err);
   }
-
-  const bearer = req.headers.authorization || '';
-  const token = bearer.startsWith('Bearer ') ? bearer.slice(7) : null;
-  const payload = verifyToken(token);
-  if (!payload?.sub) return res.status(401).json({ error: 'Authentication required' });
-
-  const user = await db.getUser(payload.sub);
-  if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid user' });
-  req.user = user;
-  req.orgId = user.org_id;
-  next();
 }
 
 function requireRole(...roles) {

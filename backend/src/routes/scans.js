@@ -5,16 +5,18 @@ const { DNSService } = require('../services/dnsProviders');
 const { captureException } = require('../capture');
 
 // Run scan on domain
-router.post('/run/:domainId', async (req, res) => {
-  const domain = await getDomain(req.params.domainId);
-
-  if (!domain) {
-    return res.status(404).json({ error: 'Domain not found' });
-  }
-
-  const dnsService = new DNSService(domain.provider);
-
+router.post('/run/:domainId', async (req, res, next) => {
   try {
+    // Org-scoped lookup: a signed-in user must not operate on another
+    // organization's domain by guessing its id.
+    const domain = await getDomain(req.params.domainId, req.orgId);
+
+    if (!domain) {
+      return res.status(404).json({ error: 'Domain not found' });
+    }
+
+    const dnsService = new DNSService(domain.provider);
+
     const [spf, dkim, dmarc] = await Promise.all([
       dnsService.checkSPF(domain.name),
       dnsService.checkDKIM(domain.name),
@@ -29,7 +31,8 @@ router.post('/run/:domainId', async (req, res) => {
       ...(dmarc.found && dmarc.policy === 'none' ? ['DMARC policy is none'] : [])
     ];
 
-    const created = await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues }, domain.org_id);
+    // Insert under the authenticated organization, never the domain's.
+    const created = await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues }, req.orgId);
 
     res.json({
       success: true,
@@ -41,30 +44,30 @@ router.post('/run/:domainId', async (req, res) => {
       issues
     });
   } catch (error) {
-    captureException(error);
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
 // Get scan history for domain
-router.get('/history/:domainId', async (req, res) => {
-  const scans = await getScans(req.params.domainId, 50);
-  res.json(scans);
+router.get('/history/:domainId', async (req, res, next) => {
+  try {
+    const scans = await getScans(req.params.domainId, 50, req.orgId);
+    res.json(scans);
+  } catch (error) { next(error); }
 });
 
 // Auto-fix issues
-router.post('/fix/:domainId', async (req, res) => {
-  const domain = await getDomain(req.params.domainId);
-
-  if (!domain) {
-    return res.status(404).json({ error: 'Domain not found' });
-  }
-
-  const { record_type, content } = req.body;
-  const dnsService = new DNSService(domain.provider);
-  const providerConfig = JSON.parse(domain.provider_config || '{}');
-
+router.post('/fix/:domainId', async (req, res, next) => {
   try {
+    const domain = await getDomain(req.params.domainId, req.orgId);
+
+    if (!domain) {
+      return res.status(404).json({ error: 'Domain not found' });
+    }
+
+    const { record_type, content } = req.body;
+    const dnsService = new DNSService(domain.provider);
+
     let result;
     switch (record_type) {
       case 'spf':
@@ -83,8 +86,7 @@ router.post('/fix/:domainId', async (req, res) => {
 
     res.json({ success: true, ...result });
   } catch (error) {
-    captureException(error);
-    res.status(500).json({ error: error.message });
+    next(error);
   }
 });
 
