@@ -47,35 +47,16 @@ async function main() {
     credentials: true
   }));
 
-  // Body parsing. WHMCS PHP/cURL can submit form-encoded payloads; accept both JSON and URL-encoded bodies before sanitization.
+  // Body parsing. WHMCS PHP/cURL can submit form-encoded payloads; accept both JSON and URL-encoded bodies.
   app.use(express.json({ limit: '10kb' }));
   app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
-  // Input sanitization - basic XSS prevention
-  const sanitizeInput = (req, res, next) => {
-    const sanitize = (obj) => {
-      if (typeof obj === 'string') {
-        return obj.replace(/[<>'"]/g, '');
-      }
-      if (Array.isArray(obj)) {
-        return obj.map(sanitize);
-      }
-      if (obj && typeof obj === 'object') {
-        const sanitized = {};
-        for (const [key, value] of Object.entries(obj)) {
-          sanitized[key] = sanitize(value);
-        }
-        return sanitized;
-      }
-      return obj;
-    };
-
-    if (req.body) req.body = sanitize(req.body);
-    if (req.query) req.query = sanitize(req.query);
-    next();
-  };
-
-  app.use(sanitizeInput);
+  // No global request sanitizer: stripping < > ' " from every payload
+  // silently corrupted legitimate input (SMTP passwords with quotes were
+  // stored mangled; takedown templates and brand names got mangled too),
+  // and it never covered DNS-sourced data — the real XSS surface.
+  // Defense lives at the render points: HTML templates escape via
+  // src/utils/html.js, and JSON responses are framework-encoded.
 
   // Rate limiting
   const limiter = rateLimit({

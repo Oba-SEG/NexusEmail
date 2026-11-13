@@ -405,7 +405,15 @@ class NotificationService {
   }
 
   stripHtml(html) {
-    return html.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(p|div|h[1-6]|li|tr|ul|ol|blockquote)>/gi, '\n')
+      .replace(/<[^>]*>/g, '')
+      .replace(/&(nbsp|amp|lt|gt|quot|#39);/g, (m, e) =>
+        ({ nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }[e]))
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
   }
 }
 

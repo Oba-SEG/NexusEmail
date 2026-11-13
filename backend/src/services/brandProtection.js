@@ -1,5 +1,6 @@
 const dns = require('dns').promises;
 const https = require('https');
+const { escapeHtml } = require('../utils/html');
 
 class BrandProtectionService {
   constructor() {
@@ -626,10 +627,13 @@ class BrandProtectionService {
   }
 
   buildTakedownEmail(domain, brandName, registrar, threatType) {
+    // brand_name/domain/registrar are user- or DNS-sourced and the result is
+    // sent as the email HTML body, so every interpolation must be escaped.
+    // Newlines are rendered as <br> because sendNotification treats body as HTML.
     const templates = {
-      impersonation: `Dear ${registrar || 'Domain Registrar'},\n\nI am writing to report a domain being used to impersonate our brand "${brandName}". The infringing domain is: ${domain}\n\nThis domain is being used for phishing, fraud, or brand impersonation purposes. We request immediate suspension of this domain.\n\nPlease contact us to verify our identity and proceed with the takedown.\n\nSincerely,\nBrand Protection Team`,
-      typosquatting: `Dear ${registrar || 'Domain Registrar'},\n\nWe are reporting a typosquatting domain that mimics our brand "${brandName}": ${domain}\n\nThis domain was registered to confuse users and potentially engage in phishing or fraud. We request its suspension.\n\nPlease contact us to verify our identity.\n\nSincerely,\nBrand Protection Team`,
-      phishing: `Dear ${registrar || 'Domain Registrar'},\n\nWe report a phishing site impersonating "${brandName}": ${domain}\n\nThis site is being used to steal user credentials or distribute malware. Urgent action is requested.\n\nPlease suspend this domain immediately.\n\nSincerely,\nBrand Protection Team`
+      impersonation: `Dear ${escapeHtml(registrar || 'Domain Registrar')},<br><br>I am writing to report a domain being used to impersonate our brand "${escapeHtml(brandName)}". The infringing domain is: ${escapeHtml(domain)}<br><br>This domain is being used for phishing, fraud, or brand impersonation purposes. We request immediate suspension of this domain.<br><br>Please contact us to verify our identity and proceed with the takedown.<br><br>Sincerely,<br>Brand Protection Team`,
+      typosquatting: `Dear ${escapeHtml(registrar || 'Domain Registrar')},<br><br>We are reporting a typosquatting domain that mimics our brand "${escapeHtml(brandName)}": ${escapeHtml(domain)}<br><br>This domain was registered to confuse users and potentially engage in phishing or fraud. We request its suspension.<br><br>Please contact us to verify our identity.<br><br>Sincerely,<br>Brand Protection Team`,
+      phishing: `Dear ${escapeHtml(registrar || 'Domain Registrar')},<br><br>We report a phishing site impersonating "${escapeHtml(brandName)}": ${escapeHtml(domain)}<br><br>This site is being used to steal user credentials or distribute malware. Urgent action is requested.<br><br>Please suspend this domain immediately.<br><br>Sincerely,<br>Brand Protection Team`
     };
     return templates[threatType] || templates.impersonation;
   }
