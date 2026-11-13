@@ -635,16 +635,26 @@ async function addBrandTakedown(takedown, brandId, orgId, tx) {
 }
 async function updateBrandTakedown(takedownId, brandId, updates, orgId, expectedStatus) {
   if (!orgId) return null;
-  const existing = await one('SELECT * FROM brand_takedowns WHERE id = $1 AND brand_id = $2 AND org_id = $3', [takedownId, brandId, orgId]);
-  if (!existing) return null;
-  const next = { ...hydrateTakedown(existing), ...updates };
-  const { rows } = await q(
-    `UPDATE brand_takedowns SET status=$4, notes=$5, sent=$6, sent_at=$7, sender_email=$8
-     WHERE id=$1 AND brand_id=$2 AND org_id=$3 ${expectedStatus ? 'AND status = $9' : ''} RETURNING *`,
-    expectedStatus
-      ? [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null, expectedStatus]
-      : [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null]
-  );
+  // Partial update: only the supplied columns are written, so a concurrent
+  // update of other columns (or the status itself) isn't clobbered by a
+  // stale merged object.
+  const colMap = { status: 'status', notes: 'notes', sent: 'sent', sent_at: 'sent_at', sender_email: 'sender_email' };
+  const params = [];
+  const set = [];
+  for (const [key, col] of Object.entries(colMap)) {
+    if (!(key in updates)) continue;
+    let value = updates[key];
+    if (key === 'sent') value = value ? 1 : 0;
+    params.push(value);
+    set.push(`${col} = $${params.length}`);
+  }
+  const current = await one('SELECT * FROM brand_takedowns WHERE id = $1 AND brand_id = $2 AND org_id = $3', [takedownId, brandId, orgId]);
+  if (!current) return null;
+  if (set.length === 0) return hydrateTakedown(current);
+  const where = `id = $${params.length + 1} AND brand_id = $${params.length + 2} AND org_id = $${params.length + 3}${expectedStatus ? ` AND status = $${params.length + 4}` : ''}`;
+  params.push(takedownId, brandId, orgId);
+  if (expectedStatus) params.push(expectedStatus);
+  const { rows } = await q(`UPDATE brand_takedowns SET ${set.join(', ')} WHERE ${where} RETURNING *`, params);
   return rows[0] ? hydrateTakedown(rows[0]) : null;
 }
 async function addTakedownReply(reply, takedownId, brandId, orgId, tx) {
