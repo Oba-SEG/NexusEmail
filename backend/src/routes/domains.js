@@ -11,24 +11,24 @@ const notificationService = new NotificationService();
 const verificationService = new DomainVerificationService();
 
 // Get all domains
-router.get('/', (req, res) => {
-  const domains = db.getDomains(req.orgId);
-  const result = domains.map(d => {
-    const lastScan = db.getLatestScan(d.id, req.orgId);
-    return { 
-      ...d, 
-      last_score: lastScan?.score || null, 
+router.get('/', async (req, res) => {
+  const domains = await db.getDomains(req.orgId);
+  const result = await Promise.all(domains.map(async (d) => {
+    const lastScan = await db.getLatestScan(d.id, req.orgId);
+    return {
+      ...d,
+      last_score: lastScan?.score || null,
       last_scan: lastScan?.scanned_at || null,
       verified: d.verified || false,
       verified_at: d.verified_at || null,
       verification_method: d.verification_method || null
     };
-  });
+  }));
   res.json(result);
 });
 
 // Generate verification for domain (before adding)
-router.post('/verify/generate', (req, res) => {
+router.post('/verify/generate', async (req, res) => {
   const { domain } = req.body;
   
   if (!domain) {
@@ -38,10 +38,10 @@ router.post('/verify/generate', (req, res) => {
   const verification = verificationService.generateVerification(domain.toLowerCase().trim());
   
   // Store pending verification
-  const pending = db.getSetting('pending_verifications', req.orgId) || '[]';
+  const pending = await db.getSetting('pending_verifications', req.orgId) || '[]';
   const pendingList = JSON.parse(pending);
   pendingList.push(verification);
-  db.setSetting('pending_verifications', JSON.stringify(pendingList.slice(-50)), req.orgId);
+  await db.setSetting('pending_verifications', JSON.stringify(pendingList.slice(-50)), req.orgId);
   
   res.json(verification);
 });
@@ -60,7 +60,7 @@ router.post('/verify/check', async (req, res) => {
 });
 
 // Add new domain (with optional verification)
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, provider, provider_config, auto_fix, notify_email, verify } = req.body;
   
   try {
@@ -80,7 +80,7 @@ router.post('/', (req, res) => {
       domainData.verification_method = verify.method || 'TXT';
     }
     
-    const domain = db.addDomain(domainData, req.orgId);
+    const domain = await db.addDomain(domainData, req.orgId);
     res.json({ 
       success: true, 
       ...domain,
@@ -96,7 +96,7 @@ router.post('/', (req, res) => {
 // Verify existing domain
 router.post('/:id/verify', async (req, res) => {
   const { token, method } = req.body;
-  const domains = db.getDomains(req.orgId);
+  const domains = await db.getDomains(req.orgId);
   const domain = domains.find(d => d.id === parseInt(req.params.id));
   
   if (!domain) {
@@ -110,7 +110,7 @@ router.post('/:id/verify', async (req, res) => {
   const result = await verificationService.verify(domain.name, token, method || 'TXT');
   
   if (result.verified) {
-    db.updateDomain(domain.id, {
+    await db.updateDomain(domain.id, {
       verified: 1,
       verified_at: result.verified_at,
       verification_method: result.method
@@ -126,8 +126,8 @@ router.post('/:id/verify', async (req, res) => {
 });
 
 // Get verification status for domain
-router.get('/:id/verify/status', (req, res) => {
-  const domains = db.getDomains(req.orgId);
+router.get('/:id/verify/status', async (req, res) => {
+  const domains = await db.getDomains(req.orgId);
   const domain = domains.find(d => d.id === parseInt(req.params.id));
   
   if (!domain) {
@@ -144,8 +144,8 @@ router.get('/:id/verify/status', (req, res) => {
 });
 
 // Generate new verification token for existing domain
-router.get('/:id/verify/generate', (req, res) => {
-  const domains = db.getDomains(req.orgId);
+router.get('/:id/verify/generate', async (req, res) => {
+  const domains = await db.getDomains(req.orgId);
   const domain = domains.find(d => d.id === parseInt(req.params.id));
   
   if (!domain) {
@@ -157,7 +157,7 @@ router.get('/:id/verify/generate', (req, res) => {
 });
 
 // Bulk add domains
-router.post('/bulk', (req, res) => {
+router.post('/bulk', async (req, res) => {
   const { domains } = req.body;
   if (!Array.isArray(domains) || domains.length === 0) {
     return res.status(400).json({ error: 'No domains provided' });
@@ -168,7 +168,7 @@ router.post('/bulk', (req, res) => {
 
   for (const name of domains) {
     try {
-      const domain = db.addDomain({ name: name.toLowerCase().trim(), provider: 'manual', status: 'active' }, req.orgId);
+      const domain = await db.addDomain({ name: name.toLowerCase().trim(), provider: 'manual', status: 'active' }, req.orgId);
       added.push(name);
     } catch (e) {
     captureException(e);
@@ -181,13 +181,13 @@ router.post('/bulk', (req, res) => {
 
 // Bulk scan
 router.post('/bulk-scan', async (req, res) => {
-  const domains = db.getDomains(req.orgId).filter(d => d.status === 'active');
+  const domains = await db.getDomains(req.orgId).filter(d => d.status === 'active');
   const results = [];
   
   for (const domain of domains) {
     try {
       const audit = await auditor.auditDomain(domain.name);
-      db.addScan({
+      await db.addScan({
         domain_id: domain.id,
         score: audit.score,
         spf_status: audit.spf?.status || 'UNKNOWN',
@@ -209,19 +209,19 @@ router.post('/bulk-scan', async (req, res) => {
 });
 
 // Get single domain
-router.get('/:id', (req, res) => {
-  const domain = db.getDomain(parseInt(req.params.id), req.orgId);
+router.get('/:id', async (req, res) => {
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
-  const latestScan = db.getLatestScan(domain.id, req.orgId);
-  const history = db.getScans(domain.id, 30, req.orgId);
+  const latestScan = await db.getLatestScan(domain.id, req.orgId);
+  const history = await db.getScans(domain.id, 30, req.orgId);
 
   res.json({ ...domain, latest_scan: latestScan, history, issues: latestScan ? JSON.parse(latestScan.issues || '[]') : [] });
 });
 
 // Scan single domain
 router.post('/:id/scan', async (req, res) => {
-  const domain = db.getDomain(parseInt(req.params.id), req.orgId);
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
   // Check domain ownership verification
@@ -240,7 +240,7 @@ router.post('/:id/scan', async (req, res) => {
 
   try {
     const audit = await auditor.auditDomain(domain.name);
-    db.addScan({
+    await db.addScan({
       domain_id: domain.id,
       score: audit.score,
       spf_status: audit.spf?.status || 'UNKNOWN',
@@ -259,20 +259,20 @@ router.post('/:id/scan', async (req, res) => {
 });
 
 // Update domain
-router.patch('/:id', (req, res) => {
+router.patch('/:id', async (req, res) => {
   const { provider, auto_fix, notify_email } = req.body;
   const updates = {};
   if (provider) updates.provider = provider;
   if (auto_fix !== undefined) updates.auto_fix = auto_fix ? 1 : 0;
   if (notify_email !== undefined) updates.notify_email = notify_email;
   
-  db.updateDomain(parseInt(req.params.id), updates, req.orgId);
+  await db.updateDomain(parseInt(req.params.id), updates, req.orgId);
   res.json({ success: true });
 });
 
 // Delete domain
-router.delete('/:id', (req, res) => {
-  db.deleteDomain(parseInt(req.params.id), req.orgId);
+router.delete('/:id', async (req, res) => {
+  await db.deleteDomain(parseInt(req.params.id), req.orgId);
   res.json({ success: true });
 });
 

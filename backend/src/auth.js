@@ -55,9 +55,9 @@ function verifyPassword(password, stored) {
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(candidate));
 }
 
-function publicUser(user) {
+async function publicUser(user) {
   if (!user) return null;
-  const org = db.getOrganization(user.org_id);
+  const org = await db.getOrganization(user.org_id);
   return {
     id: user.id,
     email: user.email,
@@ -69,9 +69,9 @@ function publicUser(user) {
   };
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   if (process.env.AUTH_DISABLED === 'true') {
-    req.user = db.getUsers()[0];
+    req.user = (await db.getUsers())[0];
     req.orgId = req.user?.org_id || 'segbytes';
     return next();
   }
@@ -81,7 +81,7 @@ function requireAuth(req, res, next) {
   const payload = verifyToken(token);
   if (!payload?.sub) return res.status(401).json({ error: 'Authentication required' });
 
-  const user = db.getUser(payload.sub);
+  const user = await db.getUser(payload.sub);
   if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid user' });
   req.user = user;
   req.orgId = user.org_id;

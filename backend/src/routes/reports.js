@@ -15,10 +15,10 @@ if (!fs.existsSync(reportsDir)) {
 // Generate single domain HTML report
 router.get('/domains/:id/report', async (req, res) => {
   try {
-    const domain = db.getDomain(parseInt(req.params.id), req.orgId);
+    const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
     if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
-    const scans = db.getScans(domain.id, 30, req.orgId) || [];
+    const scans = await db.getScans(domain.id, 30, req.orgId) || [];
     const issues = { high: 0, medium: 0, low: 0 };
     scans.forEach(scan => {
       if (scan.issues) {
@@ -41,16 +41,16 @@ router.get('/domains/:id/report', async (req, res) => {
 });
 
 // Export all domains as CSV
-router.get('/export/csv', (req, res) => {
+router.get('/export/csv', async (req, res) => {
   try {
-    const domains = db.getDomains(req.orgId);
+    const domains = await db.getDomains(req.orgId);
     let csv = 'Domain,Provider,Score,Last Scan,Verified,SPF,DKIM,DMARC\n';
     
-    domains.forEach(d => {
-      const scan = db.getLatestScan(d.id, req.orgId);
+    for (const d of domains) {
+      const scan = await db.getLatestScan(d.id, req.orgId);
       const results = scan?.results ? JSON.parse(scan.results) : {};
       csv += `${d.name},${d.provider || 'Manual'},${d.last_score || ''},${d.last_scan || ''},${d.verified ? 'Yes' : 'No'},${results.spf?.status || 'N/A'},${results.dkim?.status || 'N/A'},${results.dmarc?.status || 'N/A'}\n`;
-    });
+    }
 
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename=nexusemail-domains.csv');
@@ -62,9 +62,9 @@ router.get('/export/csv', (req, res) => {
 });
 
 // Export all domains as JSON
-router.get('/export/json', (req, res) => {
+router.get('/export/json', async (req, res) => {
   try {
-    const domains = db.getDomains(req.orgId);
+    const domains = await db.getDomains(req.orgId);
     res.json(domains);
   } catch (e) {
     captureException(e);

@@ -1,57 +1,39 @@
 const express = require('express');
 const router = express.Router();
-const { getDatabase } = require('../db/database');
+const { getDomain, addScan, getScans } = require('../db/database');
 const { DNSService } = require('../services/dnsProviders');
 const { captureException } = require('../capture');
 
 // Run scan on domain
 router.post('/run/:domainId', async (req, res) => {
-  const db = getDatabase();
-  const domain = db.prepare('SELECT * FROM domains WHERE id = ?').get(req.params.domainId);
-  
+  const domain = await getDomain(req.params.domainId);
+
   if (!domain) {
     return res.status(404).json({ error: 'Domain not found' });
   }
-  
+
   const dnsService = new DNSService(domain.provider);
-  
+
   try {
     const [spf, dkim, dmarc] = await Promise.all([
       dnsService.checkSPF(domain.name),
       dnsService.checkDKIM(domain.name),
       dnsService.checkDMARC(domain.name)
     ]);
-    
+
     const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
-    
-    // Save scan result
-    const stmt = db.prepare(`
-      INSERT INTO scans (domain_id, score, spf_status, dkim_status, dmarc_status, 
-        spf_record, dkim_selectors, dmarc_record, issues)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
+
     const issues = [
       ...(spf.found ? [] : ['SPF not found']),
       ...(dkim.found ? [] : ['DKIM not found']),
       ...(dmarc.found && dmarc.policy === 'none' ? ['DMARC policy is none'] : [])
     ];
-    
-    const result = stmt.run(
-      domain.id,
-      score,
-      spf.status,
-      dkim.status,
-      dmarc.status,
-      JSON.stringify(spf),
-      JSON.stringify(dkim.selectors),
-      JSON.stringify(dmarc),
-      JSON.stringify(issues)
-    );
-    
+
+    const created = await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues }, domain.org_id);
+
     res.json({
       success: true,
-      scan_id: result.lastInsertRowid,
+      scan_id: created.id,
       score,
       spf,
       dkim,
@@ -65,28 +47,23 @@ router.post('/run/:domainId', async (req, res) => {
 });
 
 // Get scan history for domain
-router.get('/history/:domainId', (req, res) => {
-  const db = getDatabase();
-  const scans = db.prepare(`
-    SELECT * FROM scans WHERE domain_id = ? ORDER BY scanned_at DESC LIMIT 50
-  `).all(req.params.domainId);
-  
+router.get('/history/:domainId', async (req, res) => {
+  const scans = await getScans(req.params.domainId, 50);
   res.json(scans);
 });
 
 // Auto-fix issues
 router.post('/fix/:domainId', async (req, res) => {
-  const db = getDatabase();
-  const domain = db.prepare('SELECT * FROM domains WHERE id = ?').get(req.params.domainId);
-  
+  const domain = await getDomain(req.params.domainId);
+
   if (!domain) {
     return res.status(404).json({ error: 'Domain not found' });
   }
-  
+
   const { record_type, content } = req.body;
   const dnsService = new DNSService(domain.provider);
   const providerConfig = JSON.parse(domain.provider_config || '{}');
-  
+
   try {
     let result;
     switch (record_type) {
@@ -103,7 +80,7 @@ router.post('/fix/:domainId', async (req, res) => {
       default:
         return res.status(400).json({ error: 'Invalid record type' });
     }
-    
+
     res.json({ success: true, ...result });
   } catch (error) {
     captureException(error);
