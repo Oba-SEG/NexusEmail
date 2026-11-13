@@ -78,7 +78,8 @@ async function main() {
     // keeps failed logins from eating the global allowance that /auth/me and
     // organization endpoints share.
     skip: (req) => {
-      const path = req.path.toLowerCase();
+      let path = req.path.toLowerCase();
+      if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
       return path === '/api/auth/login'
         || path === '/api/auth/whmcs-exchange'
         || path === '/api/health'
