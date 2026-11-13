@@ -32,7 +32,17 @@ router.post('/run/:domainId', async (req, res, next) => {
     ];
 
     // Insert under the authenticated organization, never the domain's.
-    const created = await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues }, req.orgId);
+    // Also store the legacy-named fields (spf_record/dkim_selectors/dmarc_record)
+    // that the remediation route reads, alongside the object form.
+    const created = await addScan({
+      domain_id: domain.id,
+      score,
+      spf, dkim, dmarc,
+      spf_record: JSON.stringify(spf),
+      dkim_selectors: JSON.stringify(dkim.selectors || []),
+      dmarc_record: JSON.stringify(dmarc),
+      issues
+    }, req.orgId);
 
     res.json({
       success: true,

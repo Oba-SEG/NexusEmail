@@ -82,15 +82,25 @@ router.post('/organizations', requireAuth, requirePlatformAdmin, async (req, res
     if (await db.getOrganization(slug)) return res.status(409).json({ error: 'Organization already exists' });
     if (await db.getUserByEmail(owner_email)) return res.status(409).json({ error: 'Owner user already exists' });
 
-    const org = await db.addOrganization({ slug: slug.toLowerCase().trim(), name: name.trim() });
-    const owner = await db.addUser({
-      org_id: org.id,
-      email: owner_email.toLowerCase().trim(),
-      name: owner_name || owner_email,
-      role: 'owner',
-      password_hash: hashPassword(owner_password)
-    });
-    res.status(201).json({ organization: org, owner: await publicUser(owner) });
+    try {
+      // Org + owner in one transaction: a failed owner insert must not leave
+      // an ownerless organization behind.
+      const { org, owner } = await db.withTransaction(async (tx) => {
+        const org = await db.addOrganization({ slug: slug.toLowerCase().trim(), name: name.trim() }, tx);
+        const owner = await db.addUser({
+          org_id: org.id,
+          email: owner_email.toLowerCase().trim(),
+          name: owner_name || owner_email,
+          role: 'owner',
+          password_hash: hashPassword(owner_password)
+        }, tx);
+        return { org, owner };
+      });
+      res.status(201).json({ organization: org, owner: await publicUser(owner) });
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'Duplicate organization, user, or email' });
+      throw e;
+    }
   } catch (err) { next(err); }
 });
 

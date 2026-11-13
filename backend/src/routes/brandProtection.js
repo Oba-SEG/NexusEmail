@@ -263,10 +263,11 @@ router.post('/:id/takedown/:takedownId/reply', async (req, res, next) => {
 
     // If incoming reply on a 'sent' takedown, advance status to waiting_response
     if ((direction || 'incoming') === 'incoming') {
-      const tdRow = (await db.getBrandTakedowns(brandId, req.orgId)).find(t => t.id === takedownId);
-      if (tdRow && tdRow.status === 'sent') {
-        await db.updateBrandTakedown(takedownId, brandId, { status: 'waiting_response' }, req.orgId);
-      }
+    const tdRow = (await db.getBrandTakedowns(brandId, req.orgId)).find(t => t.id === takedownId);
+    if (tdRow && tdRow.status === 'sent') {
+      // expectedStatus guards against clobbering a concurrent status change.
+      await db.updateBrandTakedown(takedownId, brandId, { status: 'waiting_response' }, req.orgId, 'sent');
+    }
     }
 
     res.json({ success: true, reply });

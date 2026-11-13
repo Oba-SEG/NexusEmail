@@ -27,6 +27,14 @@ const pool = new Pool({
   ...(process.env.PGSSLREQUIRED ? { ssl: { rejectUnauthorized: process.env.PGSSL_REJECT_UNAUTHORIZED !== 'false' } } : {}),
 });
 
+// An idle pooled client that the server disconnected emits an unhandled
+// 'error' on the pool — without a listener it crashes the process outside
+// our query helpers. The pool already evicts the failed client.
+pool.on('error', (err) => {
+  console.error('[pg pool] idle client error:', err.message);
+  if (global.Sentry) global.Sentry.captureException(err);
+});
+
 function now() { return new Date().toISOString(); }
 function nextId(prefix) { return `${prefix}_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`; }
 let _numericIdCounter = 0;
@@ -364,10 +372,38 @@ async function mergeSetting(key, patch, orgId) {
     [orgId || 'global', key, JSON.stringify(patch ?? {}), now()]);
 }
 // Atomic removal of one key from a stored JSON map.
+// Both operations seed an org override with the EFFECTIVE map (global
+// fallback), so saving/deleting one provider cannot hide or resurrect the
+// inherited ones.
+async function mergeSetting(key, patch, orgId) {
+  await q(`INSERT INTO settings (org_id, key, value, updated_at)
+           VALUES ($1, $2, COALESCE((SELECT (value::jsonb || $3::jsonb)::text FROM settings WHERE org_id = 'global' AND key = $2), $3::text), $4)
+           ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb || $3::jsonb)::text, updated_at = $4`,
+    [orgId || 'global', key, JSON.stringify(patch ?? {}), now()]);
+}
 async function removeSettingKey(key, prop, orgId) {
-  await q(`UPDATE settings SET value = (value::jsonb - $3::text)::text, updated_at = $4
-           WHERE org_id = $1 AND key = $2`,
+  await q(`INSERT INTO settings (org_id, key, value, updated_at)
+           VALUES ($1, $2, COALESCE((SELECT (value::jsonb - $3::text)::text FROM settings WHERE org_id = 'global' AND key = $2), '{}'), $4)
+           ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb - $3::text)::text, updated_at = $4`,
     [orgId || 'global', key, String(prop), now()]);
+}
+
+// Run `cb` with a client-bound executor inside one transaction; commits on
+// success, rolls back and rethrows on failure. Routes use this when they need
+// multi-statement atomicity without touching pool directly.
+async function withTransaction(cb) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await cb(bindTx(client));
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 // WHMCS replay protection: each nonce is claimed exactly once via the
@@ -424,6 +460,10 @@ async function migrateLegacyJsonIfNeeded() {
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[legacy json migration] failed:', e.message);
+    // Rethrow: if we silently continued, initDatabase would seed defaults and
+    // the org-count guard would skip this import on every later boot — the
+    // source JSON would never be retried. Aborting keeps state importable.
+    throw e;
   } finally {
     client.release();
   }
@@ -593,14 +633,19 @@ async function addBrandTakedown(takedown, brandId, orgId, tx) {
     [created.id, created.brand_id, created.org_id, created.domain, created.threat_type, created.evidence, created.contact_email, created.sender_email, created.status, created.provider, created.abuse_email, created.email_template, created.sent, created.sent_at, created.notes, created.submitted_at]);
   return { ...hydrateTakedown(await exec.one('SELECT * FROM brand_takedowns WHERE id = $1', [created.id])), replies: [] };
 }
-async function updateBrandTakedown(takedownId, brandId, updates, orgId) {
+async function updateBrandTakedown(takedownId, brandId, updates, orgId, expectedStatus) {
   if (!orgId) return null;
   const existing = await one('SELECT * FROM brand_takedowns WHERE id = $1 AND brand_id = $2 AND org_id = $3', [takedownId, brandId, orgId]);
   if (!existing) return null;
   const next = { ...hydrateTakedown(existing), ...updates };
-  await q('UPDATE brand_takedowns SET status=$4, notes=$5, sent=$6, sent_at=$7, sender_email=$8 WHERE id=$1 AND brand_id=$2 AND org_id=$3',
-    [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null]);
-  return hydrateTakedown(await one('SELECT * FROM brand_takedowns WHERE id = $1', [takedownId]));
+  const { rows } = await q(
+    `UPDATE brand_takedowns SET status=$4, notes=$5, sent=$6, sent_at=$7, sender_email=$8
+     WHERE id=$1 AND brand_id=$2 AND org_id=$3 ${expectedStatus ? 'AND status = $9' : ''} RETURNING *`,
+    expectedStatus
+      ? [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null, expectedStatus]
+      : [takedownId, brandId, orgId, next.status, next.notes || '', next.sent ? 1 : 0, next.sent_at || null, next.sender_email || null]
+  );
+  return rows[0] ? hydrateTakedown(rows[0]) : null;
 }
 async function addTakedownReply(reply, takedownId, brandId, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
@@ -625,11 +670,10 @@ async function getBrandSafeList(brandId, orgId) {
 async function addSafeEntry(brandId, domain, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) return;
-  try {
-    await exec.q('INSERT INTO brand_safe_entries (id, brand_id, org_id, domain, added_at) VALUES ($1, $2, $3, $4, $5)', [nextNumericId(), brandId, orgId, domain.toLowerCase(), now()]);
-  } catch (e) {
-    if (!String(e.message).includes('duplicate key')) throw e;
-  }
+  // ON CONFLICT instead of a catch-swallow: inside a migration transaction a
+  // raised constraint error would abort the whole transaction.
+  await exec.q('INSERT INTO brand_safe_entries (id, brand_id, org_id, domain, added_at) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (brand_id, domain) DO NOTHING',
+    [nextNumericId(), brandId, orgId, String(domain).toLowerCase(), now()]);
 }
 async function removeSafeEntry(brandId, domain, orgId) {
   if (!orgId) return;
@@ -678,7 +722,13 @@ async function migrateBrandsFromSettingsBlob() {
     // partial import; the source blob is only deleted after everything lands.
     const tx = bindTx(client);
     await tx.q('BEGIN');
-    for (const row of blobs) {
+    // Process monitored_brands first: alerts can reference brands that the
+    // brands blob creates; unordered row reads could hit the FK first.
+    const ordered = [...blobs].sort((a, b) => (a.key === 'monitored_brands' ? 0 : 1) - (b.key === 'monitored_brands' ? 0 : 1));
+    for (const blobRow of ordered) {
+      // Legacy unprefixed settings landed under the 'global' org; the brands
+      // inside belong to the default org, not a literal 'global' org.
+      const row = blobRow.org_id === 'global' ? { ...blobRow, org_id: 'segbytes' } : blobRow;
       if (row.key === 'monitored_brands') {
         const arr = parse(row.value, []) || [];
         for (const b of arr) {
@@ -735,7 +785,7 @@ async function initDatabase() {
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
-  consumeSetting, mergeSetting, removeSettingKey, claimNonce, parseField,
+  consumeSetting, mergeSetting, removeSettingKey, claimNonce, parseField, withTransaction,
   getSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization,
   getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, nextNumericId,

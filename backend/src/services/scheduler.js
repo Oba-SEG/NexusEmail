@@ -27,7 +27,7 @@ async function scanDomain(domain, dnsService) {
   ]);
 
   const score = dnsService.calculateHealthScore(spf, dkim, dmarc);
-  await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, issues: [] }, domain.org_id);
+  await addScan({ domain_id: domain.id, score, spf, dkim, dmarc, spf_record: JSON.stringify(spf), dkim_selectors: JSON.stringify(dkim.selectors || []), dmarc_record: JSON.stringify(dmarc), issues: [] }, domain.org_id);
   console.log(`✅ Scanned ${domain.name} - Score: ${score}`);
   return score;
 }
