@@ -32,9 +32,10 @@ class NotificationService {
   }
 
   // Configure Resend (HTTP email API — no outbound SMTP ports needed)
-  configureResend({ apiKey, from, apiBase } = {}) {
+  configureResend(config = {}) {
+    const apiKey = config.apiKey || config.api_key;
     if (!apiKey) return null;
-    this.resend = { apiKey, from: from || this.config.from || DEFAULT_FROM, apiBase: apiBase || DEFAULT_RESEND_API_BASE };
+    this.resend = { apiKey, from: config.from || this.config.from || DEFAULT_FROM, apiBase: config.apiBase || DEFAULT_RESEND_API_BASE };
     return this.resend;
   }
 
