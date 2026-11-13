@@ -83,13 +83,38 @@ router.delete('/providers/credentials/:provider', async (req, res, next) => {
 
 // Test provider connection
 router.post('/providers/test', async (req, res) => {
-  const { provider, credentials } = req.body;
-  
-  if (!provider || !credentials) {
-    return res.status(400).json({ error: 'Provider and credentials required' });
+  const { provider } = req.body;
+  let { credentials } = req.body;
+
+  if (!provider) {
+    return res.status(400).json({ error: 'Provider required' });
   }
 
   try {
+    const providerKey = provider.toLowerCase();
+    // The GET endpoint returns masked values (first 4 chars + '****') for
+    // display only. If the caller echoes those back (the UI's saved-state
+    // test does), swap them for the real stored values. Also fall back to
+    // stored credentials entirely when none were supplied.
+    const stored = JSON.parse(await db.getSetting('provider_credentials', req.orgId) || '{}')[providerKey] || {};
+    credentials = credentials || {};
+    let hasMasked = false;
+    for (const [key, value] of Object.entries(credentials)) {
+      if (typeof value === 'string' && /\*{4}$/.test(value)) {
+        if (stored[key] === undefined) {
+          return res.status(400).json({ error: `Stored credentials for ${provider} not found` });
+        }
+        credentials[key] = stored[key];
+        hasMasked = true;
+      }
+    }
+    if (!hasMasked && Object.keys(credentials).length === 0) {
+      credentials = stored;
+    }
+    if (Object.keys(credentials).length === 0) {
+      return res.status(400).json({ error: 'Provider and credentials required' });
+    }
+
     const dnsProvider = getProvider(provider, credentials);
     if (!dnsProvider) {
       return res.json({ success: false, error: 'Unknown provider' });

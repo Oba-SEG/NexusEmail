@@ -20,8 +20,12 @@ class CloudflareProvider extends DNSProvider {
   async deleteTXTRecord(name, domain) { return await this.provider.deleteTXTRecord(name, domain); }
   async listRecords(domain) { return await this.provider.listRecords(domain); }
   async testConnection() {
-    try { await this.provider.getZoneId('example.com'); return { success: true, latency: 45 }; }
-    catch (e) { return { success: false, error: e.message }; }
+    try {
+      const result = await this.provider.testConnection();
+      return result;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
   }
 }
 
