@@ -40,10 +40,13 @@ async function main() {
 
   app = express();
 
-  // Behind the Cloudflare Tunnel the socket peer is cloudflared on localhost,
-  // so every request would otherwise share the 127.0.0.1 rate-limit bucket.
-  // Trust only loopback proxies and take the client from X-Forwarded-For.
-  app.set('trust proxy', 'loopback');
+  // Rate limiting keys on req.ip, which only reflects the real client when
+  // the enforced ingress hop is trusted. The hop differs per deployment:
+  // behind the Cloudflare Tunnel the socket peer is cloudflared on localhost
+  // ('loopback'); behind Render's ingress the peer is Render's proxy
+  // (1 hop). TRUST_PROXY takes 'loopback' (default) or a hop count ('1').
+  const trustProxy = process.env.TRUST_PROXY || 'loopback';
+  app.set('trust proxy', /^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy);
 
   // Security middleware
   app.use(helmet());
@@ -70,7 +73,11 @@ async function main() {
     windowMs: 15 * 60 * 1000,
     max: 100,
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    // Credential endpoints have their own tight budget; excluding them here
+    // keeps failed logins from eating the global allowance that /auth/me and
+    // organization endpoints share.
+    skip: (req) => ['/api/auth/login', '/api/auth/whmcs-exchange'].includes(req.path)
   });
   app.use(limiter);
 
