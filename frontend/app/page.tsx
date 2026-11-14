@@ -268,6 +268,7 @@ export default function Dashboard() {
     const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
+      if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -293,6 +294,7 @@ export default function Dashboard() {
     const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
+      if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -397,8 +399,10 @@ export default function Dashboard() {
   };
 
   const loadDomains = async () => {
+    const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/domains`);
+      if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -425,6 +429,7 @@ export default function Dashboard() {
     const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/settings/integrations`);
+      if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
