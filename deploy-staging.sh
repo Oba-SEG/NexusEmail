@@ -31,22 +31,30 @@ if [ -z "$EK" ]; then
     # Distinguish grep 'no match' (status 1 -> MISSING) from read errors
     # (status 2+ -> ERROR). The grep status is checked directly; a pipeline
     # would report the last command's status and mask read errors.
-    # Absent -> MISSING; present-but-unreadable -> ERROR (never rotate over
-    # a file whose contents cannot be verified).
-    if [ -e \"\$f\" ]; then
-      if [ -r \"\$f\" ]; then
-        if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
-          k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
-          if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+    # Existence checks are only trustworthy when the parent directory is
+    # inspectable by us — on a non-searchable parent, -e returns false for
+    # existing files too. Parent uninspectable -> ERROR (abort), never MISSING.
+    d=\$(dirname \"\$f\")
+    if [ -d \"\$d\" ] && [ -x \"\$d\" ]; then
+      # Absent -> MISSING; present-but-unreadable -> ERROR (never rotate over
+      # a file whose contents cannot be verified).
+      if [ -e \"\$f\" ]; then
+        if [ -r \"\$f\" ]; then
+          if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
+            k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
+            if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+          else
+            gs=\$?
+            if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+          fi
         else
-          gs=\$?
-          if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+          printf 'ERROR'
         fi
       else
-        printf 'ERROR'
+        printf 'MISSING'
       fi
     else
-      printf 'MISSING'
+      printf 'ERROR'
     fi
   ") || { echo '==> abort: cannot verify remote encryption key (SSH or read failure)'; exit 1; }
   case "$REMOTE_EK" in
