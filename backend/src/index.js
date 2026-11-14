@@ -30,7 +30,6 @@ async function main() {
   await initDatabase();
 
   const authRoutes = require('./routes/auth');
-  const whmcsRoutes = require('./routes/whmcs');
   const domainRoutes = require('./routes/domains');
   const { router: settingsRoutes } = require('./routes/settings');
   const brandProtectionRoutes = require('./routes/brandProtection');
@@ -69,7 +68,7 @@ async function main() {
     credentials: true
   }));
 
-  // Body parsing. WHMCS PHP/cURL can submit form-encoded payloads; accept both JSON and URL-encoded bodies.
+  // Body parsing: JSON plus URL-encoded (some clients post forms).
   app.use(express.json({ limit: '10kb' }));
   app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
@@ -95,7 +94,6 @@ async function main() {
       let path = req.path.toLowerCase();
       if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
       return path === '/api/auth/login'
-        || path === '/api/auth/whmcs-exchange'
         || path === '/api/health'
         || path === '/api/cron/tick';
     }
@@ -109,7 +107,6 @@ async function main() {
 
   // Routes
   app.use('/api/auth', authRoutes);
-  app.use('/api/whmcs', whmcsRoutes);
   app.use('/api/domains', requireAuth, domainRoutes);
   app.use('/api/settings', requireAuth, settingsRoutes);
   app.use('/api/brands', requireAuth, brandProtectionRoutes);

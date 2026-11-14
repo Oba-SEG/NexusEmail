@@ -253,7 +253,6 @@ async function getOrganization(idOrSlug, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   return exec.one('SELECT * FROM organizations WHERE id = $1 OR slug = $1', [idOrSlug]);
 }
-async function getOrganizationByWhmcsClient(clientId) { return one('SELECT * FROM organizations WHERE whmcs_client_id = $1', [String(clientId)]); }
 async function addOrganization(org, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { id: org.id || nextId('org'), slug: org.slug, name: org.name, status: org.status || 'active', whmcs_client_id: org.whmcs_client_id || null, whmcs_service_id: org.whmcs_service_id || null, plan: org.plan || null, created_at: org.created_at || now(), updated_at: org.updated_at || now() };
@@ -273,12 +272,6 @@ async function updateOrganization(id, updates) {
 async function getUsers(orgId) { return all(orgId ? 'SELECT * FROM users WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM users ORDER BY created_at DESC', orgId ? [orgId] : []); }
 async function getUser(id) { return one('SELECT * FROM users WHERE id = $1', [id]); }
 async function getUserByEmail(email) { return one('SELECT * FROM users WHERE lower(email) = lower($1)', [email || '']); }
-async function getUserByWhmcsContact(clientId, contactId, email) {
-  if (contactId) {
-    return one('SELECT * FROM users WHERE whmcs_client_id = $1 AND whmcs_contact_id = $2', [String(clientId), String(contactId)]);
-  }
-  return one('SELECT * FROM users WHERE whmcs_client_id = $1 AND lower(email) = lower($2)', [String(clientId), email || '']);
-}
 async function addUser(user, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { id: user.id || nextId('usr'), org_id: user.org_id, email: user.email, name: user.name || user.email, role: user.role || 'member', platform_role: user.platform_role || null, status: user.status || 'active', password_hash: user.password_hash || null, whmcs_client_id: user.whmcs_client_id || null, whmcs_contact_id: user.whmcs_contact_id || null, created_at: user.created_at || now(), updated_at: user.updated_at || now() };
@@ -396,12 +389,6 @@ async function setSetting(key, value, orgId, tx) {
 async function deleteSetting(key, orgId) {
   await q('DELETE FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]);
 }
-// Atomic single-reader consume: returns the deleted value, or undefined when
-// absent. Used for one-time tokens so a race cannot double-spend them.
-async function consumeSetting(key, orgId) {
-  const result = await q('DELETE FROM settings WHERE org_id = $1 AND key = $2 RETURNING value', [orgId || 'global', key]);
-  return result.rows[0]?.value;
-}
 // Atomic JSON map merge (e.g. provider_credentials) and atomic removal of
 // one key from a stored JSON map. Both seed an org override with the
 // EFFECTIVE map (global fallback), so saving/deleting one provider cannot
@@ -487,16 +474,6 @@ async function withTransaction(cb) {
   } finally {
     client.release();
   }
-}
-
-// WHMCS replay protection: each nonce is claimed exactly once via the
-// primary-key constraint. Expired nonces are pruned opportunistically.
-const NONCE_WINDOW_MS = 10 * 60 * 1000;
-async function claimNonce(nonce) {
-  const result = await q('INSERT INTO whmcs_nonces (nonce, seen_at) VALUES ($1, $2) ON CONFLICT (nonce) DO NOTHING', [String(nonce), now()]);
-  if (result.rowCount === 0) return false;
-  await q('DELETE FROM whmcs_nonces WHERE seen_at < $1', [new Date(Date.now() - NONCE_WINDOW_MS).toISOString()]);
-  return true;
 }
 
 async function addReport(report, orgId, tx) {
@@ -895,10 +872,10 @@ async function initDatabase() {
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain, countActiveDomains,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
-  consumeSetting, mergeSetting, removeSettingKey, claimNonce, parseField, withTransaction,
+  mergeSetting, removeSettingKey, parseField, withTransaction,
   getSetting, setSetting, deleteSetting, addReport, getReports,
-  getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization,
-  getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, nextNumericId,
+  getOrganizations, getOrganization, addOrganization, updateOrganization,
+  getUsers, getUser, getUserByEmail, addUser, nextNumericId,
   ensureColumn, bumpUserTokenVersion,
   initDatabase,
   // T162 — Brand Protection relational helpers

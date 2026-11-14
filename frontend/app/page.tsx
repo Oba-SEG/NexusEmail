@@ -132,44 +132,8 @@ export default function Dashboard() {
     setUser(null);
   };
 
-  // Load local session or consume a short-lived WHMCS handoff token.
+  // Load local session.
   useEffect(() => {
-    const consumeWhmcsToken = async (handoffToken: string) => {
-      setLoading(true);
-      try {
-        const res = await fetch(`${API_BASE}/auth/whmcs-exchange`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: handoffToken })
-        });
-        if (!res.ok) throw new Error('WHMCS sign-in link is invalid or expired');
-        const data = await res.json();
-        // New identity: invalidate any in-flight settings responses.
-        sessionGenRef.current += 1;
-        setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-        setSlackForm({ webhook_url: '' });
-        setResendForm({ api_key: '', from: '' });
-        setSettings(null);
-        localStorage.setItem('nexusemail_token', data.token);
-        localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
-        setToken(data.token);
-        setUser(data.user);
-      } catch (e: any) {
-        setLoginError(e.message || 'WHMCS sign-in failed');
-      } finally {
-        const cleanUrl = `${window.location.origin}${window.location.pathname}${window.location.hash || ''}`;
-        window.history.replaceState({}, document.title, cleanUrl);
-        setLoading(false);
-      }
-    };
-
-    const url = new URL(window.location.href);
-    const handoffToken = url.searchParams.get('token');
-    if (handoffToken) {
-      consumeWhmcsToken(handoffToken);
-      return;
-    }
-
     const storedToken = localStorage.getItem('nexusemail_token');
     const storedUser = localStorage.getItem('nexusemail_user');
     if (storedToken) setToken(storedToken);
