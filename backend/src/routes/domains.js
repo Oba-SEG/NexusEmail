@@ -2,13 +2,11 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const { EmailSecurityAuditor } = require('../services/auditEngine');
-const { NotificationService } = require('../services/notifications');
 const { DomainVerificationService } = require('../services/domainVerification');
 const { captureException } = require('../capture');
 const { normalizeDomain } = require('../utils/domain');
 
 const auditor = new EmailSecurityAuditor();
-const notificationService = new NotificationService();
 const verificationService = new DomainVerificationService();
 
 // Active domains per organization (per-plan limits later). Env-tunable so
