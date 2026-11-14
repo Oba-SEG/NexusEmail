@@ -212,19 +212,26 @@ export default function Dashboard() {
     // current session's token (React state, not localStorage — another tab
     // may have overwritten it with a different identity) and must be
     // confirmed; on failure the session stays and the user is told.
+    // sessionGen guard: the await spans a possible identity change (a 401
+    // elsewhere can trigger handleAuthFailure and a fresh sign-in); a stale
+    // continuation must not clear the newer session.
+    const gen = sessionGenRef.current;
     try {
       const res = await fetch(`${API_BASE}/auth/revoke`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token || ''}` }
       });
+      if (gen !== sessionGenRef.current) return;
       if (!res.ok) {
         setLogoutNotice('Sign-out did not complete: the server could not revoke the session. Try again.');
         return;
       }
     } catch {
+      if (gen !== sessionGenRef.current) return;
       setLogoutNotice('Sign-out did not complete: network error. Try again.');
       return;
     }
+    if (gen !== sessionGenRef.current) return;
     setLogoutNotice(null);
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
