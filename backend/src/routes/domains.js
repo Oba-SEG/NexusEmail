@@ -11,6 +11,14 @@ const auditor = new EmailSecurityAuditor();
 const notificationService = new NotificationService();
 const verificationService = new DomainVerificationService();
 
+// Active domains per organization (per-plan limits later). Env-tunable so
+// deployments can tighten it without a code change.
+const DOMAIN_CAP = Number.parseInt(process.env.DOMAIN_CAP || '25', 10) || 25;
+
+function capError(activeCount) {
+  return `Domain limit reached: ${DOMAIN_CAP} active domains per organization (currently ${activeCount}). Remove domains or upgrade your plan.`;
+}
+
 // Get all domains
 router.get('/', async (req, res, next) => {
   try {
@@ -70,6 +78,11 @@ router.post('/', async (req, res) => {
   if (!check.ok) return res.status(400).json({ error: check.error });
 
   try {
+    const activeCount = await db.countActiveDomains(req.orgId);
+    if (activeCount >= DOMAIN_CAP) {
+      return res.status(402).json({ error: capError(activeCount) });
+    }
+
     const domainData = {
       name: check.name,
       provider: provider || 'manual',
@@ -171,6 +184,7 @@ router.post('/bulk', async (req, res) => {
 
   const added = [];
   const failed = [];
+  const valid = [];
 
   for (const rawName of domains) {
     const check = normalizeDomain(rawName);
@@ -179,12 +193,30 @@ router.post('/bulk', async (req, res) => {
       failed.push({ name: typeof rawName === 'string' ? rawName : '[invalid]', error: check.error });
       continue;
     }
+    valid.push(check.name);
+  }
+
+  // Whole-request cap: if the valid additions would exceed the cap, 402 and
+  // insert nothing (no partial adds — predictable upgrade flow).
+  if (valid.length > 0) {
     try {
-      const domain = await db.addDomain({ name: check.name, provider: 'manual', status: 'active' }, req.orgId);
-      added.push(check.name);
+      const activeCount = await db.countActiveDomains(req.orgId);
+      if (activeCount + valid.length > DOMAIN_CAP) {
+        return res.status(402).json({ error: capError(activeCount) });
+      }
+    } catch (e) {
+      captureException(e);
+      return res.status(500).json({ error: 'Internal error' });
+    }
+  }
+
+  for (const name of valid) {
+    try {
+      const domain = await db.addDomain({ name, provider: 'manual', status: 'active' }, req.orgId);
+      added.push(name);
     } catch (e) {
     captureException(e);
-      failed.push({ name: check.name, error: e.message });
+      failed.push({ name, error: e.message });
     }
   }
 
