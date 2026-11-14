@@ -24,9 +24,15 @@ function cspValue({ withFrameAncestors } = {}) {
     "https://*.ingest.sentry.io",
     "https://*.sentry.io",
   ].join(" ");
+  // unsafe-eval is a dev-mode need (React refresh/HMR). Production builds
+  // don't eval, so it's only emitted when explicitly running `next dev`
+  // (NODE_ENV=development); production defaults to a locked-down script-src.
+  const scriptSrc = ["'self'", "'unsafe-inline'"];
+  if (process.env.NODE_ENV === "development") scriptSrc.push("'unsafe-eval'");
+
   const directives = [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+    `script-src ${scriptSrc.join(" ")}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: https:",
     "font-src 'self' data:",
