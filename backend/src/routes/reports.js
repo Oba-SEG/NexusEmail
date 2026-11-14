@@ -41,16 +41,27 @@ router.get('/domains/:id/report', async (req, res) => {
   }
 });
 
+// CSV field sanitizer: (1) neutralize spreadsheet formula injection — a
+// value beginning with = + - @ tab or CR is a formula in
+// Excel/LibreOffice/Sheets, prefixing with ' forces text interpretation;
+// (2) RFC 4180 quoting — embedded commas/newlines would otherwise split
+// cells/rows and a split could re-expose a formula-leading cell.
+function csvField(value) {
+  let s = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
 // Export all domains as CSV
 router.get('/export/csv', async (req, res) => {
   try {
     const domains = await db.getDomains(req.orgId);
     let csv = 'Domain,Provider,Score,Last Scan,Verified,SPF,DKIM,DMARC\n';
-    
+
     for (const d of domains) {
       const scan = await db.getLatestScan(d.id, req.orgId);
       const results = scan?.results ? JSON.parse(scan.results) : {};
-      csv += `${d.name},${d.provider || 'Manual'},${d.last_score || ''},${d.last_scan || ''},${d.verified ? 'Yes' : 'No'},${results.spf?.status || 'N/A'},${results.dkim?.status || 'N/A'},${results.dmarc?.status || 'N/A'}\n`;
+      csv += `${csvField(d.name)},${csvField(d.provider || 'Manual')},${csvField(d.last_score || '')},${csvField(d.last_scan || '')},${csvField(d.verified ? 'Yes' : 'No')},${csvField(results.spf?.status || 'N/A')},${csvField(results.dkim?.status || 'N/A')},${csvField(results.dmarc?.status || 'N/A')}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
