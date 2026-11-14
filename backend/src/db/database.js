@@ -407,8 +407,10 @@ function secretSettingReadError(key) {
 }
 async function readSecretMapValue(exec, key, orgId) {
   // Org override first, then the global fallback — same precedence getSetting uses.
+  // IN ($1, 'global') so an org without an override still reads the inherited
+  // global map; ORDER BY keeps the org row ahead of the global row.
   const row = await exec.one(
-    'SELECT value FROM settings WHERE org_id = $1 AND key = $2 ORDER BY (org_id = $3) DESC, updated_at DESC LIMIT 1',
+    'SELECT value FROM settings WHERE org_id IN ($1, \'global\') AND key = $2 ORDER BY (org_id = $3) DESC, updated_at DESC LIMIT 1',
     [orgId || 'global', key, orgId || 'global']
   );
   if (!row) return undefined;

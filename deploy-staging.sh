@@ -22,7 +22,7 @@ PGPW=$(cat "$SECRETS_DIR/postgres-password")
 EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
 if [ -z "$EK" ]; then
   EK=$(openssl rand -hex 32)
-  umask 077 && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+  umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
 fi
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
