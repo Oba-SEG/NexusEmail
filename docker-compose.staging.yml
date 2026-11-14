@@ -39,6 +39,7 @@ services:
       - SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
       - ALLOWED_ORIGINS=https://brandprotection.segbytes.xyz,http://192.168.8.4:4102,http://localhost:3000
+      - DOMAIN_CAP=${DOMAIN_CAP:-25}
       - SENTRY_DSN=https://35daeff54c63b969a3a4c5231e2b247c@o4512322868936704.ingest.de.sentry.io/4512422741934160
       - SENTRY_ENVIRONMENT=staging
     depends_on:

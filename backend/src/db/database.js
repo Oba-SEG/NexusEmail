@@ -291,6 +291,15 @@ async function getDomains(orgId) {
   const rows = await all(orgId ? 'SELECT * FROM domains WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM domains ORDER BY created_at DESC', orgId ? [orgId] : []);
   return rows.map(hydrateDomain);
 }
+// Active-domain count for the per-org cap. Status lives inside the data
+// JSON blob; rows written before status existed count as active.
+async function countActiveDomains(orgId) {
+  const row = await one(
+    "SELECT COUNT(*)::int AS n FROM domains WHERE org_id = $1 AND COALESCE((data::json)->>'status', 'active') = 'active'",
+    [orgId]
+  );
+  return row.n;
+}
 async function addDomain(domain, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   const created = { ...domain, id: domain.id || nextNumericId(), org_id: orgId || domain.org_id || 'segbytes', created_at: domain.created_at || now(), updated_at: now() };
@@ -884,7 +893,7 @@ async function initDatabase() {
 }
 
 module.exports = {
-  getDomains, addDomain, getDomain, updateDomain, deleteDomain,
+  getDomains, addDomain, getDomain, updateDomain, deleteDomain, countActiveDomains,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   consumeSetting, mergeSetting, removeSettingKey, claimNonce, parseField, withTransaction,
   getSetting, setSetting, deleteSetting, addReport, getReports,
