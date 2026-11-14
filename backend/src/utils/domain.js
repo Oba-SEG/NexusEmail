@@ -6,11 +6,14 @@ const LABEL_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function normalizeDomain(raw) {
   if (typeof raw !== 'string') return { ok: false, error: 'Domain must be a string' };
-  const name = raw.toLowerCase().trim();
+  const trimmed = raw.trim();
+  // printable ASCII only (space..~), checked BEFORE toLowerCase: case mapping
+  // would fold e.g. U+212A KELVIN SIGN to ASCII 'k' and smuggle it through
+  const rejectedNonAscii = { ok: false, error: 'Non-ASCII domains are not supported (use punycode)' };
+  if (/[^ -~]/.test(trimmed)) return rejectedNonAscii;
+  const name = trimmed.toLowerCase();
   if (!name) return { ok: false, error: 'Domain is required' };
   if (name.length > MAX_LEN) return { ok: false, error: 'Domain exceeds 253 characters' };
-  // printable ASCII only (space..~); also excludes control chars
-  if (/[^ -~]/.test(name)) return { ok: false, error: 'Non-ASCII domains are not supported (use punycode)' };
   if (!name.includes('.')) return { ok: false, error: 'Domain must include a TLD (at least one dot)' };
   if (name.startsWith('.') || name.endsWith('.')) return { ok: false, error: 'Domain cannot start or end with a dot' };
 

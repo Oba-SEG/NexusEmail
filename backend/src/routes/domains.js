@@ -175,7 +175,8 @@ router.post('/bulk', async (req, res) => {
   for (const rawName of domains) {
     const check = normalizeDomain(rawName);
     if (!check.ok) {
-      failed.push({ name: typeof rawName === 'string' ? rawName : String(rawName), error: check.error });
+      // no String() coercion here — hostile objects (null toString) throw
+      failed.push({ name: typeof rawName === 'string' ? rawName : '[invalid]', error: check.error });
       continue;
     }
     try {
