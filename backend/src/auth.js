@@ -8,6 +8,12 @@ if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'dev-secret-change-m
   throw new Error('Set JWT_SECRET or NEXUSEMAIL_JWT_SECRET before running NexusEmail in production');
 }
 
+// AUTH_DISABLED auto-authenticates every request as the first user — a dev
+// convenience that must never exist in production.
+if (process.env.NODE_ENV === 'production' && process.env.AUTH_DISABLED === 'true') {
+  throw new Error('AUTH_DISABLED=true is not allowed in production');
+}
+
 function base64url(input) {
   return Buffer.from(input).toString('base64url');
 }
