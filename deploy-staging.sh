@@ -19,6 +19,66 @@ JW=$(cat "$SECRETS_DIR/jwt-secret")
 CR=$(cat "$SECRETS_DIR/cron-secret")
 PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
+EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
+if [ -z "$EK" ]; then
+  # A fresh key here would leave existing encrypted settings undecryptable,
+  # so the remote key is recovered first. An SSH/lookup failure must abort —
+  # it is NOT the same as "remote has no key" — hence the KEY:/MISSING
+  # protocol below instead of relying on empty output.
+  REMOTE_EK=$(sshr "
+    set -e
+    f=$REMOTE_DIR/.env
+    # Distinguish grep 'no match' (status 1 -> MISSING) from read errors
+    # (status 2+ -> ERROR). The grep status is checked directly; a pipeline
+    # would report the last command's status and mask read errors.
+    # Existence checks are only trustworthy when the parent directory is
+    # inspectable by us — on a non-searchable parent, -e returns false for
+    # existing files too. Parent uninspectable -> ERROR (abort), never MISSING.
+    d=\$(dirname \"\$f\")
+    if [ -d \"\$d\" ] && [ -x \"\$d\" ]; then
+      # Absent -> MISSING; present-but-unreadable -> ERROR (never rotate over
+      # a file whose contents cannot be verified).
+      if [ -e \"\$f\" ]; then
+        if [ -r \"\$f\" ]; then
+          if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
+            k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
+            if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+          else
+            gs=\$?
+            if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+          fi
+        else
+          printf 'ERROR'
+        fi
+      else
+        printf 'MISSING'
+      fi
+    else
+      printf 'ERROR'
+    fi
+  ") || { echo '==> abort: cannot verify remote encryption key (SSH or read failure)'; exit 1; }
+  case "$REMOTE_EK" in
+    KEY:*)
+      EK="${REMOTE_EK#KEY:}"
+      umask 077
+      touch "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot create key file'; exit 1; }
+      chmod 600 "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot restrict key file'; exit 1; }
+      printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+      echo "==> Recovered NEXUSEMAIL_ENCRYPTION_KEY from staging .env into $SECRETS_DIR/encryption-key"
+      ;;
+    MISSING)
+      EK=$(openssl rand -hex 32)
+      umask 077
+      touch "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot create key file'; exit 1; }
+      chmod 600 "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot restrict key file'; exit 1; }
+      printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+      ;;
+    *)
+      echo '==> abort: remote key lookup failed or unreadable .env; refusing to risk key rotation'
+      exit 1
+      ;;
+  esac
+fi
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
 sshr "mkdir -p $REMOTE_DIR"
@@ -34,6 +94,7 @@ echo "==> Writing .env (chmod 600, secrets sent via SSH stdin, not argv)"
   printf 'SEED_ADMIN_EMAIL=admin@segbytes.xyz\n'
   printf 'SEED_ADMIN_PASSWORD=%s\n' "$PW"
   printf 'POSTGRES_PASSWORD=%s\n' "$PGPW"
+  printf 'NEXUSEMAIL_ENCRYPTION_KEY=%s\n' "$EK"
 } | sshr "umask 077 && cat > $REMOTE_DIR/.env && chmod 600 $REMOTE_DIR/.env"
 
 echo "==> Building and starting stack"

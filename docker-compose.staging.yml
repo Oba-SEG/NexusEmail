@@ -32,6 +32,7 @@ services:
       - NODE_ENV=production
       - PORT=3001
       - TRUST_PROXY=loopback,172.27.0.0/16
+      - NEXUSEMAIL_ENCRYPTION_KEY=${NEXUSEMAIL_ENCRYPTION_KEY:?NEXUSEMAIL_ENCRYPTION_KEY must be set}
       - DATABASE_URL=postgres://nexusemail:${POSTGRES_PASSWORD}@postgres:5432/nexusemail
       - JWT_SECRET=${JWT_SECRET}
       - CRON_SECRET=${CRON_SECRET}

@@ -19,6 +19,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const { initDatabase } = require('./db/database');
+const { hasEncryptionKey } = require('./utils/secretbox');
 
 let app = null;
 const PORT = process.env.PORT || 4000;
@@ -145,6 +146,13 @@ async function main() {
       global.Sentry.captureException(err);
       next(err);
     });
+  }
+
+  // Secrets at rest are encrypted under NEXUSEMAIL_ENCRYPTION_KEY; without it
+  // every secret read/write fails at request time. Fail at startup instead so
+  // a bad deploy never reaches a half-broken serving state.
+  if (process.env.NODE_ENV === 'production' && !hasEncryptionKey()) {
+    throw new Error('NEXUSEMAIL_ENCRYPTION_KEY is not configured');
   }
 
   const server = app.listen(PORT, () => {
