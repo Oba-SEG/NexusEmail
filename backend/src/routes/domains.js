@@ -5,6 +5,7 @@ const { EmailSecurityAuditor } = require('../services/auditEngine');
 const { NotificationService } = require('../services/notifications');
 const { DomainVerificationService } = require('../services/domainVerification');
 const { captureException } = require('../capture');
+const { normalizeDomain } = require('../utils/domain');
 
 const auditor = new EmailSecurityAuditor();
 const notificationService = new NotificationService();
@@ -64,10 +65,13 @@ router.post('/verify/check', async (req, res) => {
 // Add new domain (with optional verification)
 router.post('/', async (req, res) => {
   const { name, provider, provider_config, auto_fix, notify_email, verify } = req.body;
-  
+
+  const check = normalizeDomain(name);
+  if (!check.ok) return res.status(400).json({ error: check.error });
+
   try {
     const domainData = {
-      name: name.toLowerCase().trim(),
+      name: check.name,
       provider: provider || 'manual',
       provider_config: provider_config || {},
       auto_fix: auto_fix ? 1 : 0,
@@ -168,13 +172,19 @@ router.post('/bulk', async (req, res) => {
   const added = [];
   const failed = [];
 
-  for (const name of domains) {
+  for (const rawName of domains) {
+    const check = normalizeDomain(rawName);
+    if (!check.ok) {
+      // no String() coercion here — hostile objects (null toString) throw
+      failed.push({ name: typeof rawName === 'string' ? rawName : '[invalid]', error: check.error });
+      continue;
+    }
     try {
-      const domain = await db.addDomain({ name: name.toLowerCase().trim(), provider: 'manual', status: 'active' }, req.orgId);
-      added.push(name);
+      const domain = await db.addDomain({ name: check.name, provider: 'manual', status: 'active' }, req.orgId);
+      added.push(check.name);
     } catch (e) {
     captureException(e);
-      failed.push({ name, error: e.message });
+      failed.push({ name: check.name, error: e.message });
     }
   }
 
