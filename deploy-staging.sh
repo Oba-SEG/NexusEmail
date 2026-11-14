@@ -21,18 +21,41 @@ PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
 EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
 if [ -z "$EK" ]; then
-  # A fresh key here would leave existing encrypted settings undecryptable.
-  # Recover the deployed key from staging .env first; only generate when the
-  # remote has none.
-  REMOTE_EK=$(sshr "grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' $REMOTE_DIR/.env 2>/dev/null | cut -d= -f2-" 2>/dev/null | tr -d '\n\r') || REMOTE_EK=""
-  if [ -n "$REMOTE_EK" ]; then
-    EK="$REMOTE_EK"
-    umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
-    echo "==> Recovered NEXUSEMAIL_ENCRYPTION_KEY from staging .env into $SECRETS_DIR/encryption-key"
-  else
-    EK=$(openssl rand -hex 32)
-    umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
-  fi
+  # A fresh key here would leave existing encrypted settings undecryptable,
+  # so the remote key is recovered first. An SSH/lookup failure must abort —
+  # it is NOT the same as "remote has no key" — hence the KEY:/MISSING
+  # protocol below instead of relying on empty output.
+  REMOTE_EK=$(sshr "
+    set -e
+    f=$REMOTE_DIR/.env
+    if [ -f \"\$f\" ]; then
+      k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" | tail -n1 | cut -d= -f2-) || true
+      if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+    else
+      printf 'MISSING'
+    fi
+  ") || { echo '==> abort: cannot verify remote encryption key (SSH or read failure)'; exit 1; }
+  case "$REMOTE_EK" in
+    KEY:*)
+      EK="${REMOTE_EK#KEY:}"
+      umask 077
+      touch "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot create key file'; exit 1; }
+      chmod 600 "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot restrict key file'; exit 1; }
+      printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+      echo "==> Recovered NEXUSEMAIL_ENCRYPTION_KEY from staging .env into $SECRETS_DIR/encryption-key"
+      ;;
+    MISSING)
+      EK=$(openssl rand -hex 32)
+      umask 077
+      touch "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot create key file'; exit 1; }
+      chmod 600 "$SECRETS_DIR/encryption-key" || { echo '==> abort: cannot restrict key file'; exit 1; }
+      printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+      ;;
+    *)
+      echo '==> abort: unexpected remote key lookup output; refusing to risk key rotation'
+      exit 1
+      ;;
+  esac
 fi
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
