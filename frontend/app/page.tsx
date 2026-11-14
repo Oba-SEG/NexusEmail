@@ -207,6 +207,15 @@ export default function Dashboard() {
   };
 
   const logout = () => {
+    // Revoke server-side before clearing local state: bumps token_version so
+    // a copied JWT stops working immediately. Best-effort — local state is
+    // cleared regardless of the network result.
+    try {
+      fetch(`${API_BASE}/auth/revoke`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('nexusemail_token') || ''}` }
+      }).catch(() => {});
+    } catch {}
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
     sessionGenRef.current += 1;
