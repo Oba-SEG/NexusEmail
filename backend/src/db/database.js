@@ -240,6 +240,17 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_brand_alerts_brand ON brand_alerts(brand_id);
     CREATE INDEX IF NOT EXISTS idx_brand_alerts_org ON brand_alerts(org_id);
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id BIGSERIAL PRIMARY KEY,
+      actor_user_id TEXT,
+      actor_email TEXT,
+      action TEXT NOT NULL,
+      target_org_id TEXT,
+      detail TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_org ON audit_log(target_org_id);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
   `);
 }
 
@@ -869,12 +880,51 @@ async function initDatabase() {
   if ((await getSetting('notify_weekly_report')) === undefined) await setSetting('notify_weekly_report', '0');
 }
 
+// Platform-admin audit trail: one row per admin read of customer data,
+// written (awaited) before the response is served (fail-closed).
+async function insertAuditLog({ actorUserId, actorEmail, action, targetOrgId, detail }) {
+  const row = await one(
+    'INSERT INTO audit_log (actor_user_id, actor_email, action, target_org_id, detail, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+    [actorUserId || null, actorEmail || null, action, targetOrgId || null, detail ? json(detail) : null, now()]
+  );
+  return row.id;
+}
+
+// Organizations with per-org counts + last activity for the admin list and
+// detail views. Pass orgId for a single org (id or slug), omit for all.
+async function getOrganizationsWithCounts(orgId = null) {
+  const where = orgId ? 'WHERE o.id = $1 OR o.slug = $1' : '';
+  const params = orgId ? [orgId] : [];
+  return all(
+    `SELECT o.id, o.slug, o.name, o.status, o.plan, o.created_at,
+      (SELECT COUNT(*)::int FROM domains d WHERE d.org_id = o.id) AS domain_count,
+      (SELECT COUNT(*)::int FROM users u WHERE u.org_id = o.id) AS user_count,
+      (SELECT COUNT(*)::int FROM scans s WHERE s.org_id = o.id) AS scan_count,
+      GREATEST(
+        COALESCE((SELECT MAX(d.updated_at) FROM domains d WHERE d.org_id = o.id), ''),
+        COALESCE((SELECT MAX(s.scanned_at) FROM scans s WHERE s.org_id = o.id), ''),
+        o.created_at
+      ) AS last_activity
+    FROM organizations o
+    ${where}
+    ORDER BY o.created_at DESC`,
+    params
+  );
+}
+
+// Org-scoped scan history (admin drill-down) — newest first.
+async function getOrgScans(orgId, limit = 100) {
+  const rows = await all('SELECT * FROM scans WHERE org_id = $1 ORDER BY scanned_at DESC LIMIT $2', [orgId, limit]);
+  return rows.map(hydrateScan);
+}
+
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain, countActiveDomains,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   mergeSetting, removeSettingKey, parseField, withTransaction,
   getSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, addOrganization, updateOrganization,
+  insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,
   ensureColumn, bumpUserTokenVersion,
   initDatabase,
