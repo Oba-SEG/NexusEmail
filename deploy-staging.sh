@@ -28,9 +28,17 @@ if [ -z "$EK" ]; then
   REMOTE_EK=$(sshr "
     set -e
     f=$REMOTE_DIR/.env
-    if [ -f \"\$f\" ]; then
-      k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" | tail -n1 | cut -d= -f2-) || true
-      if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+    # Distinguish grep 'no match' (status 1 -> MISSING) from read errors
+    # (status 2+ -> ERROR). The grep status is checked directly; a pipeline
+    # would report the last command's status and mask read errors.
+    if [ -r \"\$f\" ]; then
+      if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
+        k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
+        if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+      else
+        gs=\$?
+        if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+      fi
     else
       printf 'MISSING'
     fi
@@ -52,7 +60,7 @@ if [ -z "$EK" ]; then
       printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
       ;;
     *)
-      echo '==> abort: unexpected remote key lookup output; refusing to risk key rotation'
+      echo '==> abort: remote key lookup failed or unreadable .env; refusing to risk key rotation'
       exit 1
       ;;
   esac
