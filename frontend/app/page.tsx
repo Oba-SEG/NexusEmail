@@ -264,10 +264,24 @@ export default function Dashboard() {
     );
   }
 
-  const loadBrands = async () => {
+  const loadBrands = async (gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load brands: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load brands: API returned non-array', data);
+        return;
+      }
       setBrands(data);
       setMonitoredBrands(data);
     } catch (e) {
@@ -275,10 +289,24 @@ export default function Dashboard() {
     }
   };
 
-  const loadAlerts = async () => {
+  const loadAlerts = async (gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load alerts: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load alerts: API returned non-array', data);
+        return;
+      }
       setBrandAlerts(data);
     } catch (e) {
       console.error('Failed to load alerts:', e);
@@ -286,11 +314,12 @@ export default function Dashboard() {
   };
 
   const bulkScanAll = async () => {
+    const gen = sessionGenRef.current;
     setBulkScanning(true);
     try {
       await apiFetch(`${API_BASE}/brands/scan/all`, { method: 'POST' });
-      loadBrands();
-      loadAlerts();
+      loadBrands(gen);
+      loadAlerts(gen);
     } catch (e) {
       console.error('Bulk scan failed:', e);
     } finally {
@@ -298,20 +327,48 @@ export default function Dashboard() {
     }
   };
 
-  const loadBrandThreats = async (brandId: number) => {
+  const loadBrandThreats = async (brandId: number, gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/threats`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load threats: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load threats: API returned non-array', data);
+        return;
+      }
       setBrandThreats(data);
     } catch (e) {
       console.error('Failed to load threats:', e);
     }
   };
 
-  const loadBrandTakedowns = async (brandId: number) => {
+  const loadBrandTakedowns = async (brandId: number, gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/takedowns`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load takedowns: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load takedowns: API returned non-array', data);
+        return;
+      }
       setBrandTakedowns(data);
     } catch (e) {
       console.error('Failed to load takedowns:', e);
@@ -319,20 +376,22 @@ export default function Dashboard() {
   };
 
   const markAsSafe = async (brandId: number, domain: string) => {
+    const gen = sessionGenRef.current;
     try {
       await apiFetch(`${API_BASE}/brands/${brandId}/safe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain })
       });
-      loadBrands();
-      loadBrandThreats(brandId);
+      loadBrands(gen);
+      loadBrandThreats(brandId, gen);
     } catch (e) {
       console.error('Failed to mark as safe:', e);
     }
   };
 
   const submitTakedown = async (brandId: number) => {
+    const gen = sessionGenRef.current;
     try {
       await apiFetch(`${API_BASE}/brands/${brandId}/takedown`, {
         method: 'POST',
@@ -341,13 +400,14 @@ export default function Dashboard() {
       });
       setShowTakedownModal(false);
       setTakedownForm({ domain: '', threat_type: 'impersonation', evidence: '', contact_email: '' });
-      loadBrandTakedowns(brandId);
+      loadBrandTakedowns(brandId, gen);
     } catch (e) {
       console.error('Failed to submit takedown:', e);
     }
   };
 
   const addThreat = async (brandId: number) => {
+    const gen = sessionGenRef.current;
     try {
       await apiFetch(`${API_BASE}/brands/${brandId}/threat`, {
         method: 'POST',
@@ -356,7 +416,7 @@ export default function Dashboard() {
       });
       setShowThreatModal(false);
       setThreatForm({ domain: '', threat_type: 'manual', severity: 'medium', notes: '' });
-      loadBrandThreats(brandId);
+      loadBrandThreats(brandId, gen);
     } catch (e) {
       console.error('Failed to add threat:', e);
     }
@@ -368,9 +428,10 @@ export default function Dashboard() {
     loadBrandTakedowns(brand.id);
   };
 
-  const loadDomains = async () => {
+  const loadDomains = async (gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/domains`);
+      if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -380,6 +441,7 @@ export default function Dashboard() {
         return;
       }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load domains: API returned non-array', data);
         return;
@@ -393,10 +455,24 @@ export default function Dashboard() {
     }
   };
 
-  const loadIntegrations = async () => {
+  const loadIntegrations = async (gen: number = sessionGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/settings/integrations`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load integrations: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load integrations: API returned non-array', data);
+        return;
+      }
       setIntegrations(data);
     } catch (e) {
       console.error('Failed to load integrations:', e);
@@ -580,6 +656,7 @@ export default function Dashboard() {
   };
 
   const addDomain = async () => {
+    const gen = sessionGenRef.current;
     const raw = domainInput.trim();
     if (!raw) return;
     // Detect multi-domain input: split on newline, comma, semicolon, whitespace
@@ -623,7 +700,7 @@ export default function Dashboard() {
         body: JSON.stringify({ domain_ids: [] })
       });
 
-      await loadDomains();
+      await loadDomains(gen);
       setDomainInput("");
       setTimeout(() => setAddDomainSuccess(null), 6000);
     } catch (e: any) {
@@ -635,9 +712,10 @@ export default function Dashboard() {
   };
 
   const scanDomain = async (domainId: number) => {
+    const gen = sessionGenRef.current;
     try {
       await apiFetch(`${API_BASE}/domains/${domainId}/scan`, { method: 'POST' });
-      await loadDomains();
+      await loadDomains(gen);
     } catch (e) {
       console.error('Scan failed:', e);
     }
@@ -645,6 +723,7 @@ export default function Dashboard() {
 
   const bulkScan = async () => {
     if (selectedIds.length === 0) return;
+    const gen = sessionGenRef.current;
     setScanning(true);
     
     try {
@@ -653,7 +732,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain_ids: selectedIds })
       });
-      await loadDomains();
+      await loadDomains(gen);
       setSelectedIds([]);
     } catch (e) {
       console.error('Bulk scan failed:', e);
@@ -664,6 +743,7 @@ export default function Dashboard() {
 
   const deleteDomains = async () => {
     if (selectedIds.length === 0) return;
+    const gen = sessionGenRef.current;
     
     try {
       await apiFetch(`${API_BASE}/settings/bulk-delete`, {
@@ -671,7 +751,7 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain_ids: selectedIds })
       });
-      await loadDomains();
+      await loadDomains(gen);
       setSelectedIds([]);
     } catch (e) {
       console.error('Delete failed:', e);
@@ -753,6 +833,7 @@ export default function Dashboard() {
 
   const verifyDomainOwnership = async () => {
     if (!verifyDomain) return;
+    const gen = sessionGenRef.current;
     setVerifying(true);
     try {
       const res = await apiFetch(`${API_BASE}/domains/${verifyDomain.id}/verify`, {
@@ -765,7 +846,7 @@ export default function Dashboard() {
       if (data.verified) {
         alert('Domain verified successfully! Features unlocked.');
         setShowVerifyModal(false);
-        loadDomains();
+        loadDomains(gen);
       } else {
         alert('Verification failed: ' + (data.reason || 'TXT record not found'));
       }
@@ -2327,6 +2408,7 @@ export default function Dashboard() {
                               disabled={!newBrandDomain}
                               onClick={() => {
                                 if (!newBrandDomain.trim()) return;
+                                const gen = sessionGenRef.current;
                                 apiFetch(`${API_BASE}/brands`, {
                                   method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
@@ -2341,7 +2423,7 @@ export default function Dashboard() {
                                     });
                                     return;
                                   }
-                                  loadBrands();
+                                  loadBrands(gen);
                                   setNewBrandDomain('');
                                   setNewBrandName('');
                                   setShowAddBrand(false);
@@ -2400,7 +2482,8 @@ export default function Dashboard() {
                               <Eye className="w-4 h-4" />
                             </Button>
                             <Button variant="ghost" size="sm" onClick={() => {
-                              apiFetch(`${API_BASE}/brands/${brand.id}`, { method: 'DELETE' }).then(() => loadBrands());
+                              const gen = sessionGenRef.current;
+                              apiFetch(`${API_BASE}/brands/${brand.id}`, { method: 'DELETE' }).then(() => loadBrands(gen));
                             }}>
                               <Trash2 className="w-4 h-4 text-rose-500" />
                             </Button>
