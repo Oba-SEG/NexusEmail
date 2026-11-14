@@ -84,6 +84,13 @@ async function requireAuth(req, res, next) {
 
     const user = await db.getUser(payload.sub);
     if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid user' });
+    // Session revocation: tokens carry the user's token_version at issue
+    // time; bumping users.token_version (e.g. POST /auth/revoke, password
+    // change) invalidates every previously issued token.
+    const issuedTv = Number(payload.tv);
+    if (!Number.isInteger(issuedTv) || issuedTv !== Number(user.token_version ?? 1)) {
+      return res.status(401).json({ error: 'Session revoked; sign in again' });
+    }
     req.user = user;
     req.orgId = user.org_id;
     next();

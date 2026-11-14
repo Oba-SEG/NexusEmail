@@ -26,7 +26,7 @@ router.post('/login', credentialLimiter, async (req, res, next) => {
     if (process.env.AUTH_MODE === 'whmcs' && user.platform_role !== 'platform_admin') {
       return res.status(403).json({ error: 'Hosted clients must sign in through WHMCS' });
     }
-    const token = sign({ sub: user.id, org_id: user.org_id, role: user.role });
+    const token = sign({ sub: user.id, org_id: user.org_id, role: user.role, tv: user.token_version ?? 1 });
     res.json({ token, user: await publicUser(user) });
   } catch (err) { next(err); }
 });
@@ -51,13 +51,22 @@ router.post('/whmcs-exchange', credentialLimiter, async (req, res) => {
   const org = await db.getOrganization(user.org_id);
   if (!org || (org.status && org.status !== 'active')) return res.status(403).json({ error: 'Organization is not active' });
 
-  const jwt = sign({ sub: user.id, org_id: user.org_id, role: user.role, source: 'whmcs' });
+  const jwt = sign({ sub: user.id, org_id: user.org_id, role: user.role, source: 'whmcs', tv: user.token_version ?? 1 });
   res.json({ token: jwt, user: await publicUser(user) });
 });
 
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     res.json({ user: await publicUser(req.user) });
+  } catch (err) { next(err); }
+});
+
+// Logout / session revocation: bumps the user's token_version so every
+// previously issued JWT (on any device) stops verifying immediately.
+router.post('/revoke', requireAuth, async (req, res, next) => {
+  try {
+    await db.bumpUserTokenVersion(req.user.id);
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 
