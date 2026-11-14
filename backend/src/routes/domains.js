@@ -258,7 +258,7 @@ router.post('/:id/scan', async (req, res) => {
     res.json({ success: true, ...audit });
   } catch (error) {
     captureException(error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 

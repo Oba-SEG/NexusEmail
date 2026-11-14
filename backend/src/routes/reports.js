@@ -37,7 +37,7 @@ router.get('/domains/:id/report', async (req, res) => {
     res.type('html').send(html);
   } catch (e) {
     captureException(e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -69,7 +69,7 @@ router.get('/export/csv', async (req, res) => {
     res.send(csv);
   } catch (e) {
     captureException(e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
@@ -80,7 +80,7 @@ router.get('/export/json', async (req, res) => {
     res.json(domains);
   } catch (e) {
     captureException(e);
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ error: 'Internal error' });
   }
 });
 
