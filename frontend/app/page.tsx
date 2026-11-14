@@ -424,6 +424,11 @@ export default function Dashboard() {
 
   const openBrandDetails = async (brand: any) => {
     setSelectedBrand(brand);
+    // Clear the previous brand's records so a failed load for the new
+    // brand can't display the old brand's threats/takedowns (and pair
+    // the new brand's id with the old domain in mark-as-safe).
+    setBrandThreats([]);
+    setBrandTakedowns([]);
     loadBrandThreats(brand.id);
     loadBrandTakedowns(brand.id);
   };
@@ -441,6 +446,7 @@ export default function Dashboard() {
         return;
       }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load domains: API returned non-array', data);
         return;
