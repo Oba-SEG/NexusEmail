@@ -38,6 +38,9 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  // Brand currently shown in the details modal — responses for any other
+  // brand are dropped (session gen can't catch same-session switches).
+  const brandDetailsRef = useRef<number | null>(null);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -341,6 +344,9 @@ export default function Dashboard() {
       }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
+      // Same-session brand switch: drop responses that no longer belong
+      // to the brand currently shown in the details modal.
+      if (brandDetailsRef.current !== brandId) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load threats: API returned non-array', data);
         return;
@@ -365,6 +371,9 @@ export default function Dashboard() {
       }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
+      // Same-session brand switch: drop responses that no longer belong
+      // to the brand currently shown in the details modal.
+      if (brandDetailsRef.current !== brandId) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load takedowns: API returned non-array', data);
         return;
@@ -424,9 +433,13 @@ export default function Dashboard() {
 
   const openBrandDetails = async (brand: any) => {
     setSelectedBrand(brand);
-    // Clear the previous brand's records so a failed load for the new
-    // brand can't display the old brand's threats/takedowns (and pair
-    // the new brand's id with the old domain in mark-as-safe).
+    // Mark this selection synchronously so in-flight loads for the
+    // previous brand are invalidated (session gen can't see same-session
+    // switches). Also clear the previous brand's records so a failed
+    // load for the new brand can't display the old brand's
+    // threats/takedowns (and pair the new brand's id with the old
+    // domain in mark-as-safe).
+    brandDetailsRef.current = brand.id;
     setBrandThreats([]);
     setBrandTakedowns([]);
     loadBrandThreats(brand.id);
