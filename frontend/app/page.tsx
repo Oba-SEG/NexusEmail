@@ -265,9 +265,23 @@ export default function Dashboard() {
   }
 
   const loadBrands = async () => {
+    const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load brands: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load brands: API returned non-array', data);
+        return;
+      }
       setBrands(data);
       setMonitoredBrands(data);
     } catch (e) {
@@ -276,9 +290,23 @@ export default function Dashboard() {
   };
 
   const loadAlerts = async () => {
+    const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load alerts: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load alerts: API returned non-array', data);
+        return;
+      }
       setBrandAlerts(data);
     } catch (e) {
       console.error('Failed to load alerts:', e);
@@ -394,9 +422,23 @@ export default function Dashboard() {
   };
 
   const loadIntegrations = async () => {
+    const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/settings/integrations`);
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load integrations: HTTP ${res.status}`);
+        return;
+      }
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!Array.isArray(data)) {
+        console.error('Failed to load integrations: API returned non-array', data);
+        return;
+      }
       setIntegrations(data);
     } catch (e) {
       console.error('Failed to load integrations:', e);
