@@ -14,6 +14,10 @@ if (process.env.NODE_ENV === 'production' && process.env.AUTH_DISABLED === 'true
   throw new Error('AUTH_DISABLED=true is not allowed in production');
 }
 
+if (process.env.AUTH_DISABLED === 'true') {
+  console.warn('[auth] AUTH_DISABLED=true: every request authenticates as the first user. Dev use only.');
+}
+
 function base64url(input) {
   return Buffer.from(input).toString('base64url');
 }
