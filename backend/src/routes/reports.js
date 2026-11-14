@@ -41,16 +41,24 @@ router.get('/domains/:id/report', async (req, res) => {
   }
 });
 
+// CSV cell sanitizer: neutralize spreadsheet formula injection. A value
+// beginning with = + - @ tab or CR is a formula in Excel/LibreOffice/Sheets;
+// prefixing with ' forces text interpretation.
+function csvSafe(value) {
+  const s = String(value ?? '');
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 // Export all domains as CSV
 router.get('/export/csv', async (req, res) => {
   try {
     const domains = await db.getDomains(req.orgId);
     let csv = 'Domain,Provider,Score,Last Scan,Verified,SPF,DKIM,DMARC\n';
-    
+
     for (const d of domains) {
       const scan = await db.getLatestScan(d.id, req.orgId);
       const results = scan?.results ? JSON.parse(scan.results) : {};
-      csv += `${d.name},${d.provider || 'Manual'},${d.last_score || ''},${d.last_scan || ''},${d.verified ? 'Yes' : 'No'},${results.spf?.status || 'N/A'},${results.dkim?.status || 'N/A'},${results.dmarc?.status || 'N/A'}\n`;
+      csv += `${csvSafe(d.name)},${csvSafe(d.provider || 'Manual')},${csvSafe(d.last_score || '')},${csvSafe(d.last_scan || '')},${d.verified ? 'Yes' : 'No'},${csvSafe(results.spf?.status || 'N/A')},${csvSafe(results.dkim?.status || 'N/A')},${csvSafe(results.dmarc?.status || 'N/A')}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
