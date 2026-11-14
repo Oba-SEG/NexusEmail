@@ -21,8 +21,18 @@ PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
 EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
 if [ -z "$EK" ]; then
-  EK=$(openssl rand -hex 32)
-  umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+  # A fresh key here would leave existing encrypted settings undecryptable.
+  # Recover the deployed key from staging .env first; only generate when the
+  # remote has none.
+  REMOTE_EK=$(sshr "grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' $REMOTE_DIR/.env 2>/dev/null | cut -d= -f2-" 2>/dev/null | tr -d '\n\r') || REMOTE_EK=""
+  if [ -n "$REMOTE_EK" ]; then
+    EK="$REMOTE_EK"
+    umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+    echo "==> Recovered NEXUSEMAIL_ENCRYPTION_KEY from staging .env into $SECRETS_DIR/encryption-key"
+  else
+    EK=$(openssl rand -hex 32)
+    umask 077 && touch "$SECRETS_DIR/encryption-key" && chmod 600 "$SECRETS_DIR/encryption-key" && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+  fi
 fi
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
