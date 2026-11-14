@@ -148,6 +148,18 @@ async function main() {
     });
   }
 
+  // Final JSON error handler: anything routed here via next(err) would
+  // otherwise hit Express's default handler, which answers HTML (and shows
+  // stacks outside production). 5xx never echoes internals — detail lives
+  // in Sentry/logs only (captured by the middleware above); deliberate
+  // 4xx errors keep their message.
+  app.use((err, req, res, next) => {
+    if (res.headersSent) return next(err);
+    const status = Number.isInteger(err?.status) ? err.status : 500;
+    if (status >= 500) console.error(`[${req.method} ${req.originalUrl}] ${status}:`, err?.stack || err);
+    res.status(status).json({ error: status >= 500 ? 'Internal error' : err.message });
+  });
+
   // Secrets at rest are encrypted under NEXUSEMAIL_ENCRYPTION_KEY; without it
   // every secret read/write fails at request time. Fail at startup instead so
   // a bad deploy never reaches a half-broken serving state.

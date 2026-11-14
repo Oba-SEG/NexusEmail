@@ -168,7 +168,7 @@ router.post('/:id/analyze-fix', async (req, res, next) => {
     });
   } catch (error) {
     captureException(error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Internal error' });
   }
   } catch (err) { next(err); }
 });
