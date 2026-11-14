@@ -31,6 +31,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - TRUST_PROXY=loopback,172.27.0.0/16
       - DATABASE_URL=postgres://nexusemail:${POSTGRES_PASSWORD}@postgres:5432/nexusemail
       - JWT_SECRET=${JWT_SECRET}
       - CRON_SECRET=${CRON_SECRET}
@@ -65,3 +66,9 @@ volumes:
 networks:
   default:
     name: nexusemail-staging
+    # Pinned so TRUST_PROXY can name the bridge subnet exactly: the socket
+    # peer for any host-published-port connection is this gateway.
+    ipam:
+      config:
+        - subnet: 172.27.0.0/16
+          gateway: 172.27.0.1

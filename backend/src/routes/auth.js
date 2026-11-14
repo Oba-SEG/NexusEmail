@@ -3,8 +3,20 @@ const router = express.Router();
 const db = require('../db/database');
 const { sign, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin, hashPassword } = require('../auth');
 const { captureException } = require('../capture');
+const rateLimit = require('express-rate-limit');
 
-router.post('/login', async (req, res, next) => {
+// Credential endpoints get their own tight budget so password guessing
+// cannot ride the shared global limit, and so an IP hammering login cannot
+// lock everyone out by exhausting the global bucket behind shared egress.
+const credentialLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts, try again later' }
+});
+
+router.post('/login', credentialLimiter, async (req, res, next) => {
   try {
     const { email, password } = req.body;
     const user = await db.getUserByEmail(email || '');
@@ -19,7 +31,7 @@ router.post('/login', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/whmcs-exchange', async (req, res) => {
+router.post('/whmcs-exchange', credentialLimiter, async (req, res) => {
   const crypto = require('crypto');
   const token = String(req.body?.token || '');
   if (!token) return res.status(400).json({ error: 'Missing token' });

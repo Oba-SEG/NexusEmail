@@ -40,6 +40,27 @@ async function main() {
 
   app = express();
 
+  // Rate limiting keys on req.ip, which only reflects the real client when
+  // the enforced ingress hop is trusted. The hop differs per deployment:
+  // behind the Cloudflare Tunnel connections arrive with the Docker bridge
+  // gateway as the socket peer (userland proxy), so staging trusts the
+  // pinned bridge subnet; behind Render's ingress the peer is Render's
+  // proxy (1 hop). TRUST_PROXY takes a comma-separated list: 'loopback',
+  // CIDR subnets, or a hop count ('1').
+  const trustProxyEnv = process.env.TRUST_PROXY || 'loopback';
+  const trustProxyEntries = trustProxyEnv.split(',').map((entry) => {
+    const t = entry.trim();
+    return /^\d+$/.test(t) ? Number(t) : t;
+  });
+  // A standalone hop count must be a plain number — Express rejects
+  // numeric entries inside a subnet array (proxy-addr only takes strings).
+  app.set(
+    'trust proxy',
+    trustProxyEntries.length === 1 && typeof trustProxyEntries[0] === 'number'
+      ? trustProxyEntries[0]
+      : trustProxyEntries
+  );
+
   // Security middleware
   app.use(helmet());
   app.use(cors({
@@ -59,9 +80,24 @@ async function main() {
   // src/utils/html.js, and JSON responses are framework-encoded.
 
   // Rate limiting
+  // Global API budget. Client IP is real now that trust proxy is scoped to
+  // loopback (behind the tunnel it comes from X-Forwarded-For).
   const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 100
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // Credential endpoints have their own tight budget; excluding them here
+    // keeps failed logins from eating the global allowance that /auth/me and
+    // organization endpoints share.
+    skip: (req) => {
+      let path = req.path.toLowerCase();
+      if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+      return path === '/api/auth/login'
+        || path === '/api/auth/whmcs-exchange'
+        || path === '/api/health'
+        || path === '/api/cron/tick';
+    }
   });
   app.use(limiter);
 
