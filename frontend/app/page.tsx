@@ -41,6 +41,10 @@ export default function Dashboard() {
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
+  // Selection generation — incremented on every open so overlapping
+  // loads for the SAME brand (open A -> B -> A) can't have the older
+  // response win the race and overwrite newer records.
+  const brandDetailsGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -330,7 +334,7 @@ export default function Dashboard() {
     }
   };
 
-  const loadBrandThreats = async (brandId: number, gen: number = sessionGenRef.current) => {
+  const loadBrandThreats = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/threats`);
       if (gen !== sessionGenRef.current) return;
@@ -345,8 +349,10 @@ export default function Dashboard() {
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
       // Same-session brand switch: drop responses that no longer belong
-      // to the brand currently shown in the details modal.
+      // to the brand currently shown in the details modal...
       if (brandDetailsRef.current !== brandId) return;
+      // ...or from an earlier visit to this same brand (A -> B -> A).
+      if (sel !== brandDetailsGenRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load threats: API returned non-array', data);
         return;
@@ -357,7 +363,7 @@ export default function Dashboard() {
     }
   };
 
-  const loadBrandTakedowns = async (brandId: number, gen: number = sessionGenRef.current) => {
+  const loadBrandTakedowns = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/takedowns`);
       if (gen !== sessionGenRef.current) return;
@@ -372,8 +378,10 @@ export default function Dashboard() {
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
       // Same-session brand switch: drop responses that no longer belong
-      // to the brand currently shown in the details modal.
+      // to the brand currently shown in the details modal...
       if (brandDetailsRef.current !== brandId) return;
+      // ...or from an earlier visit to this same brand (A -> B -> A).
+      if (sel !== brandDetailsGenRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load takedowns: API returned non-array', data);
         return;
@@ -440,6 +448,7 @@ export default function Dashboard() {
     // threats/takedowns (and pair the new brand's id with the old
     // domain in mark-as-safe).
     brandDetailsRef.current = brand.id;
+    brandDetailsGenRef.current += 1;
     setBrandThreats([]);
     setBrandTakedowns([]);
     loadBrandThreats(brand.id);
