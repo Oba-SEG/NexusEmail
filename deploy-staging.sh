@@ -19,6 +19,11 @@ JW=$(cat "$SECRETS_DIR/jwt-secret")
 CR=$(cat "$SECRETS_DIR/cron-secret")
 PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
+EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
+if [ -z "$EK" ]; then
+  EK=$(openssl rand -hex 32)
+  umask 077 && printf '%s' "$EK" > "$SECRETS_DIR/encryption-key"
+fi
 
 echo "==> Syncing repo to $SSH_TARGET:$REMOTE_DIR"
 sshr "mkdir -p $REMOTE_DIR"
@@ -34,6 +39,7 @@ echo "==> Writing .env (chmod 600, secrets sent via SSH stdin, not argv)"
   printf 'SEED_ADMIN_EMAIL=admin@segbytes.xyz\n'
   printf 'SEED_ADMIN_PASSWORD=%s\n' "$PW"
   printf 'POSTGRES_PASSWORD=%s\n' "$PGPW"
+  printf 'NEXUSEMAIL_ENCRYPTION_KEY=%s\n' "$EK"
 } | sshr "umask 077 && cat > $REMOTE_DIR/.env && chmod 600 $REMOTE_DIR/.env"
 
 echo "==> Building and starting stack"

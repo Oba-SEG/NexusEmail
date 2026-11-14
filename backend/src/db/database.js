@@ -2,6 +2,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { Pool, types } = require('pg');
+const {
+  isSecretKey, hasEncryptionKey, encryptSecret, decryptSecret, isEncrypted
+} = require('../utils/secretbox');
 
 // Postgres data layer (Render free Postgres in production, a local/Compose
 // Postgres in staging). All helpers are async and preserve the exact call
@@ -349,11 +352,36 @@ async function deleteIntegration(id, orgId) {
 async function getSetting(key, orgId) {
   const row = (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]))
     || (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', ['global', key]));
-  return row ? row.value : undefined;
+  if (!row) return undefined;
+  if (isSecretKey(key)) {
+    // Fail closed in production: an encrypted row that cannot be decrypted
+    // must not silently pass through as (corrupted) plaintext.
+    if (isEncrypted(row.value)) {
+      if (!hasEncryptionKey() && process.env.NODE_ENV === 'production') {
+        throw new Error(`Encrypted setting '${key}' present but NEXUSEMAIL_ENCRYPTION_KEY is not configured`);
+      }
+      return hasEncryptionKey() ? decryptSecret(row.value) : row.value;
+    }
+    // Legacy plaintext row: returned as-is (lazy migration); the next save
+    // of this key re-encrypts it.
+    return row.value;
+  }
+  return row.value;
 }
 async function setSetting(key, value, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
-  await exec.q('INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, key) DO UPDATE SET value = $3, updated_at = $4', [orgId || 'global', key, String(value), now()]);
+  let stored = String(value);
+  if (isSecretKey(key)) {
+    if (hasEncryptionKey()) {
+      stored = encryptSecret(stored);
+    } else if (process.env.NODE_ENV === 'production') {
+      // Fail closed: refuse to persist a secret as plaintext in production.
+      throw new Error(`NEXUSEMAIL_ENCRYPTION_KEY is not configured; refusing to store secret setting '${key}' as plaintext`);
+    } else {
+      console.warn(`[db] storing secret setting '${key}' as plaintext (dev mode; set NEXUSEMAIL_ENCRYPTION_KEY)`);
+    }
+  }
+  await exec.q('INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, key) DO UPDATE SET value = $3, updated_at = $4', [orgId || 'global', key, stored, now()]);
 }
 async function deleteSetting(key, orgId) {
   await q('DELETE FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]);
@@ -364,26 +392,69 @@ async function consumeSetting(key, orgId) {
   const result = await q('DELETE FROM settings WHERE org_id = $1 AND key = $2 RETURNING value', [orgId || 'global', key]);
   return result.rows[0]?.value;
 }
-// Atomic JSON map merge (e.g. provider_credentials): last-write no longer
-// discards another provider saved concurrently.
-async function mergeSetting(key, patch, orgId) {
-  await q(`INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb || $3::jsonb)::text, updated_at = $4`,
-    [orgId || 'global', key, JSON.stringify(patch ?? {}), now()]);
+// Atomic JSON map merge (e.g. provider_credentials) and atomic removal of
+// one key from a stored JSON map. Both seed an org override with the
+// EFFECTIVE map (global fallback), so saving/deleting one provider cannot
+// hide or resurrect the inherited ones.
+//
+// Secret-bearing keys cannot be merged inside SQL (jsonb ops would bypass or
+// corrupt the ciphertext), so for those keys the merge runs in JS inside a
+// transaction guarded by an advisory lock keyed on (org, key). A concurrent
+// merge waits for the lock and re-reads the committed value, preserving the
+// no-lost-update property.
+function secretSettingReadError(key) {
+  throw new Error(`NEXUSEMAIL_ENCRYPTION_KEY is not configured; cannot access secret setting '${key}'`);
 }
-// Atomic removal of one key from a stored JSON map.
-// Both operations seed an org override with the EFFECTIVE map (global
-// fallback), so saving/deleting one provider cannot hide or resurrect the
-// inherited ones.
+async function readSecretMapValue(exec, key, orgId) {
+  // Org override first, then the global fallback — same precedence getSetting uses.
+  const row = await exec.one(
+    'SELECT value FROM settings WHERE org_id = $1 AND key = $2 ORDER BY (org_id = $3) DESC, updated_at DESC LIMIT 1',
+    [orgId || 'global', key, orgId || 'global']
+  );
+  if (!row) return undefined;
+  if (isEncrypted(row.value)) {
+    if (!hasEncryptionKey() && process.env.NODE_ENV === 'production') return secretSettingReadError(key);
+    return hasEncryptionKey() ? decryptSecret(row.value) : row.value;
+  }
+  return row.value;
+}
+async function writeSecretMapValue(exec, key, orgId, mapJson) {
+  const stored = hasEncryptionKey() ? encryptSecret(mapJson) : mapJson;
+  await exec.q('INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, $3, $4) ON CONFLICT (org_id, key) DO UPDATE SET value = $3, updated_at = $4',
+    [orgId || 'global', key, stored, now()]);
+}
+function secretWriteGuard(key) {
+  if (!hasEncryptionKey() && process.env.NODE_ENV === 'production') {
+    throw new Error(`NEXUSEMAIL_ENCRYPTION_KEY is not configured; refusing to store secret setting '${key}' as plaintext`);
+  }
+}
 async function mergeSetting(key, patch, orgId) {
-  await q(`INSERT INTO settings (org_id, key, value, updated_at)
-           VALUES ($1, $2, COALESCE((SELECT (value::jsonb || $3::jsonb)::text FROM settings WHERE org_id = 'global' AND key = $2), $3::text), $4)
+  if (isSecretKey(key)) {
+    secretWriteGuard(key);
+    await withTransaction(async (tx) => {
+      await tx.q('SELECT pg_advisory_xact_lock(hashtext($1))', [`${orgId || 'global'}:${key}`]);
+      const current = JSON.parse(await readSecretMapValue(tx, key, orgId) || '{}');
+      const merged = { ...current, ...(patch ?? {}) };
+      await writeSecretMapValue(tx, key, orgId, JSON.stringify(merged));
+    });
+    return;
+  }
+  await q(`INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, COALESCE((SELECT (value::jsonb || $3::jsonb)::text FROM settings WHERE org_id = 'global' AND key = $2), $3::text), $4)
            ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb || $3::jsonb)::text, updated_at = $4`,
     [orgId || 'global', key, JSON.stringify(patch ?? {}), now()]);
 }
 async function removeSettingKey(key, prop, orgId) {
-  await q(`INSERT INTO settings (org_id, key, value, updated_at)
-           VALUES ($1, $2, COALESCE((SELECT (value::jsonb - $3::text)::text FROM settings WHERE org_id = 'global' AND key = $2), '{}'), $4)
+  if (isSecretKey(key)) {
+    secretWriteGuard(key);
+    await withTransaction(async (tx) => {
+      await tx.q('SELECT pg_advisory_xact_lock(hashtext($1))', [`${orgId || 'global'}:${key}`]);
+      const current = JSON.parse(await readSecretMapValue(tx, key, orgId) || '{}');
+      delete current[String(prop)];
+      await writeSecretMapValue(tx, key, orgId, JSON.stringify(current));
+    });
+    return;
+  }
+  await q(`INSERT INTO settings (org_id, key, value, updated_at) VALUES ($1, $2, COALESCE((SELECT (value::jsonb - $3::text)::text FROM settings WHERE org_id = 'global' AND key = $2), '{}'), $4)
            ON CONFLICT (org_id, key) DO UPDATE SET value = (settings.value::jsonb - $3::text)::text, updated_at = $4`,
     [orgId || 'global', key, String(prop), now()]);
 }
