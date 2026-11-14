@@ -21,7 +21,7 @@ import {
   TrendingUp, TrendingDown, Minus, Download, Trash2,
   CheckSquare, Square, MoreHorizontal, Save, MailPlus,
   MessageSquare, Send,
-  X, LogOut
+  X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,6 +45,15 @@ export default function Dashboard() {
   // loads for the SAME brand (open A -> B -> A) can't have the older
   // response win the race and overwrite newer records.
   const brandDetailsGenRef = useRef(0);
+  // Platform admin (issue #24): org list + drill-down, all read-only.
+  const isAdmin = user?.platform_role === 'platform_admin';
+  const [adminOrgs, setAdminOrgs] = useState<any[] | null>(null);
+  const [adminDetail, setAdminDetail] = useState<any>(null);
+  const [adminLoading, setAdminLoading] = useState(false);
+  // Bumped on every org open/close so a slower earlier drill-down
+  // response can never overwrite a newer selection (same lesson as
+  // brandDetailsGenRef).
+  const adminGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -115,6 +124,16 @@ export default function Dashboard() {
   });
 
   // T163b — explicit, narrow logout on detected stale session. Called only by
+  // Identity change: admin drill-down state must not survive into another
+  // session, and a non-admin must never land on the admin tab.
+  const resetAdminState = () => {
+    adminGenRef.current += 1;
+    setAdminOrgs(null);
+    setAdminDetail(null);
+    setAdminLoading(false);
+    if (activeTab === 'admin') setActiveTab('domains');
+  };
+
   // load* handlers when they see a 401 against an authenticated endpoint —
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
@@ -128,6 +147,7 @@ export default function Dashboard() {
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
+    resetAdminState();
     setToken(null);
     setUser(null);
   };
@@ -148,6 +168,7 @@ export default function Dashboard() {
     loadSettings();
     loadBrands();
     loadAlerts();
+    if (user?.platform_role === 'platform_admin') loadAdminOrgs();
   }, [token]);
 
   const login = async () => {
@@ -167,6 +188,7 @@ export default function Dashboard() {
       setSlackForm({ webhook_url: '' });
       setResendForm({ api_key: '', from: '' });
       setSettings(null);
+      resetAdminState();
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -212,6 +234,7 @@ export default function Dashboard() {
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
+    resetAdminState();
     setToken(null);
     setUser(null);
   };
@@ -468,6 +491,73 @@ export default function Dashboard() {
     } catch (e) {
       console.error('Failed to load integrations:', e);
     }
+  };
+
+  const loadAdminOrgs = async (gen: number = sessionGenRef.current) => {
+    try {
+      const res = await apiFetch(`${API_BASE}/admin/organizations`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        console.error(`Failed to load admin organizations: HTTP ${res.status}`);
+        setAdminOrgs([]);
+        return;
+      }
+      const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      setAdminOrgs(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.error('Failed to load admin organizations:', e);
+    }
+  };
+
+  const openAdminOrg = async (orgId: string) => {
+    adminGenRef.current += 1;
+    const gen = adminGenRef.current;
+    setAdminLoading(true);
+    setAdminDetail(null);
+    try {
+      const base = `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}`;
+      const [orgR, domR, usrR, scnR, ntR] = await Promise.all([
+        apiFetch(base),
+        apiFetch(`${base}/domains`),
+        apiFetch(`${base}/users`),
+        apiFetch(`${base}/scans`),
+        apiFetch(`${base}/notifications`),
+      ]);
+      if (gen !== adminGenRef.current) return;
+      if (orgR.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!orgR.ok) {
+        console.error(`Failed to load organization: HTTP ${orgR.status}`);
+        return;
+      }
+      const [org, domains, users, scans, notifications] = await Promise.all([
+        orgR.json(), domR.json(), usrR.json(), scnR.json(), ntR.json()
+      ]);
+      if (gen !== adminGenRef.current) return;
+      setAdminDetail({
+        org,
+        domains: Array.isArray(domains) ? domains : [],
+        users: Array.isArray(users) ? users : [],
+        scans: Array.isArray(scans) ? scans : [],
+        notifications: notifications || {},
+      });
+    } catch (e) {
+      console.error('Failed to load organization detail:', e);
+    } finally {
+      if (gen === adminGenRef.current) setAdminLoading(false);
+    }
+  };
+
+  const closeAdminOrg = () => {
+    adminGenRef.current += 1;
+    setAdminDetail(null);
   };
 
   const loadSettings = async () => {
@@ -1496,6 +1586,11 @@ export default function Dashboard() {
               <TabsTrigger value="brands" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="brands">
                 <Shield className="w-4 h-4 mr-2" /> Brand Protection
               </TabsTrigger>
+              {isAdmin && (
+                <TabsTrigger value="admin" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="admin">
+                  <Building2 className="w-4 h-4 mr-2" /> Admin
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="domains" className="space-y-4">
@@ -2637,6 +2732,165 @@ export default function Dashboard() {
                   )}
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            <TabsContent value="admin" className="space-y-4">
+              {!isAdmin ? (
+                <Card className="border-border/40 bg-white/[0.02]">
+                  <CardContent className="pt-6 text-center text-sm text-muted-foreground">
+                    Platform admin access required.
+                  </CardContent>
+                </Card>
+              ) : adminDetail ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <Button size="icon" variant="ghost" onClick={closeAdminOrg} title="Back to organizations">
+                      <ArrowLeft className="w-4 h-4" />
+                    </Button>
+                    <div>
+                      <h2 className="font-display font-semibold">{adminDetail.org.name}</h2>
+                      <p className="text-xs text-muted-foreground">{adminDetail.org.slug} · {adminDetail.org.plan || 'no plan'} · {adminDetail.org.id}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {[
+                      { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length },
+                      { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length },
+                      { label: 'Scans', value: adminDetail.org.counts?.scan_count ?? adminDetail.scans.length },
+                      { label: 'Last activity', value: adminDetail.org.counts?.last_activity ? new Date(adminDetail.org.counts.last_activity).toLocaleString() : '—' },
+                    ].map((s) => (
+                      <Card key={s.label} className="border-border/40 bg-white/[0.02]">
+                        <CardContent className="pt-4 pb-3">
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                          <p className="font-display font-semibold text-lg">{s.value}</p>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-4">
+                    <Card className="border-border/40 bg-white/[0.02]">
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">Domains</CardTitle></CardHeader>
+                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.domains.length === 0 && <p className="text-sm text-muted-foreground">No domains.</p>}
+                        {adminDetail.domains.map((d: any) => (
+                          <div key={d.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
+                            <span className="truncate font-medium">{d.name}</span>
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
+                              {d.verified ? 'verified' : 'unverified'}
+                              <Badge variant="outline" className={typeof d.score === 'number' ? (d.score >= 80 ? 'text-emerald-400 border-emerald-400/30' : d.score >= 50 ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.score === 'number' ? d.score : '—'}</Badge>
+                            </span>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-border/40 bg-white/[0.02]">
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">Users</CardTitle></CardHeader>
+                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.users.length === 0 && <p className="text-sm text-muted-foreground">No users.</p>}
+                        {adminDetail.users.map((u: any) => (
+                          <div key={u.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{u.email}</p>
+                              <p className="text-xs text-muted-foreground truncate">{u.name}</p>
+                            </div>
+                            <Badge variant="outline" className="flex-shrink-0">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <div className="grid lg:grid-cols-2 gap-4">
+                    <Card className="border-border/40 bg-white/[0.02]">
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">Scan history</CardTitle></CardHeader>
+                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.scans.length === 0 && <p className="text-sm text-muted-foreground">No scans yet.</p>}
+                        {adminDetail.scans.map((s: any) => {
+                          const scanDomain = adminDetail.domains.find((d: any) => d.id === s.domain_id);
+                          return (
+                            <div key={s.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
+                              <span className="truncate">{scanDomain?.name || s.domain_id}</span>
+                              <span className="text-xs text-muted-foreground flex items-center gap-2 flex-shrink-0">
+                                {typeof s.score === 'number' && <Badge variant="outline">{s.score}</Badge>}
+                                {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : '—'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-border/40 bg-white/[0.02]">
+                      <CardHeader className="pb-2"><CardTitle className="text-sm">Channels</CardTitle></CardHeader>
+                      <CardContent className="space-y-2 text-sm">
+                        {[
+                          { label: 'SMTP', on: !!adminDetail.notifications.smtp, detail: adminDetail.notifications.smtp ? `${adminDetail.notifications.smtp.host || '—'}${adminDetail.notifications.smtp.pass_configured ? ' · pass set' : ''}` : 'not configured' },
+                          { label: 'Resend', on: !!adminDetail.notifications.resend, detail: adminDetail.notifications.resend ? (adminDetail.notifications.resend.from || 'configured') : 'not configured' },
+                          { label: 'Slack', on: !!adminDetail.notifications.slack?.configured, detail: adminDetail.notifications.slack?.configured ? 'webhook set' : 'not configured' },
+                        ].map((c) => (
+                          <div key={c.label} className="flex items-center justify-between border-b border-border/30 pb-1.5">
+                            <span className="font-medium">{c.label}</span>
+                            <span className={`text-xs ${c.on ? 'text-emerald-400' : 'text-muted-foreground'}`}>{c.on ? `✓ ${c.detail}` : c.detail}</span>
+                          </div>
+                        ))}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </div>
+              ) : (
+                <Card className="border-border/40 bg-white/[0.02]">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2"><Building2 className="w-4 h-4" /> Customer organizations</CardTitle>
+                    <CardDescription>All hosted organizations — read-only support access, every view is audited.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {adminLoading ? (
+                      <p className="text-sm text-muted-foreground">Loading organization…</p>
+                    ) : adminOrgs === null ? (
+                      <p className="text-sm text-muted-foreground">Loading organizations…</p>
+                    ) : adminOrgs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No organizations found.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border/40">
+                              <th className="py-2 pr-4 font-medium">Organization</th>
+                              <th className="py-2 pr-4 font-medium">Plan</th>
+                              <th className="py-2 pr-4 font-medium">Domains</th>
+                              <th className="py-2 pr-4 font-medium">Users</th>
+                              <th className="py-2 pr-4 font-medium">Scans</th>
+                              <th className="py-2 pr-4 font-medium">Last activity</th>
+                              <th className="py-2 font-medium"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {adminOrgs.map((o) => (
+                              <tr key={o.id} className="border-b border-border/20 hover:bg-white/[0.02] transition-colors">
+                                <td className="py-2.5 pr-4">
+                                  <p className="font-medium truncate">{o.name}</p>
+                                  <p className="text-xs text-muted-foreground truncate">{o.slug}</p>
+                                </td>
+                                <td className="py-2.5 pr-4">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
+                                <td className="py-2.5 pr-4 tabular-nums">{o.domain_count}</td>
+                                <td className="py-2.5 pr-4 tabular-nums">{o.user_count}</td>
+                                <td className="py-2.5 pr-4 tabular-nums">{o.scan_count}</td>
+                                <td className="py-2.5 pr-4 text-xs text-muted-foreground">{o.last_activity ? new Date(o.last_activity).toLocaleString() : '—'}</td>
+                                <td className="py-2.5 text-right">
+                                  <Button size="sm" variant="ghost" className="h-7" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5 ml-1" /></Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           </Tabs>
         </div>
