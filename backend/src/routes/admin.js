@@ -37,7 +37,9 @@ async function requireOrg(req, res) {
 router.get('/organizations', async (req, res, next) => {
   try {
     const orgs = await db.getOrganizationsWithCounts();
-    await audit(req, 'admin.organizations.list', null, { count: orgs.length });
+    // Record WHICH orgs were exposed, not just how many — otherwise two
+    // different org sets produce identical audit rows.
+    await audit(req, 'admin.organizations.list', null, { count: orgs.length, org_ids: orgs.map((o) => o.id) });
     res.json(orgs);
   } catch (err) { next(err); }
 });
@@ -57,8 +59,21 @@ router.get('/organizations/:orgId/domains', async (req, res, next) => {
     const org = await requireOrg(req, res);
     if (!org) return;
     const domains = await db.getDomains(org.id);
-    await audit(req, 'admin.organization.domains', org.id, { count: domains.length });
-    res.json(domains);
+    // Same enrichment as the user-facing list: the hydrated domain record
+    // carries no score — it lives on the latest scan.
+    const result = await Promise.all(domains.map(async (d) => {
+      const lastScan = await db.getLatestScan(d.id, org.id);
+      return {
+        ...d,
+        last_score: lastScan?.score || null,
+        last_scan: lastScan?.scanned_at || null,
+        verified: d.verified || false,
+        verified_at: d.verified_at || null,
+        verification_method: d.verification_method || null
+      };
+    }));
+    await audit(req, 'admin.organization.domains', org.id, { count: result.length });
+    res.json(result);
   } catch (err) { next(err); }
 });
 

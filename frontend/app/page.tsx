@@ -48,6 +48,7 @@ export default function Dashboard() {
   // Platform admin (issue #24): org list + drill-down, all read-only.
   const isAdmin = user?.platform_role === 'platform_admin';
   const [adminOrgs, setAdminOrgs] = useState<any[] | null>(null);
+  const [adminOrgsError, setAdminOrgsError] = useState<string | null>(null);
   const [adminDetail, setAdminDetail] = useState<any>(null);
   const [adminLoading, setAdminLoading] = useState(false);
   // Bumped on every org open/close so a slower earlier drill-down
@@ -129,6 +130,7 @@ export default function Dashboard() {
   const resetAdminState = () => {
     adminGenRef.current += 1;
     setAdminOrgs(null);
+    setAdminOrgsError(null);
     setAdminDetail(null);
     setAdminLoading(false);
     if (activeTab === 'admin') setActiveTab('domains');
@@ -495,6 +497,7 @@ export default function Dashboard() {
 
   const loadAdminOrgs = async (gen: number = sessionGenRef.current) => {
     try {
+      setAdminOrgsError(null);
       const res = await apiFetch(`${API_BASE}/admin/organizations`);
       if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
@@ -504,6 +507,7 @@ export default function Dashboard() {
       if (!res.ok) {
         console.error(`Failed to load admin organizations: HTTP ${res.status}`);
         setAdminOrgs([]);
+        setAdminOrgsError(`Could not load organizations (HTTP ${res.status}).`);
         return;
       }
       const data = await res.json();
@@ -511,6 +515,9 @@ export default function Dashboard() {
       setAdminOrgs(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error('Failed to load admin organizations:', e);
+      if (gen !== sessionGenRef.current) return;
+      setAdminOrgs([]);
+      setAdminOrgsError('Could not load organizations (network error).');
     }
   };
 
@@ -529,7 +536,8 @@ export default function Dashboard() {
         apiFetch(`${base}/notifications`),
       ]);
       if (gen !== adminGenRef.current) return;
-      if (orgR.status === 401) {
+      const responses = [orgR, domR, usrR, scnR, ntR];
+      if (responses.some((r) => r.status === 401)) {
         handleAuthFailure();
         return;
       }
@@ -537,8 +545,22 @@ export default function Dashboard() {
         console.error(`Failed to load organization: HTTP ${orgR.status}`);
         return;
       }
+      // Every section response is checked individually: a failed section is
+      // reported as unavailable instead of masquerading as an empty one.
+      const failed = {
+        domains: !domR.ok,
+        users: !usrR.ok,
+        scans: !scnR.ok,
+        notifications: !ntR.ok,
+      };
+      for (const [section, isFailed] of Object.entries(failed)) {
+        if (isFailed) console.error(`Failed to load admin ${section}: response not ok`);
+      }
+      const safeJson = async (r: any) => {
+        try { return r.ok ? await r.json() : null; } catch { return null; }
+      };
       const [org, domains, users, scans, notifications] = await Promise.all([
-        orgR.json(), domR.json(), usrR.json(), scnR.json(), ntR.json()
+        orgR.json(), safeJson(domR), safeJson(usrR), safeJson(scnR), safeJson(ntR)
       ]);
       if (gen !== adminGenRef.current) return;
       setAdminDetail({
@@ -547,6 +569,7 @@ export default function Dashboard() {
         users: Array.isArray(users) ? users : [],
         scans: Array.isArray(scans) ? scans : [],
         notifications: notifications || {},
+        failed,
       });
     } catch (e) {
       console.error('Failed to load organization detail:', e);
@@ -2773,22 +2796,32 @@ export default function Dashboard() {
                     <Card className="border-border/40 bg-white/[0.02]">
                       <CardHeader className="pb-2"><CardTitle className="text-sm">Domains</CardTitle></CardHeader>
                       <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.failed?.domains ? (
+                          <p className="text-sm text-red-400/70">Domains unavailable — the request failed.</p>
+                        ) : (
+                          <>
                         {adminDetail.domains.length === 0 && <p className="text-sm text-muted-foreground">No domains.</p>}
                         {adminDetail.domains.map((d: any) => (
                           <div key={d.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
                             <span className="truncate font-medium">{d.name}</span>
                             <span className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
                               {d.verified ? 'verified' : 'unverified'}
-                              <Badge variant="outline" className={typeof d.score === 'number' ? (d.score >= 80 ? 'text-emerald-400 border-emerald-400/30' : d.score >= 50 ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.score === 'number' ? d.score : '—'}</Badge>
+                              <Badge variant="outline" className={typeof d.last_score === 'number' ? (d.last_score >= 80 ? 'text-emerald-400 border-emerald-400/30' : d.last_score >= 50 ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
                             </span>
                           </div>
                         ))}
+                          </>
+                        )}
                       </CardContent>
                     </Card>
 
                     <Card className="border-border/40 bg-white/[0.02]">
                       <CardHeader className="pb-2"><CardTitle className="text-sm">Users</CardTitle></CardHeader>
                       <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.failed?.users ? (
+                          <p className="text-sm text-red-400/70">Users unavailable — the request failed.</p>
+                        ) : (
+                          <>
                         {adminDetail.users.length === 0 && <p className="text-sm text-muted-foreground">No users.</p>}
                         {adminDetail.users.map((u: any) => (
                           <div key={u.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
@@ -2799,6 +2832,8 @@ export default function Dashboard() {
                             <Badge variant="outline" className="flex-shrink-0">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
                           </div>
                         ))}
+                          </>
+                        )}
                       </CardContent>
                     </Card>
                   </div>
@@ -2807,6 +2842,10 @@ export default function Dashboard() {
                     <Card className="border-border/40 bg-white/[0.02]">
                       <CardHeader className="pb-2"><CardTitle className="text-sm">Scan history</CardTitle></CardHeader>
                       <CardContent className="space-y-2 max-h-72 overflow-y-auto">
+                        {adminDetail.failed?.scans ? (
+                          <p className="text-sm text-red-400/70">Scan history unavailable — the request failed.</p>
+                        ) : (
+                          <>
                         {adminDetail.scans.length === 0 && <p className="text-sm text-muted-foreground">No scans yet.</p>}
                         {adminDetail.scans.map((s: any) => {
                           const scanDomain = adminDetail.domains.find((d: any) => d.id === s.domain_id);
@@ -2820,12 +2859,18 @@ export default function Dashboard() {
                             </div>
                           );
                         })}
+                          </>
+                        )}
                       </CardContent>
                     </Card>
 
                     <Card className="border-border/40 bg-white/[0.02]">
                       <CardHeader className="pb-2"><CardTitle className="text-sm">Channels</CardTitle></CardHeader>
                       <CardContent className="space-y-2 text-sm">
+                        {adminDetail.failed?.notifications ? (
+                          <p className="text-sm text-red-400/70">Channel status unavailable — the request failed.</p>
+                        ) : (
+                          <>
                         {[
                           { label: 'SMTP', on: !!adminDetail.notifications.smtp, detail: adminDetail.notifications.smtp ? `${adminDetail.notifications.smtp.host || '—'}${adminDetail.notifications.smtp.pass_configured ? ' · pass set' : ''}` : 'not configured' },
                           { label: 'Resend', on: !!adminDetail.notifications.resend, detail: adminDetail.notifications.resend ? (adminDetail.notifications.resend.from || 'configured') : 'not configured' },
@@ -2836,6 +2881,8 @@ export default function Dashboard() {
                             <span className={`text-xs ${c.on ? 'text-emerald-400' : 'text-muted-foreground'}`}>{c.on ? `✓ ${c.detail}` : c.detail}</span>
                           </div>
                         ))}
+                          </>
+                        )}
                       </CardContent>
                     </Card>
                   </div>
@@ -2849,6 +2896,11 @@ export default function Dashboard() {
                   <CardContent>
                     {adminLoading ? (
                       <p className="text-sm text-muted-foreground">Loading organization…</p>
+                    ) : adminOrgsError ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm text-red-400/80">{adminOrgsError}</p>
+                        <Button size="sm" variant="outline" className="h-7" onClick={() => loadAdminOrgs()}>Retry</Button>
+                      </div>
                     ) : adminOrgs === null ? (
                       <p className="text-sm text-muted-foreground">Loading organizations…</p>
                     ) : adminOrgs.length === 0 ? (
