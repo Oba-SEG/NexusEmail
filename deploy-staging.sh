@@ -31,13 +31,19 @@ if [ -z "$EK" ]; then
     # Distinguish grep 'no match' (status 1 -> MISSING) from read errors
     # (status 2+ -> ERROR). The grep status is checked directly; a pipeline
     # would report the last command's status and mask read errors.
-    if [ -r \"\$f\" ]; then
-      if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
-        k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
-        if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+    # Absent -> MISSING; present-but-unreadable -> ERROR (never rotate over
+    # a file whose contents cannot be verified).
+    if [ -e \"\$f\" ]; then
+      if [ -r \"\$f\" ]; then
+        if k=\$(grep -E '^NEXUSEMAIL_ENCRYPTION_KEY=' \"\$f\" 2>/dev/null); then
+          k=\$(printf '%s' \"\$k\" | tail -n1 | cut -d= -f2-)
+          if [ -n \"\$k\" ]; then printf 'KEY:%s' \"\$k\"; else printf 'MISSING'; fi
+        else
+          gs=\$?
+          if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+        fi
       else
-        gs=\$?
-        if [ \"\$gs\" -eq 1 ]; then printf 'MISSING'; else printf 'ERROR'; fi
+        printf 'ERROR'
       fi
     else
       printf 'MISSING'
