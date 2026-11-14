@@ -8,7 +8,6 @@ NexusEmail stays free/open-source, but Segbytes will also run a hosted instance 
 - Each organization has its own users.
 - Domains, scans, integrations, settings, reports, and brand-protection data are scoped by organization.
 - Users authenticate before accessing the dashboard/API.
-- Production auth must connect to the WHMCS client login flow used on segbytes.co.za.
 
 ## Implemented first slice
 - Local JWT auth.
@@ -27,11 +26,10 @@ NexusEmail stays free/open-source, but Segbytes will also run a hosted instance 
 - `ALLOWED_ORIGINS` set to the hosted frontend URL
 
 ## Next implementation steps
-1. Replace local email/password login with a WHMCS client-area login/session adapter.
-2. Add client-organization provisioning from the Segbytes billing/client portal.
-3. Add organization switch/admin UI for Segbytes staff.
-4. Move JSON storage to Postgres/SQLite before serious multi-client production use.
-5. Add audit logs for login, domain changes, provider credentials, and remediation actions.
+1. Add client-organization provisioning from the Segbytes billing/client portal.
+2. Add organization switch/admin UI for Segbytes staff.
+3. Move JSON storage to Postgres/SQLite before serious multi-client production use.
+4. Add audit logs for login, domain changes, provider credentials, and remediation actions.
 
 ## Employee delegation model
 Use agency-agents as Segbytes employees for this work:
@@ -43,21 +41,11 @@ Use agency-agents as Segbytes employees for this work:
 - Project Shepherd: execution board, milestones, blockers.
 
 
-## WHMCS login direction
-- WHMCS client login is the hosted NexusEmail source of truth.
-- WHMCS client/contact identity maps to NexusEmail users.
-- WHMCS client/account or active product service maps to NexusEmail organization.
-- Hosted clients should not need a second NexusEmail password.
-- Provisioning should eventually be driven by WHMCS product/service lifecycle events.
 
-## Implemented WHMCS hosted slice
-- `/api/whmcs/provision` creates/fetches an organization from WHMCS client/service payload and creates the first owner.
-- `/api/whmcs/login-token` mints a NexusEmail session only from a server-side WHMCS-authorized call.
-- `/api/whmcs/suspend`, `/unsuspend`, `/terminate`, `/status/:clientId` manage org lifecycle.
-- WHMCS calls support bearer token auth and optional HMAC headers: `x-whmcs-timestamp`, `x-whmcs-nonce`, `x-whmcs-signature`.
-- `AUTH_MODE=whmcs` blocks normal client password login; platform admin remains available as break-glass/admin path.
+## Platform/hosting notes
 - Platform admin is separated from tenant owner/admin via `platform_role`.
 - `NEXUSEMAIL_DATA_DIR` allows production data to live outside the deploy directory.
+- WHMCS integration was removed in 2026 (no longer linked); login is direct email/password.
 
 ## Hosting decision update
 - Hosted product name: Nexus Brand Protection.
