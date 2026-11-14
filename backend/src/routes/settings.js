@@ -5,8 +5,6 @@ const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
 
-const notificationService = new NotificationService();
-
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
   try {
@@ -146,12 +144,6 @@ router.post('/providers/test', async (req, res) => {
   }
 });
 
-// Get provider credentials (for internal use)
-async function getProviderCredentials(provider) {
-  const all = JSON.parse(await db.getSetting('provider_credentials', req.orgId) || '{}');
-  return all[provider.toLowerCase()] || null;
-}
-
 // SMTP Config
 router.post('/smtp', async (req, res, next) => {
   try {
@@ -165,15 +157,10 @@ router.post('/smtp', async (req, res, next) => {
       pass = stored.pass;
     }
     const config = { host, port: parseInt(port) || 587, secure: !!secure, user, pass, from };
+    // Persist only: senders build their transport per operation via
+    // NotificationService.createForOrg (DB-backed), so a restart loses nothing
+    // and one org's SMTP settings can never leak into another org's sends.
     await db.setSetting('smtp_config', JSON.stringify(config), req.orgId);
-
-    notificationService.configureSMTP({
-      host,
-      port: parseInt(port) || 587,
-      secure: !!secure,
-      auth: user && pass ? { user, pass } : undefined,
-      from
-    });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -306,4 +293,4 @@ router.get('/health', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-module.exports = { router, getProviderCredentials };
+module.exports = { router };
