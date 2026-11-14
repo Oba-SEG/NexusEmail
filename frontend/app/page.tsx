@@ -40,6 +40,7 @@ export default function Dashboard() {
   const sessionGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
   const [darkMode, setDarkMode] = useState(true);
   const [domainInput, setDomainInput] = useState("");
@@ -206,16 +207,25 @@ export default function Dashboard() {
     }
   };
 
-  const logout = () => {
-    // Revoke server-side before clearing local state: bumps token_version so
-    // a copied JWT stops working immediately. Best-effort — local state is
-    // cleared regardless of the network result.
+  const logout = async () => {
+    // Revoke server-side before clearing local state. The request uses the
+    // current session's token (React state, not localStorage — another tab
+    // may have overwritten it with a different identity) and must be
+    // confirmed; on failure the session stays and the user is told.
     try {
-      fetch(`${API_BASE}/auth/revoke`, {
+      const res = await fetch(`${API_BASE}/auth/revoke`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${localStorage.getItem('nexusemail_token') || ''}` }
-      }).catch(() => {});
-    } catch {}
+        headers: { Authorization: `Bearer ${token || ''}` }
+      });
+      if (!res.ok) {
+        setLogoutNotice('Sign-out did not complete: the server could not revoke the session. Try again.');
+        return;
+      }
+    } catch {
+      setLogoutNotice('Sign-out did not complete: network error. Try again.');
+      return;
+    }
+    setLogoutNotice(null);
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
     sessionGenRef.current += 1;
@@ -1178,6 +1188,9 @@ export default function Dashboard() {
                   {darkMode ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
                 </Button>
                 <div className="ml-3 flex items-center gap-3 pl-4 border-l border-white/5">
+                  {logoutNotice && (
+                    <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
+                  )}
                   {user?.email && (
                     <div className="hidden sm:block text-right leading-tight">
                       <p className="text-xs font-medium text-foreground truncate max-w-[180px]">{user.name || user.email}</p>
