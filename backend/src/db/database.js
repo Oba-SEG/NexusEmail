@@ -105,6 +105,7 @@ async function initSchema() {
       platform_role TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       password_hash TEXT,
+      token_version INTEGER NOT NULL DEFAULT 1,
       whmcs_client_id TEXT,
       whmcs_contact_id TEXT,
       created_at TEXT NOT NULL,
@@ -849,9 +850,26 @@ async function migrateBrandsFromSettingsBlob() {
   }
 }
 
+// Idempotent column add for tables created before a column existed.
+async function ensureColumn(table, column, ddl) {
+  const row = await one('SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2', [table, column]);
+  if (!row) await q(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
+// Bump the user's token_version: every previously issued JWT stops
+// verifying on the next request (requireAuth compares the token's tv claim).
+async function bumpUserTokenVersion(userId) {
+  const row = await one(
+    'UPDATE users SET token_version = COALESCE(token_version, 1) + 1, updated_at = $2 WHERE id = $1 RETURNING token_version',
+    [userId, now()]
+  );
+  return row?.token_version;
+}
+
 async function initDatabase() {
   await initSchema();
   await migrateLegacyJsonIfNeeded();
+  await ensureColumn('users', 'token_version', 'INTEGER NOT NULL DEFAULT 1');
   await migrateBrandsFromSettingsBlob();
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
@@ -872,6 +890,7 @@ module.exports = {
   getSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, getOrganizationByWhmcsClient, addOrganization, updateOrganization,
   getUsers, getUser, getUserByEmail, getUserByWhmcsContact, addUser, nextNumericId,
+  ensureColumn, bumpUserTokenVersion,
   initDatabase,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
