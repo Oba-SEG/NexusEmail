@@ -847,6 +847,17 @@ async function migrateBrandsFromSettingsBlob() {
   }
 }
 
+// Admin password set (issue #43): replace the hash AND bump token_version
+// in one statement so every existing session for that user stops verifying
+// immediately (same revocation semantics as logout-everywhere).
+async function setUserPassword(userId, passwordHash) {
+  const row = await one(
+    'UPDATE users SET password_hash = $2, token_version = COALESCE(token_version, 1) + 1, updated_at = $3 WHERE id = $1 RETURNING token_version',
+    [userId, passwordHash, now()]
+  );
+  return row?.token_version;
+}
+
 // Idempotent column add for tables created before a column existed.
 async function ensureColumn(table, column, ddl) {
   const row = await one('SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2', [table, column]);
@@ -926,7 +937,7 @@ module.exports = {
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,
-  ensureColumn, bumpUserTokenVersion,
+  ensureColumn, bumpUserTokenVersion, setUserPassword,
   initDatabase,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,

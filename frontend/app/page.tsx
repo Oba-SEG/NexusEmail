@@ -55,6 +55,12 @@ export default function Dashboard() {
   // response can never overwrite a newer selection (same lesson as
   // brandDetailsGenRef).
   const adminGenRef = useRef(0);
+  // Admin password set (issue #43): inline per-user reset form.
+  const [pwResetFor, setPwResetFor] = useState<string | null>(null);
+  const [pwResetValue, setPwResetValue] = useState('');
+  const [pwResetError, setPwResetError] = useState<string | null>(null);
+  const [pwResetBusy, setPwResetBusy] = useState(false);
+  const [pwResetDone, setPwResetDone] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -133,6 +139,10 @@ export default function Dashboard() {
     setAdminOrgsError(null);
     setAdminDetail(null);
     setAdminLoading(false);
+    setPwResetFor(null);
+    setPwResetValue('');
+    setPwResetError(null);
+    setPwResetDone(null);
     if (activeTab === 'admin') setActiveTab('domains');
   };
 
@@ -585,6 +595,50 @@ export default function Dashboard() {
   const closeAdminOrg = () => {
     adminGenRef.current += 1;
     setAdminDetail(null);
+    setPwResetFor(null);
+    setPwResetValue('');
+    setPwResetError(null);
+  };
+
+  const submitPasswordReset = async (orgId: string, userId: string) => {
+    if (pwResetValue.length < 8) {
+      setPwResetError('At least 8 characters.');
+      return;
+    }
+    setPwResetBusy(true);
+    setPwResetError(null);
+    try {
+      const res = await apiFetch(
+        `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/password`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwResetValue })
+        }
+      );
+      if (res.status === 401) {
+        handleAuthFailure();
+        return;
+      }
+      if (!res.ok) {
+        let message = `HTTP ${res.status}`;
+        try {
+          const data = await res.json();
+          if (data?.error) message = data.error;
+        } catch { /* keep HTTP status */ }
+        setPwResetError(message);
+        return;
+      }
+      setPwResetFor(null);
+      setPwResetValue('');
+      setPwResetDone(userId);
+      setTimeout(() => setPwResetDone((cur) => (cur === userId ? null : cur)), 4000);
+    } catch (e) {
+      console.error('Password set failed:', e);
+      setPwResetError('Network error.');
+    } finally {
+      setPwResetBusy(false);
+    }
   };
 
   const loadSettings = async () => {
@@ -2828,12 +2882,48 @@ export default function Dashboard() {
                           <>
                         {adminDetail.users.length === 0 && <p className="text-sm text-muted-foreground">No users.</p>}
                         {adminDetail.users.map((u: any) => (
-                          <div key={u.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
-                            <div className="min-w-0">
-                              <p className="truncate font-medium">{u.email}</p>
-                              <p className="text-xs text-muted-foreground truncate">{u.name}</p>
+                          <div key={u.id} className="space-y-1.5 border-b border-border/30 pb-1.5">
+                            <div className="flex items-center justify-between gap-2 text-sm">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{u.email}</p>
+                                <p className="text-xs text-muted-foreground truncate">{u.name}</p>
+                              </div>
+                              <span className="flex items-center gap-2 flex-shrink-0">
+                                <button
+                                  className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                                  onClick={() => {
+                                    setPwResetFor(pwResetFor === u.id ? null : u.id);
+                                    setPwResetValue('');
+                                    setPwResetError(null);
+                                  }}
+                                >
+                                  Reset
+                                </button>
+                                <Badge variant="outline">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
+                              </span>
                             </div>
-                            <Badge variant="outline" className="flex-shrink-0">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
+                            {pwResetFor === u.id && (
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Input
+                                  type="password"
+                                  placeholder="New password (min 8)"
+                                  value={pwResetValue}
+                                  onChange={(e) => setPwResetValue(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && submitPasswordReset(adminDetail.org.id, u.id)}
+                                  className="h-8 text-sm flex-1 min-w-[160px]"
+                                />
+                                <Button size="sm" className="h-8" disabled={pwResetBusy} onClick={() => submitPasswordReset(adminDetail.org.id, u.id)}>
+                                  {pwResetBusy ? 'Setting…' : 'Set'}
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-8" onClick={() => { setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
+                                  Cancel
+                                </Button>
+                                {pwResetError && <span className="text-xs text-red-400">{pwResetError}</span>}
+                              </div>
+                            )}
+                            {pwResetDone === u.id && (
+                              <p className="text-[11px] text-emerald-400">Password updated — existing sessions were signed out.</p>
+                            )}
                           </div>
                         ))}
                           </>
