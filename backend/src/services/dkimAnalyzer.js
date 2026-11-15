@@ -180,8 +180,10 @@ class DkimAnalyzer {
     return 'p' in tags || (!!tags.v && /^dkim1$/i.test(tags.v.trim()));
   }
 
-  /** Split a DKIM key record into lowercase tags; duplicates tracked
-   *  separately (RFC 6376 §3.2 makes a tag list with repeats invalid). */
+  /** Split a DKIM key record into tags; duplicates tracked separately
+   *  (RFC 6376 §3.2 makes a tag list with repeats invalid). Tag NAMES are
+   *  case-sensitive — `p` and `P` are distinct tags, and unrecognized ones
+   *  are ignored, so lookup uses exact names. */
   parseTags(record) {
     const tags = {};
     const seen = new Set();
@@ -189,7 +191,7 @@ class DkimAnalyzer {
     for (const part of record.split(';')) {
       const eq = part.indexOf('=');
       if (eq <= 0) continue;
-      const key = part.slice(0, eq).trim().toLowerCase();
+      const key = part.slice(0, eq).trim();
       const value = part.slice(eq + 1).trim();
       if (!key) continue;
       if (seen.has(key)) duplicates.push(key);
@@ -244,7 +246,9 @@ function parseSubjectPublicKeyInfo(buf) {
   if (keyData.length === 0) return null;
 
   if (isEd25519Oid(oid)) {
-    return { algorithm: 'ed25519', bits: keyData.length * 8 - unusedBits };
+    // Ed25519 public keys are exactly 32 bytes with no unused bits.
+    if (keyData.length !== 32 || unusedBits !== 0) return null;
+    return { algorithm: 'ed25519', bits: 256 };
   }
   // Only rsaEncryption keys are decoded as RSA structures.
   if (!isRsaOid(oid)) return null;

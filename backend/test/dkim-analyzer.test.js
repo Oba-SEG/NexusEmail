@@ -83,10 +83,13 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
   test('rejects an RSA key with no public exponent INTEGER', () => {
     // SEQ { INTEGER modulus } — exponent removed
     const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
-    const intSeq = Buffer.concat([Buffer.from([0x02, 0x82, 0x01, 0x01]), modulus]);
+    const intBody = Buffer.concat([Buffer.from([0x00]), modulus]);
+    const intSeq = Buffer.concat([
+      Buffer.from([0x30]), derLen(intBody.length), Buffer.from([0x02]), derLen(intBody.length), intBody,
+    ]);
     const der = customSpki(
       [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
-      Buffer.concat([Buffer.from([0x30, intSeq.length]), intSeq])
+      intSeq
     );
     assert.equal(parseSubjectPublicKeyInfo(der), null);
   });
@@ -94,17 +97,24 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
   test('parses a hand-built RSA SPKI with modulus and exponent', () => {
     const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
     const exponent = Buffer.from([0x01, 0x00, 0x01]);
-    const intSeq = Buffer.concat([
-      Buffer.from([0x02, 0x82, 0x01, 0x01]), modulus,
-      Buffer.from([0x02, 0x03]), exponent,
-    ]);
+    const modInt = Buffer.concat([Buffer.from([0x02]), derLen(modulus.length), modulus]);
+    const expInt = Buffer.concat([Buffer.from([0x02, 0x03]), exponent]);
+    const intBody = Buffer.concat([modInt, expInt]);
+    const intSeq = Buffer.concat([Buffer.from([0x30]), derLen(intBody.length), intBody]);
     const der = customSpki(
       [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
-      Buffer.concat([Buffer.from([0x30, intSeq.length]), intSeq])
+      intSeq
     );
     const parsed = parseSubjectPublicKeyInfo(der);
     assert.equal(parsed.algorithm, 'rsa');
     assert.equal(parsed.bits, 2048);
+  });
+
+  test('rejects an SPKI-wrapped Ed25519 key that is not exactly 32 bytes', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const raw = kp.publicKey.export({ type: 'spki', format: 'der' }).slice(-32);
+    const short = customSpki([0x2b, 0x65, 0x70], raw.slice(0, 31));
+    assert.equal(parseSubjectPublicKeyInfo(short), null);
   });
 });
 
@@ -222,6 +232,16 @@ describe('DkimAnalyzer — selector probing', () => {
     const r = await v.analyze('example.com');
     assert.equal(r.selectors[0].valid, false);
     assert.match(r.errors.join(' '), /duplicate tag/);
+  });
+
+  test('tag names are case-sensitive: P= is not p=', async () => {
+    const kp = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const v = fakeAnalyzer({
+      'default._domainkey.example.com': [[`v=DKIM1; P=extension; k=rsa; p=${spkiB64(kp)}`]],
+    });
+    const r = await v.analyze('example.com');
+    assert.equal(r.selectors[0].valid, true);
+    assert.equal(r.selectors[0].keySize, '2048-bit');
   });
 
   test('whitespace before the p= separator is accepted', async () => {
