@@ -74,9 +74,37 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
     assert.equal(parseSubjectPublicKeyInfo(Buffer.alloc(0)), null);
   });
 
-  test('rejects SPKI with an unknown algorithm OID', () => {
-    // OID 1.2 (content bytes 2a) — not rsaEncryption, not Ed25519
-    const der = customSpki([0x2a], Buffer.alloc(32, 0xab));
+  test('rejects a valid RSA structure with an unsupported algorithm OID', () => {
+    const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
+    const modInt = Buffer.concat([Buffer.from([0x02]), derLen(modulus.length), modulus]);
+    const expInt = Buffer.from([0x02, 0x03, 0x01, 0x00, 0x01]);
+    const intBody = Buffer.concat([modInt, expInt]);
+    const intSeq = Buffer.concat([Buffer.from([0x30]), derLen(intBody.length), intBody]);
+    // OID 1.2 (content bytes 2a) — well-formed RSA payload, wrong OID
+    const der = customSpki([0x2a], intSeq);
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects a BIT STRING whose declared length exceeds the buffer', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const der = Buffer.from(spkiB64(kp), 'base64');
+    // layout: 30 2a 30 05 06 03 2b 65 70 | 03 21 00 <32 key bytes>
+    assert.equal(der[9], 0x03);
+    assert.equal(der[10], 0x21); // 1 unused byte + 32 key bytes
+    der[10] = 0x22; // declare one byte more than exists
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects an exponent tag with no length bytes', () => {
+    // SEQ { INTEGER modulus, INTEGER tag only — buffer ends after 0x02 }
+    const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
+    const modInt = Buffer.concat([Buffer.from([0x02]), derLen(modulus.length), modulus]);
+    const intBody = Buffer.concat([modInt, Buffer.from([0x02])]);
+    const intSeq = Buffer.concat([Buffer.from([0x30]), derLen(intBody.length), intBody]);
+    const der = customSpki(
+      [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
+      intSeq
+    );
     assert.equal(parseSubjectPublicKeyInfo(der), null);
   });
 

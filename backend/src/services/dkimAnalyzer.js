@@ -208,38 +208,47 @@ class DkimAnalyzer {
  */
 function parseSubjectPublicKeyInfo(buf) {
   let i = 0;
-  const readLen = () => {
+  // Read a DER length starting at buf[i]. null on: running out of bytes,
+  // indefinite/oversized long form, or a declared extent that does not fit
+  // within `limit` (the enclosing structure's end).
+  const readLen = (limit) => {
+    if (i >= limit) return null;
     let l = buf[i++];
     if (l & 0x80) {
       const n = l & 0x7f;
       if (n === 0 || n > 2) return null;
+      if (i + n > limit) return null;
       l = 0;
       for (let k = 0; k < n; k++) l = (l << 8) | buf[i++];
+      if (!Number.isFinite(l)) return null;
     }
+    if (i + l > limit) return null;
     return l;
   };
+  // Outer SEQUENCE
   if (buf[i++] !== 0x30) return null;
-  if (readLen() === null) return null;
+  if (readLen(buf.length) === null) return null;
   // AlgorithmIdentifier SEQUENCE
   if (buf[i++] !== 0x30) return null;
-  if (readLen() === null) return null;
+  const algLen = readLen(buf.length);
+  if (algLen === null) return null;
+  const algEnd = i + algLen;
   // Algorithm OID
   if (buf[i++] !== 0x06) return null;
-  const oidLen = readLen();
+  const oidLen = readLen(algEnd);
   if (oidLen === null) return null;
   const oid = buf.slice(i, i + oidLen);
   i += oidLen;
-  // Optional parameters (RSA: NULL 05 00)
-  if (i < buf.length && buf[i] === 0x05) {
+  // Optional parameters (RSA: NULL 05 00) — must sit inside AlgIdentifier
+  if (i < algEnd && buf[i] === 0x05) {
     i += 1;
-    const pl = readLen();
-    if (pl === null) return null;
-    i += pl;
+    if (readLen(algEnd) === null) return null;
   }
-  // subjectPublicKey BIT STRING
+  // subjectPublicKey BIT STRING — declared extent must fit the buffer
   if (buf[i++] !== 0x03) return null;
-  const bitLen = readLen();
-  if (bitLen === null || i >= buf.length) return null;
+  const bitLen = readLen(buf.length);
+  if (bitLen === null || bitLen < 1) return null;
+  if (i >= buf.length) return null;
   const unusedBits = buf[i++];
   if (unusedBits > 7) return null;
   const keyData = buf.slice(i, i + bitLen - 1);
@@ -256,26 +265,33 @@ function parseSubjectPublicKeyInfo(buf) {
   // RSA: subjectPublicKey is SEQUENCE { INTEGER modulus, INTEGER exponent }
   if (keyData[0] !== 0x30) return null;
   let j = 1;
-  const readKeyLen = () => {
+  // Same bounds-safe length reader, over keyData with limit `end`.
+  const readKeyLen = (end) => {
+    if (j >= end) return null;
     let l = keyData[j++];
     if (l & 0x80) {
       const n = l & 0x7f;
       if (n === 0 || n > 2) return null;
+      if (j + n > end) return null;
       l = 0;
       for (let k = 0; k < n; k++) l = (l << 8) | keyData[j++];
+      if (!Number.isFinite(l)) return null;
     }
+    if (j + l > end) return null;
     return l;
   };
-  if (readKeyLen() === null) return null;
-  if (keyData[j++] !== 0x02) return null;
-  const modLen = readKeyLen();
-  if (modLen === null || modLen <= 0 || j + modLen > keyData.length) return null;
+  const rsaSeqLen = readKeyLen(keyData.length);
+  if (rsaSeqLen === null) return null;
+  const seqEnd = j + rsaSeqLen;
+  if (j >= seqEnd || keyData[j++] !== 0x02) return null;
+  const modLen = readKeyLen(seqEnd);
+  if (modLen === null || modLen <= 0) return null;
   let modulus = keyData.slice(j, j + modLen);
   j += modLen;
   // The public exponent INTEGER must be present and fit the key data.
-  if (keyData[j++] !== 0x02) return null;
-  const expLen = readKeyLen();
-  if (expLen === null || expLen <= 0 || j + expLen > keyData.length) return null;
+  if (j >= seqEnd || keyData[j++] !== 0x02) return null;
+  const expLen = readKeyLen(seqEnd);
+  if (expLen === null || expLen <= 0) return null;
   // DER positive INTEGERs may carry a leading zero byte.
   while (modulus.length > 1 && modulus[0] === 0x00) modulus = modulus.slice(1);
   const first = modulus[0];
