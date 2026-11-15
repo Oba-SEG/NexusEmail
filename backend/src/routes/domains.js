@@ -25,6 +25,9 @@ router.get('/', async (req, res, next) => {
     const lastScan = await db.getLatestScan(d.id, req.orgId);
     return {
       ...d,
+      // Full latest scan (both writer shapes) for the frontend record
+      // chips — the list previously surfaced only score + timestamp.
+      latest_scan: lastScan,
       // ?? not ||: a real score of 0 must survive (|| would coerce it to null)
       last_score: lastScan?.score ?? null,
       last_scan: lastScan?.scanned_at || null,
