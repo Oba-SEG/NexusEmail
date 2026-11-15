@@ -3,6 +3,7 @@ const { createHash, publicEncrypt } = require('crypto');
 const { SpfValidator } = require('./spfValidator');
 const { DkimAnalyzer } = require('./dkimAnalyzer');
 const { MtaStsAnalyzer } = require('./mtaStsAnalyzer');
+const { TyposquatDetector } = require('./typosquatDetector');
 
 class EmailSecurityAuditor {
   constructor() {}
@@ -229,16 +230,25 @@ class EmailSecurityAuditor {
       summary: 'No threats detected'
     };
 
-    // Check 1: Domain lookalikes
-    const domainParts = domain.split('.');
-    if (domainParts.length >= 2) {
-      const baseDomain = domainParts.slice(-2).join('.');
-      
-      // This would need external threat intelligence in production
+    // Check 1: Domain lookalikes — delegated to TyposquatDetector:
+    // typo/homoglyph/TLD-swap/prefix-suffix candidates, each checked
+    // for real registration via RDAP (free, no key). Registered
+    // lookalikes surface as high-severity threats.
+    try {
+      const ts = await new TyposquatDetector().analyze(domain);
+      result.checks.push({
+        name: 'Domain Lookalikes',
+        status: ts.threats.length > 0 ? 'warning' : 'info',
+        message: ts.summary,
+        candidates: ts.candidates,
+      });
+      result.threats.push(...ts.threats);
+      result.score -= ts.threats.length * 15;
+    } catch (e) {
       result.checks.push({
         name: 'Domain Lookalikes',
         status: 'info',
-        message: 'Checked for typosquatting and lookalike domains'
+        message: `Lookalike scan unavailable: ${e.message}`
       });
     }
 
