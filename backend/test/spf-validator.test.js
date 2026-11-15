@@ -394,6 +394,115 @@ describe('SpfValidator — policies and mechanisms', () => {
   });
 });
 
+describe('SpfValidator — review round 2', () => {
+  test('duplicate redirect modifiers are a permerror', async () => {
+    const v = fakeValidator({
+      'example.com': [['v=spf1 redirect=a.example redirect=b.example']],
+      'a.example': [['v=spf1 -all']],
+      'b.example': [['v=spf1 ~all']],
+    });
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /Duplicate redirect modifier/);
+    assert.equal(r.valid, false);
+  });
+
+  test('duplicate exp modifiers are a permerror', async () => {
+    const v = fakeValidator({
+      'example.com': [['v=spf1 exp=foo.example exp=bar.example -all']],
+    });
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /Duplicate exp modifier/);
+    assert.equal(r.valid, false);
+  });
+
+  test('unknown modifiers may repeat without error', async () => {
+    const v = fakeValidator({
+      'example.com': [['v=spf1 custom=a custom=b -all']],
+    });
+    const r = await v.validate('example.com');
+    assert.equal(r.valid, true);
+    assert.equal(r.policy, 'hardfail');
+  });
+
+  test('macro include targets are skipped, not resolved literally', async () => {
+    const v = fakeValidator({
+      'example.com': [['v=spf1 include:_spf.%{d} -all']],
+      // literal name with macro chars does NOT exist in the zone —
+      // resolving it would produce a false "does not exist" error
+    });
+    const r = await v.validate('example.com');
+    assert.match(r.warnings.join(' '), /cannot be evaluated/);
+    assert.doesNotMatch(r.errors.join(' '), /does not exist/);
+    assert.equal(r.includes[0].status, 'macro_skipped');
+    assert.equal(r.lookupCount, 0);
+  });
+
+  test('macro a/exists/redirect targets are skipped', async () => {
+    const v = fakeValidator({
+      'example.com': [['v=spf1 a:%{ir}.spf.example exists:%{i}.exists.example redirect=%{d}.example']],
+    });
+    const r = await v.validate('example.com');
+    assert.match(r.warnings.join(' '), /cannot be evaluated/);
+    assert.equal(r.voidLookups, 0);
+    assert.equal(r.lookupCount, 0);
+  });
+
+  test('dual CIDR a/24//64 and a//64 are accepted', async () => {
+    const v = fakeValidator(
+      {
+        'example.com': [['v=spf1 a:mail.example.com/24//64 mx//64 -all']],
+      },
+      { a: ['mail.example.com'], mx: ['example.com'] }
+    );
+    const r = await v.validate('example.com');
+    assert.equal(r.valid, true);
+    assert.equal(r.lookupCount, 2);
+  });
+
+  test('A SERVFAIL alongside AAAA success is still reported as an error', async () => {
+    // a-family throws a transient-failure code while AAAA answers — the
+    // failure must not be silently swallowed.
+    const v = fakeValidator(
+      {
+        'example.com': [['v=spf1 a:host.example.com ~all']],
+      },
+      { aFail: 'ESERVFAIL', aaaa: ['host.example.com'] }
+    );
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /A DNS lookup failed for host\.example\.com/);
+    assert.equal(r.voidLookups, 0);
+    assert.equal(r.valid, false);
+  });
+
+  test('ptr takes no CIDR — ptr/24 is a permerror', async () => {
+    const v = fakeValidator({ 'example.com': [['v=spf1 ptr/24 -all']] });
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /ptr takes no CIDR/);
+    assert.equal(r.valid, false);
+  });
+
+  test('terms after all are still validated (ip4:garbage caught)', async () => {
+    const v = fakeValidator({ 'example.com': [['v=spf1 -all ip4:garbage']] });
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /Invalid ip4 mechanism/);
+    assert.equal(r.valid, false);
+  });
+
+  test('a/mx/exists terms over the budget are counted but not queried', async () => {
+    // 12 a-terms; only the first 10 may trigger DNS queries.
+    const tokens = [];
+    for (let i = 1; i <= 12; i++) tokens.push(`a:h${i}.example.com`);
+    const zone = { 'example.com': [['v=spf1 ' + tokens.join(' ') + ' -all']] };
+    for (let i = 1; i <= 12; i++) zone[`h${i}.example.com`] = [['host exists']];
+    const v = fakeValidator(zone, { a: ['example.com'] });
+    const r = await v.validate('example.com');
+    assert.match(r.errors.join(' '), /exceeds 10 DNS lookup limit/);
+    // 12 lookups counted, but only 10 A queries issued.
+    assert.equal(r.lookupCount, 12);
+    assert.ok(v.txtCallCount() <= 11, `txt calls: ${v.txtCallCount()}`);
+  });
+});
+
 describe('SpfValidator — include policy isolation', () => {
   test("an include's all never overrides the parent's policy", async () => {
     // Root is ?all (neutral, after the include — all must be last); the

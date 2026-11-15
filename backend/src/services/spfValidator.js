@@ -119,15 +119,17 @@ class SpfValidator {
     let sawAll = false;
     let redirect = null;
     let policy = null;
+    let redirectCount = 0;
+    let expCount = 0;
+    // Parsing continues after the budget is exhausted so syntax errors in
+    // later terms are still reported; DNS queries are what gets skipped.
+    const overBudget = () => ctx.lookups > this.maxLookups;
 
     for (const token of record.trim().split(/\s+/).slice(1)) {
       if (!token) continue;
       if (token.includes('%')) {
         ctx.warnings.push('SPF macros are not fully evaluated by this validator');
       }
-      // Once the lookup budget is exceeded, stop issuing DNS queries: a
-      // wide include tree could otherwise expand exponentially.
-      if (ctx.lookups > this.maxLookups) break;
 
       // all (§5.1) — must be last; later mechanisms are ignored.
       if (/^[+\-~?]?all$/i.test(token)) {
@@ -155,10 +157,18 @@ class SpfValidator {
       const mod = token.match(/^([a-z][a-z0-9._-]*)=(.*)$/i);
       if (mod) {
         const modName = mod[1].toLowerCase();
-        if (modName === 'redirect' && !sawAll) redirect = mod[2];
-        else if (modName !== 'redirect' && modName !== 'exp') {
-          // unrecognized modifier — silently ignored per §6
+        if (modName === 'redirect') {
+          redirectCount += 1;
+          if (redirectCount > 1) {
+            ctx.errors.push('Duplicate redirect modifier (permerror)');
+            continue;
+          }
+          if (!sawAll) redirect = mod[2];
+        } else if (modName === 'exp') {
+          expCount += 1;
+          if (expCount > 1) ctx.errors.push('Duplicate exp modifier (permerror)');
         }
+        // unrecognized modifiers — silently ignored per §6
         continue;
       }
 
@@ -166,7 +176,7 @@ class SpfValidator {
       // case-insensitive (§4.6.1). The remainder must start with ":" or
       // "/" so unknown terms are rejected rather than swallowed by a
       // prefix match. For a/mx the "/" form is CIDR-only ("a/24") and the
-      // slash stays attached so splitCidr sees an empty target.
+      // slash stays attached so the CIDR parser sees an empty target.
       const m = token.match(/^([+\-~?])?(include|a|mx|ptr|exists|ip4|ip6)/i);
       if (!m) {
         ctx.errors.push(`Unknown SPF mechanism "${token}" (permerror)`);
@@ -181,15 +191,18 @@ class SpfValidator {
       }
       const arg = rest.startsWith(':') ? rest.slice(1) : rest;
 
-      if (sawAll) {
-        ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
-        continue;
-      }
+      // Terms after all are still validated syntactically (§5.1), but no
+      // DNS work is done for them.
+      const afterAll = sawAll;
 
       switch (mech) {
         case 'ip4': {
           if (!this.validIp(arg, 4)) {
             ctx.errors.push(`Invalid ip4 mechanism "${token}" (permerror)`);
+            break;
+          }
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
             break;
           }
           ctx.mechanisms.push({ type: 'ip4', value: arg, qualifier: qual });
@@ -199,6 +212,10 @@ class SpfValidator {
         case 'ip6': {
           if (!this.validIp(arg, 6)) {
             ctx.errors.push(`Invalid ip6 mechanism "${token}" (permerror)`);
+            break;
+          }
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
             break;
           }
           ctx.mechanisms.push({ type: 'ip6', value: arg, qualifier: qual });
@@ -211,6 +228,15 @@ class SpfValidator {
             break;
           }
           ctx.mechanisms.push({ type: 'include', value: arg, qualifier: qual });
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
+            break;
+          }
+          if (this.hasMacro(arg)) {
+            ctx.warnings.push(`include:${arg} contains macros that cannot be evaluated — skipped`);
+            ctx.includes.push({ domain: arg, status: 'macro_skipped', record: null, policy: null });
+            break;
+          }
           ctx.lookups += 1;
           const inc = await this.resolveInclude(arg, ctx, depth);
           ctx.includes.push({ domain: arg, ...inc });
@@ -219,23 +245,46 @@ class SpfValidator {
 
         case 'a':
         case 'mx': {
-          const { target, mask } = this.splitCidr(arg);
-          if (mask !== null && (mask === '' || !this.validMask(mask, 32))) {
+          const { target, ip4Mask, ip6Mask } = this.parseDualCidr(arg);
+          if (ip4Mask !== null && !this.validMask(ip4Mask, 32)) {
             ctx.errors.push(`Invalid CIDR length in "${token}" (permerror)`);
             break;
           }
+          if (ip6Mask !== null && !this.validMask(ip6Mask, 128)) {
+            ctx.errors.push(`Invalid IPv6 CIDR length in "${token}" (permerror)`);
+            break;
+          }
           ctx.mechanisms.push({ type: mech, value: arg || name, qualifier: qual });
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
+            break;
+          }
+          const host = target || name;
+          if (this.hasMacro(host)) {
+            ctx.warnings.push(`${mech}:${host} contains macros that cannot be evaluated — skipped`);
+            break;
+          }
           ctx.lookups += 1;
-          if (mech === 'a') await this.resolveA(target || name, ctx);
-          else await this.resolveMx(target || name, ctx);
+          if (overBudget()) break; // count the term, skip the query
+          if (mech === 'a') await this.resolveA(host, ctx);
+          else await this.resolveMx(host, ctx);
           break;
         }
 
-        case 'ptr':
-          // Deprecated per §5.5; counts as 2 queries when evaluated.
+        case 'ptr': {
+          if (rest.startsWith('/')) {
+            ctx.errors.push(`Invalid ptr mechanism "${token}" — ptr takes no CIDR (permerror)`);
+            break;
+          }
           ctx.mechanisms.push({ type: 'ptr', value: arg || name, qualifier: qual });
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
+            break;
+          }
+          // Deprecated per §5.5; counts as 2 queries when evaluated.
           ctx.lookups += 2;
           break;
+        }
 
         case 'exists': {
           if (!arg) {
@@ -243,7 +292,16 @@ class SpfValidator {
             break;
           }
           ctx.mechanisms.push({ type: 'exists', value: arg, qualifier: qual });
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
+            break;
+          }
+          if (this.hasMacro(arg)) {
+            ctx.warnings.push(`exists:${arg} contains macros that cannot be evaluated — skipped`);
+            break;
+          }
           ctx.lookups += 1;
+          if (overBudget()) break; // count the term, skip the query
           // §5.7: exists performs an A query only.
           await this.resolveA(arg, ctx, { aOnly: true });
           break;
@@ -257,16 +315,57 @@ class SpfValidator {
     if (sawAll) return { policy };
 
     if (redirect) {
+      if (this.hasMacro(redirect)) {
+        ctx.warnings.push(`redirect=${redirect} contains macros that cannot be evaluated — skipped`);
+        return { policy: null };
+      }
       ctx.lookups += 1;
-      const red = await this.resolveInclude(redirect, ctx, depth, 'redirect');
-      // §6.1: redirect's target record decides the policy when the parent
-      // has no all mechanism.
-      return { policy: red.policy || null };
+      if (!overBudget()) {
+        const red = await this.resolveInclude(redirect, ctx, depth, 'redirect');
+        // §6.1: redirect's target record decides the policy when the parent
+        // has no all mechanism.
+        return { policy: red.policy || null };
+      }
+      return { policy: null };
     }
 
     // §4.7: neither all nor redirect — implicit neutral (?all).
     ctx.warnings.push('No all mechanism and no redirect — implicit ?all (neutral) provides no protection');
     return { policy: null };
+  }
+
+  /** True when the value contains an SPF macro expression that would need
+   *  sender context (%{d}, %{i}, ...) to resolve. */
+  hasMacro(value) {
+    return /%[{]/.test(value || '');
+  }
+
+  /** Parse "target/ip4mask//ip6mask" dual CIDR (§5.3): "a/24//64",
+   *  "a//64", "a/24", "/24" and "//64" are all valid shapes. */
+  parseDualCidr(arg) {
+    if (!arg) return { target: '', ip4Mask: null, ip6Mask: null };
+    let target = arg;
+    let ip4Mask = null;
+    let ip6Mask = null;
+    const dualIdx = arg.indexOf('//');
+    if (dualIdx >= 0) {
+      const head = arg.slice(0, dualIdx);
+      ip6Mask = arg.slice(dualIdx + 2);
+      const slashIdx = head.indexOf('/');
+      if (slashIdx >= 0) {
+        target = head.slice(0, slashIdx);
+        ip4Mask = head.slice(slashIdx + 1);
+      } else {
+        target = head;
+      }
+    } else {
+      const slashIdx = arg.indexOf('/');
+      if (slashIdx >= 0) {
+        target = arg.slice(0, slashIdx);
+        ip4Mask = arg.slice(slashIdx + 1);
+      }
+    }
+    return { target, ip4Mask, ip6Mask };
   }
 
   /** Fetch the target's single SPF record, recursing when found.
@@ -334,26 +433,32 @@ class SpfValidator {
   }
 
   /** A (and optionally AAAA) lookup. NXDOMAIN/empty answers count as void
-   *  lookups; transient DNS failures (e.g. SERVFAIL) are errors, not void. */
+   *  lookups; transient DNS failures (e.g. SERVFAIL) are errors — reported
+   *  per family even when the other family answered. */
   async resolveA(name, ctx, { aOnly = false } = {}) {
-    const families = aOnly ? [['a', this.aResolver]] : [['a', this.aResolver], ['aaaa', this.a6Resolver()]];
+    const families = aOnly ? [['A', this.aResolver]] : [['A', this.aResolver], ['AAAA', this.a6Resolver()]];
     let answers = 0;
-    let transientFailure = false;
-    for (const [, resolver] of families) {
+    let absentFamilies = 0;
+    let failed = false;
+    for (const [label, resolver] of families) {
       try {
-        answers += (await resolver(name) || []).length;
+        const got = await resolver(name);
+        if (got && got.length > 0) answers += got.length;
+        else absentFamilies += 1;
       } catch (err) {
         const code = err && (err.code || (err.cause && err.cause.code));
-        if (!TRANSIENT_CODES.has(code)) transientFailure = true;
+        if (!TRANSIENT_CODES.has(code)) {
+          failed = true;
+          ctx.errors.push(`${label} DNS lookup failed for ${name} (temporary DNS failure)`);
+        } else {
+          absentFamilies += 1;
+        }
       }
     }
     if (answers > 0) return;
-    if (transientFailure) {
-      ctx.errors.push(`DNS lookup failed for ${name} (temporary DNS failure)`);
-    } else {
-      ctx.voidLookups += 1;
-      ctx.warnings.push(`DNS lookup for ${name} returned no addresses (void lookup)`);
-    }
+    if (failed) return; // already reported
+    ctx.voidLookups += 1;
+    ctx.warnings.push(`DNS lookup for ${name} returned no addresses (void lookup)`);
   }
 
   a6Resolver() {
