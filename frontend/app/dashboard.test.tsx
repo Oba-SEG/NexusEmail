@@ -20,6 +20,7 @@ const deferred = (): Deferred => {
   return { promise, resolve, reject };
 };
 
+const DOM_C = { id: 3, name: 'c.test', verified: true, last_score: 60, last_scan: null, latest_scan: null };
 const DOM_A = { id: 1, name: 'a.test', verified: true, last_score: 90, last_scan: null, latest_scan: null };
 const DOM_A_FULL = { ...DOM_A, dmarc_reports: [{ id: 9, report: { orgName: 'r', reportId: 'x', begin: 1700000000 }, insights: { totalMessages: 5, passingMessages: 4, failingMessages: 1, failingSources: [] } }] };
 const DOM_B = { id: 2, name: 'b.test', verified: true, last_score: 40, last_scan: null, latest_scan: null };
@@ -35,6 +36,7 @@ const defaults: Record<string, () => Res> = {
   'POST /domains/2/scan': () => resp(200, {}),
   'GET /domains/2': () => resp(200, DOM_B),
   'GET /domains/1': () => resp(200, DOM_A_FULL),
+  'POST /domains/3/scan': () => resp(200, {}),
   'POST /settings/bulk-delete': () => resp(200, {}),
 };
 
@@ -203,6 +205,41 @@ describe('Dashboard (real component) — delete/list races', () => {
     dDet.resolve(resp(200, DOM_A_FULL));
     await screen.findByText('5 messages · 4 aligned · 1 failed'); // the full record arrived
     expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
+  });
+
+  test('a delete that kills the reconciled detail fetch restarts it for the still-shown row', async () => {
+    const d1 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => d1.promise });
+    render(<Dashboard />);
+    d1.resolve(resp(200, [DOM_A, DOM_B, DOM_C]));
+    await screen.findByText('a.test');
+
+    // Inspect B (settled: B open with full record)
+    await inspectB();
+
+    // delete B: the reconcile installs A's list row and starts the
+    // A detail fetch — held in flight
+    const dDetA = deferred();
+    oneShot.push({ key: 'GET /domains/1', fn: () => dDetA.promise });
+    await deleteBThenRespond(resp(200, [DOM_A, DOM_C]));
+    await screen.findByText('Loading aggregate reports…'); // the reconcile fetch is pending
+
+    // delete C while the A detail fetch is still pending: the delete
+    // invalidates it; the reload retains A with no replacement fetch,
+    // so the delete must RESTART the A detail fetch
+    const aDetailCalls = () =>
+      (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains/1').length;
+    const before = listCallCount();
+    const beforeA = aDetailCalls(); // 1: the reconcile's held fetch
+    const d4 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => d4.promise });
+    fireEvent.click(screen.getAllByLabelText('Select')[1]); // c.test
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the reload fired
+    d4.resolve(resp(200, [DOM_A]));
+    await waitFor(() => expect(aDetailCalls()).toBe(beforeA + 1)); // the RESTART fired
+    await screen.findByText('5 messages · 4 aligned · 1 failed'); // the full record arrives, no false empty state
+    expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull();
   });
 
   test('a failed reconciled detail fetch shows an error state', async () => {

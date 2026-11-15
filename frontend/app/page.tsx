@@ -110,6 +110,10 @@ export default function Dashboard() {
   // newer request's pending entry (invalidate it if its target is
   // deleted while the request is in flight)
   const domainDetailsPendingRef = useRef<{ id: number; seq: number } | null>(null);
+  // whether the SHOWN selection is a complete detail record (a list row
+  // lacks dmarc_reports) — used to restart a detail fetch that a delete
+  // invalidated while the row was still displayed
+  const shownIsFullRef = useRef(false);
   const domainDetailsReqSeq = useRef(0);
   // list-generation: bumped on a successful delete so pre-delete list
   // responses cannot resurrect deleted domains into the list
@@ -249,6 +253,7 @@ export default function Dashboard() {
     const panel = clearedDomainPanel();
     setDomains(panel.domains);
     domainDetailsIdRef.current = panel.shownId;
+    shownIsFullRef.current = false;
     setSelectedDomain(panel.selected);
     setShowDetails(panel.showDetails);
     setDmarcUploading(false);
@@ -620,6 +625,7 @@ export default function Dashboard() {
         // over to the reconciled selection; an empty list closes the
         // panel.
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
+        shownIsFullRef.current = false; // a list row lacks dmarc_reports
         setSelectedDomain(next.selected);
         // applyDomainList semantics: an open details panel carries over
         // to the reconciled selection; an empty list closes the panel
@@ -1110,6 +1116,14 @@ export default function Dashboard() {
         // itself (its seq ownership is gone) — clear it here so the
         // panel does not stay on the loading state
         setDetailRefreshing(false);
+        // If the shown selection is a list row whose detail fetch was
+        // just invalidated, restart it: the next reload retains the
+        // domain and starts no replacement, so otherwise the report
+        // panel would show a false "no reports" state for a row
+        // without dmarc_reports.
+        if (domainDetailsIdRef.current !== null && !shownIsFullRef.current && showDetails && selectedDomain) {
+          viewDomain(selectedDomain);
+        }
         // If the SHOWN domain was deleted, clear the panel right away:
         // a failed reload must not leave a deleted domain's details
         // (and upload action) on screen. A successful reload still
@@ -1186,6 +1200,7 @@ export default function Dashboard() {
       // domain, so uploads for it keep refreshing (transition semantics
       // unit-tested in lib/domainPanel).
       domainDetailsIdRef.current = domain.id;
+      shownIsFullRef.current = true;
       setSelectedDomain(data);
       setShowDetails(true);
       setDetailRefreshing(false);
