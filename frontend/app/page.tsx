@@ -498,6 +498,10 @@ export default function Dashboard() {
   const loadAdminOrgs = async (gen: number = sessionGenRef.current) => {
     try {
       setAdminOrgsError(null);
+      // Back to the loading state for every (re)load — a Retry after an
+      // error must not flash 'No organizations found.' while the request
+      // is still in flight.
+      setAdminOrgs(null);
       const res = await apiFetch(`${API_BASE}/admin/organizations`);
       if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {

@@ -65,7 +65,9 @@ router.get('/organizations/:orgId/domains', async (req, res, next) => {
       const lastScan = await db.getLatestScan(d.id, org.id);
       return {
         ...d,
-        last_score: lastScan?.score || null,
+        // ?? not ||: a real score of 0 must survive (|| would coerce it to
+        // null and the badge would show '—' instead of '0').
+        last_score: lastScan?.score ?? null,
         last_scan: lastScan?.scanned_at || null,
         verified: d.verified || false,
         verified_at: d.verified_at || null,
