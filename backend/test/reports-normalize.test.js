@@ -30,6 +30,29 @@ test('flat writer: absent record (ENOTFOUND error) is NOT_FOUND, not ERROR', () 
   assert.equal(passClass(r.spf.status), 'fail');
 });
 
+test('flat writer: audit "No SPF/DMARC record found" messages are NOT_FOUND', () => {
+  // auditEngine checkSPF/checkDMARC push these when the TXT lookup
+  // succeeds but contains no record (auditEngine.js lines 81 / 213).
+  const r = normalizeDnsResults({
+    spf_status: 'UNKNOWN',
+    dmarc_status: 'UNKNOWN',
+    spf_record: '{"found":false,"record":null,"errors":["No SPF record found"],"warnings":[]}',
+    dmarc_record: '{"found":false,"record":null,"errors":["No DMARC record found"],"warnings":[]}'
+  });
+  assert.equal(r.spf.status, 'NOT_FOUND');
+  assert.equal(r.dmarc.status, 'NOT_FOUND');
+  assert.equal(spfPassClass(r.spf), 'fail');
+  assert.equal(dmarcPassClass(r.dmarc), 'fail');
+});
+
+test('flat writer: a non-absent lookup failure is still ERROR', () => {
+  const r = normalizeDnsResults({
+    spf_status: 'UNKNOWN',
+    spf_record: '{"found":false,"record":null,"errors":["queryTxt SERVFAIL"],"warnings":[]}'
+  });
+  assert.equal(r.spf.status, 'ERROR');
+});
+
 test('flat writer: found record with validation errors (+all) is ERROR, never green', () => {
   const r = normalizeDnsResults({
     spf_status: 'UNKNOWN',

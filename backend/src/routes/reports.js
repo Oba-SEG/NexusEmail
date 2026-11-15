@@ -105,12 +105,14 @@ function normalizeDnsResults(scan) {
     // Validation errors beat found:true — an SPF record with +all or a
     // DMARC p=none row is found but failing, and must not render green.
     if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) {
-      // The audit engine logs an absent record as an ENOTFOUND error —
-      // that is NOT_FOUND (matching the object-shape writer), while
-      // other lookup failures and validation errors are ERROR.
+      // Absent-record cases are NOT_FOUND, matching the object-shape
+      // writer: the audit engine logs "No SPF/DMARC record found" when
+      // the lookup succeeds with no record, and ENOTFOUND/NXDOMAIN when
+      // the queried name itself does not exist. Other lookup failures
+      // and validation errors (e.g. +all) stay ERROR.
       const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])]
         .filter(Boolean).join(' ');
-      if (!obj.found && /ENOTFOUND|NXDOMAIN/i.test(msgs)) return 'NOT_FOUND';
+      if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found/i.test(msgs)) return 'NOT_FOUND';
       return 'ERROR';
     }
     if (obj.found) return 'FOUND';
