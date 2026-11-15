@@ -133,6 +133,15 @@ describe('defaultRdapFetch — redirect transport', () => {
       } else if (req.url === '/domain/noservice.test') {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end('{"errorCode":404}');
+      } else if (req.url === '/domain/badloc.test') {
+        res.writeHead(302, { Location: 'http://' });
+        res.end();
+      } else if (req.url === '/domain/flood.test') {
+        res.writeHead(302, { Location: '/registry/boot.test' });
+        // slow-drip a huge redirect body; the size cap must cut it off
+        res.write('x'.repeat(300 * 1024));
+        const iv = setInterval(() => res.write('x'.repeat(64 * 1024)), 50);
+        req.on('close', () => clearInterval(iv));
       } else {
         res.writeHead(500);
         res.end();
@@ -149,6 +158,18 @@ describe('defaultRdapFetch — redirect transport', () => {
       const miss = await defaultRdapFetch(`${base}/domain/noservice.test`, { ca });
       assert.equal(miss.status, 404);
       assert.equal(miss.redirects, 0); // bootstrap miss, never redirected
+
+      await assert.rejects(
+        () => defaultRdapFetch(`${base}/domain/badloc.test`, { ca }),
+        Error,
+        'malformed Location must reject, not crash'
+      );
+
+      await assert.rejects(
+        () => defaultRdapFetch(`${base}/domain/flood.test`, { ca }),
+        /redirect body too large/,
+        'redirect body must respect the size cap'
+      );
     } finally {
       server.close();
     }

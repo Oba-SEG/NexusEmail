@@ -63,8 +63,30 @@ function defaultRdapFetch(url, opts = {}) {
           const isRedirect = [301, 302, 303, 307, 308].includes(res.statusCode);
           if (isRedirect && loc && redirects < MAX_REDIRECTS) {
             redirects += 1;
-            res.resume();
-            request(new URL(loc, parsed).href);
+            // Consume the redirect body with the same size cap instead of
+            // resuming unbounded — the request stays the active one, so the
+            // deadline timer still destroys a slow-drip redirect response.
+            let rsize = 0;
+            res.on('data', (c) => {
+              rsize += c.length;
+              if (rsize > MAX_BODY_BYTES) {
+                req.destroy();
+                finish(reject, new Error('rdap redirect body too large'));
+              }
+            });
+            res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
+            res.on('error', (e) => finish(reject, e));
+            res.on('end', () => {
+              // Malformed Location must not throw inside this callback.
+              let next;
+              try {
+                next = new URL(loc, parsed).href;
+              } catch (e) {
+                finish(reject, e);
+                return;
+              }
+              request(next);
+            });
             return;
           }
           if (isRedirect) {
