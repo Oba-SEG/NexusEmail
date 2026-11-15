@@ -40,18 +40,19 @@ describe('isPrivateIp — SSRF address blocklist', () => {
     for (const ip of [
       '10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.1.1',
       '127.0.0.1', '169.254.169.254', '0.0.0.0', '100.64.0.1',
-      '::1', '::', 'fe80::1', 'fe90::1', 'febf::1', 'fec0::1',
+      '::1', '0:0:0:0:0:0:0:1', '::',
+      'fe80::1', 'fe90::1', 'febf::1', 'fec0::1',
       'fc00::1', 'fd12:3456::1',
       '::ffff:169.254.169.254', '::ffff:10.0.0.5',
-      '::ffff:a00:1', '::ffff:0a00:0001',
-      'not-an-ip', '::ffff:zz:zz',
+      '::ffff:a00:1', '::ffff:0a00:0001', '0:0:0:0:0:ffff:0a00:0001',
+      'not-an-ip', '::ffff:zz:zz', '2001:db8:',
     ]) {
       assert.equal(isPrivateIp(ip), true, `expected ${ip} to be blocked`);
     }
   });
 
   test('allows public addresses', () => {
-    for (const ip of ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111', 'fe7f::1']) {
+    for (const ip of ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111', 'fe7f::1', '2001:db8::1']) {
       assert.equal(isPrivateIp(ip), false, `expected ${ip} to be allowed`);
     }
   });
@@ -186,9 +187,22 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     const zone = { '_mta-sts.acme.test': [['v=STSv1; mode=enforce; max_age=86400']] };
     const r = await analyzer(zone, POLICY).analyze('acme.test');
     assert.equal(r.found, true);
-    assert.match(r.errors.join(' '), /missing the required id=/);
+    assert.match(r.errors.join(' '), /id= of 1-32 ASCII alphanumeric/);
     assert.equal(r.policyFetch.status, 'skipped');
     assert.equal(r.score, 0);
+  });
+
+  test('id with invalid characters stops discovery', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=bad value!']] };
+    const r = await analyzer(zone, POLICY).analyze('acme.test');
+    assert.match(r.errors.join(' '), /id= of 1-32 ASCII alphanumeric/);
+    assert.equal(r.policyFetch.status, 'skipped');
+  });
+
+  test('id over 32 characters stops discovery', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa']] };
+    const r = await analyzer(zone, POLICY).analyze('acme.test');
+    assert.match(r.errors.join(' '), /id= of 1-32 ASCII alphanumeric/);
   });
 
   test('v=STSv1 must start the record: mid-record versions are discarded', async () => {
@@ -196,6 +210,37 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     const r = await analyzer(zone, POLICY).analyze('acme.test');
     assert.equal(r.found, false);
     assert.match(r.errors.join(' '), /No MTA-STS record found/);
+  });
+
+  test('v=STSv1 garbage is not a valid version field', async () => {
+    // the garbage record must be discarded without tripping the
+    // duplicate-record guard, so the valid record fetches its policy
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=2024a;'], ['v=STSv1 garbage; id=b;']] };
+    const r = await analyzer(zone, POLICY).analyze('acme.test');
+    assert.equal(r.found, true);
+    assert.equal(r.policyFetch.fetched, true);
+    assert.equal(r.score, 15);
+  });
+
+  test('invalid mx values are policy errors', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: bad host!\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.match(r.errors.join(' '), /invalid mx value/);
+    assert.equal(r.score, 0);
+  });
+
+  test('wildcard mx values are valid', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: *.mail.acme.test\nmx: mail.acme.test\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.equal(r.errors.length, 0);
+    assert.equal(r.score, 15);
+  });
+
+  test('defaultFetchPolicy rejects a malformed URL without leaking the timer', async () => {
+    const { defaultFetchPolicy } = require('../src/services/mtaStsAnalyzer');
+    await assert.rejects(() => defaultFetchPolicy('not a url'), Error);
   });
 
   test('multi-chunk TXT records concatenate', async () => {

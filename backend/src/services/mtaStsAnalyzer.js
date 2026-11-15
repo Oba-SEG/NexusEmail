@@ -20,14 +20,15 @@ const MAX_AGE_LIMIT = 31557600; // RFC 8461 §3.2: max_age must not exceed this
  * RFC 1918 private ranges, loopback, link-local (v4 + v6), CGNAT, and
  * IPv4-mapped IPv6 forms of those. Guards the policy fetch against
  * domains whose mta-sts host points at internal infrastructure (SSRF).
+ * IPv6 literals are normalized through URL parsing, so expanded forms
+ * (0:0:0:0:0:0:0:1) and hex mapped forms (::ffff:a00:1) are handled;
+ * malformed input fails closed.
  */
 function isPrivateIp(ip) {
-  let v4 = ip;
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mapped) v4 = mapped[1];
-  if (v4.includes('.')) {
-    const parts = v4.split('.').map(Number);
-    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
+  // Strict dotted-quad IPv4
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+    const parts = ip.split('.').map(Number);
+    if (parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
     const [a, b] = parts;
     if (a === 0 || a === 10 || a === 127) return true;      // this-network, private, loopback
     if (a === 169 && b === 254) return true;                // link-local (incl. cloud metadata)
@@ -36,23 +37,28 @@ function isPrivateIp(ip) {
     if (a === 100 && b >= 64 && b <= 127) return true;      // CGNAT
     return false;
   }
-  const low = ip.toLowerCase();
-  if (low === '::' || low === '::1') return true;           // unspecified, loopback
-  // IPv4-mapped IPv6, dotted (::ffff:10.0.0.1) and hex (::ffff:a00:1)
-  if (low.startsWith('::ffff:')) {
-    const rest = low.slice(7);
-    const hex2 = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  // IPv6: normalize via URL (canonicalizes expanded and mapped forms)
+  let v6;
+  try {
+    v6 = new URL(`http://[${ip}]`).hostname.replace(/^\[|\]$/g, '');
+  } catch {
+    return true;                                            // malformed → fail closed
+  }
+  if (v6 === '::' || v6 === '::1') return true;             // unspecified, loopback
+  // IPv4-mapped IPv6 — URL canonicalizes both hex and dotted forms to hex
+  if (v6.startsWith('::ffff:')) {
+    const hex2 = v6.slice(7).match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
     if (hex2) {
       const hi = parseInt(hex2[1], 16);
       const lo = parseInt(hex2[2], 16);
       return isPrivateIp(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
     }
-    return isPrivateIp(rest);
+    return true;
   }
-  // First hextet range checks: fe80::/10 link-local (plus the deprecated
-  // fec0::/10 site-local), fc00::/7 unique local.
-  const first = parseInt(low.split(':')[0], 16);
-  if (Number.isNaN(first)) return true;                     // fail closed
+  // First-hextet ranges: fe80::/10 link-local + deprecated fec0::/10
+  // site-local, fc00::/7 unique local.
+  const first = parseInt(v6.split(':')[0], 16);
+  if (Number.isNaN(first)) return true;
   if (first >= 0xfe80 && first <= 0xfeff) return true;      // link/site-local
   if (first >= 0xfc00 && first <= 0xfdff) return true;      // unique local
   return false;
@@ -85,23 +91,31 @@ function defaultFetchPolicy(url) {
       });
     };
     // Total deadline — a slow-drip server must not hold the audit open.
-    timer = setTimeout(() => req.destroy(new Error('fetch deadline exceeded')), FETCH_TIMEOUT_MS);
-    req = https.get(url, { timeout: FETCH_TIMEOUT_MS, lookup, autoSelectFamily: false }, (res) => {
-      const chunks = [];
-      let size = 0;
-      res.on('data', (c) => {
-        size += c.length;
-        if (size > MAX_POLICY_BYTES) {
-          req.destroy();
-          finish(reject, new Error('policy body too large'));
-          return;
-        }
-        chunks.push(c);
+    timer = setTimeout(() => {
+      if (req) req.destroy(new Error('fetch deadline exceeded'));
+    }, FETCH_TIMEOUT_MS);
+    try {
+      req = https.get(url, { timeout: FETCH_TIMEOUT_MS, lookup, autoSelectFamily: false }, (res) => {
+        const chunks = [];
+        let size = 0;
+        res.on('data', (c) => {
+          size += c.length;
+          if (size > MAX_POLICY_BYTES) {
+            req.destroy();
+            finish(reject, new Error('policy body too large'));
+            return;
+          }
+          chunks.push(c);
+        });
+        res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
+        res.on('error', (e) => finish(reject, e));
+        res.on('end', () => finish(resolve, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
       });
-      res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
-      res.on('error', (e) => finish(reject, e));
-      res.on('end', () => finish(resolve, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
-    });
+    } catch (e) {
+      // https.get can throw synchronously (e.g. invalid URL)
+      finish(reject, e);
+      return;
+    }
     req.on('timeout', () => req.destroy(new Error('fetch timeout')));
     req.on('error', (e) => finish(reject, e));
   });
@@ -168,8 +182,8 @@ class MtaStsAnalyzer {
       return result;
     }
     const candidates = (records || []).map((chunks) => (chunks || []).map(String).join(''));
-    // RFC 8461 §3.1: the record must START with v=STSv1.
-    const STS_RE = /^v\s*=\s*STSv1(?:\s|;|$)/i;
+    // RFC 8461 §3.1: the record must START with an exact version field.
+    const STS_RE = /^v\s*=\s*STSv1\s*(?:;|$)/i;
     const matching = candidates.filter((r) => STS_RE.test(r));
     if (matching.length === 0) {
       result.errors.push('No MTA-STS record found - email not secured with TLS enforcement');
@@ -187,10 +201,9 @@ class MtaStsAnalyzer {
     result.found = true;
     result.record = record;
     const tags = parseRecordTags(record);
-    // RFC 8461 §3.1: id is mandatory; senders must stop discovery for a
-    // syntactically invalid record.
-    if (!tags.id) {
-      result.errors.push('MTA-STS DNS record is missing the required id= tag (RFC 8461 §3.1) — senders must stop discovery for an invalid record');
+    // RFC 8461 §3.1: id is mandatory and must be 1-32 ASCII alphanumeric.
+    if (!tags.id || !/^[a-zA-Z0-9]{1,32}$/.test(tags.id)) {
+      result.errors.push('MTA-STS DNS record needs an id= of 1-32 ASCII alphanumeric characters (RFC 8461 §3.1) — senders must stop discovery for an invalid record');
       return result;
     }
     result.policy = tags.id || null;
@@ -239,6 +252,13 @@ class MtaStsAnalyzer {
     // RFC 8461 §3.2: a mode of none carries no MX requirement.
     if (pf.mode !== 'none' && pf.mx.length === 0) {
       result.policyFetch.errors.push('policy has no mx: lines (RFC 8461 §3.2)');
+    }
+    // MX values are hostname patterns, optionally '*.'-wildcard prefixed.
+    for (const mx of pf.mx) {
+      if (!/^(\*\.)?[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(mx) || mx.includes('..') || mx.length > 253) {
+        result.policyFetch.errors.push(`policy has an invalid mx value: ${mx}`);
+        break;
+      }
     }
     if (pf.unknown.length > 0) result.policyFetch.warnings.push(`unknown fields in policy: ${pf.unknown.slice(0, 3).join(', ')}`);
 
