@@ -109,8 +109,9 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
   });
 
   test('rejects an RSA key with no public exponent INTEGER', () => {
-    // SEQ { INTEGER modulus } — exponent removed
-    const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
+    // SEQ { INTEGER modulus } — exponent removed. High bit set → exactly
+    // one 0x00 sign byte, so the fixture is otherwise well-formed DER.
+    const modulus = Buffer.alloc(256, 0xc1);
     const intBody = Buffer.concat([Buffer.from([0x00]), modulus]);
     const modInt = Buffer.concat([Buffer.from([0x02]), derLen(intBody.length), intBody]);
     const intSeq = Buffer.concat([Buffer.from([0x30]), derLen(modInt.length), modInt]);
