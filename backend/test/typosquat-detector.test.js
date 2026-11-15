@@ -136,6 +136,13 @@ describe('defaultRdapFetch — redirect transport', () => {
       } else if (req.url === '/domain/badloc.test') {
         res.writeHead(302, { Location: 'http://' });
         res.end();
+      } else if (req.url === '/domain/noloc.test') {
+        res.writeHead(302);
+        res.end();
+      } else if (req.url.startsWith('/loop')) {
+        const n = Number(req.url.slice(5)) || 0;
+        res.writeHead(302, { Location: `/loop${n + 1}` });
+        res.end();
       } else if (req.url === '/domain/flood.test') {
         res.writeHead(302, { Location: '/registry/boot.test' });
         // slow-drip a huge redirect body; the size cap must cut it off
@@ -163,6 +170,18 @@ describe('defaultRdapFetch — redirect transport', () => {
         () => defaultRdapFetch(`${base}/domain/badloc.test`, { ca }),
         Error,
         'malformed Location must reject, not crash'
+      );
+
+      await assert.rejects(
+        () => defaultRdapFetch(`${base}/domain/noloc.test`, { ca }),
+        /missing Location/,
+        '302 without Location must destroy the request and reject'
+      );
+
+      await assert.rejects(
+        () => defaultRdapFetch(`${base}/loop0`, { ca }),
+        /redirect chain too long/,
+        'chains beyond MAX_REDIRECTS must destroy the request and reject'
       );
 
       await assert.rejects(

@@ -90,6 +90,7 @@ function defaultRdapFetch(url, opts = {}) {
             return;
           }
           if (isRedirect) {
+            req.destroy();
             finish(reject, new Error('rdap redirect chain too long or missing Location'));
             return;
           }
