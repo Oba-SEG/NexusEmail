@@ -585,8 +585,9 @@ export default function Dashboard() {
       // (deleted) is replaced by the auto-selected first domain, or
       // cleared (closing the panel) when the list is empty.
       const presentIds = next.domains.map((d: any) => d.id);
-      const shownGone = domainDetailsIdRef.current !== null &&
-        !presentIds.includes(domainDetailsIdRef.current);
+      const stillThere = domainDetailsIdRef.current !== null &&
+        presentIds.includes(domainDetailsIdRef.current);
+      const shownGone = domainDetailsIdRef.current !== null && !stillThere;
       const pendingId = domainDetailsPendingRef.current ? domainDetailsPendingRef.current.id : null;
       const pendingGone = pendingId !== null && !presentIds.includes(pendingId);
       if (shownGone || pendingGone) {
@@ -597,11 +598,17 @@ export default function Dashboard() {
         // removed domain cannot select the deleted domain again.
         domainDetailsGenRef.current += 1;
       }
-      if (shownGone) {
-        domainDetailsPendingRef.current = null;
+      if (!stillThere) {
+        // Nothing shown (nothing selected yet, or deleteDomains
+        // cleared the panel) or the shown domain was deleted: apply
+        // the reconciled selection — the first remaining domain, or
+        // none when the list is empty. Details open/close state
+        // follows applyDomainList: an existing showDetails carries
+        // over to the reconciled selection; an empty list closes the
+        // panel.
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
         setSelectedDomain(next.selected);
-        setShowDetails(next.selected ? true : false);
+        if (!next.selected) setShowDetails(false);
       }
     } catch (e) {
       console.error('Failed to load domains:', e);

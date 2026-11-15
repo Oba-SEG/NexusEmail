@@ -284,6 +284,28 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     expect(r.state.selected?.id).toBe(1);
     expect(r.state.shownId).toBe(1);
   });
+
+  test('the reload right after deleteDomains cleared the panel applies the first remaining', async () => {
+    // deleteDomains cleared the selection (ref null); the immediate
+    // reload must re-select the first remaining domain — an empty
+    // selection with domains available is not acceptable
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+    panel = clearedDomainPanel(); // deleteDomains cleared the panel
+
+    const r = await runDomainListLoad(async () => res(true, 200, [{ id: 1, name: 'a.test' }]), panel, null);
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.state.selected?.id).toBe(1); // first remaining selected
+    expect(r.state.shownId).toBe(1);
+    expect(r.state.showDetails).toBe(false); // panel was closed by the delete; auto-select does not reopen it
+
+    // and when nothing remains, the selection stays empty
+    const empty = await runDomainListLoad(async () => res(true, 200, []), panel, null);
+    if (empty.kind !== 'ok') throw new Error('expected ok');
+    expect(empty.state.selected).toBeNull();
+    expect(empty.state.shownId).toBeNull();
+    expect(empty.state.showDetails).toBe(false);
+  });
 });
 
 describe('selection and upload refresh association', () => {
