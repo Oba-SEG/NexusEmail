@@ -260,7 +260,7 @@ class MtaStsAnalyzer {
       const body = mx.startsWith('*.') ? mx.slice(2) : mx;
       const labels = body.split('.');
       const labelsOk = body.length > 0 &&
-        labels.every((l) => /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/.test(l)) &&
+        labels.every((l) => l.length <= 63 && /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/.test(l)) &&
         !labels[labels.length - 1].match(/^\d+$/);
       if (!labelsOk || body.includes('..') || mx.length > 253) {
         result.policyFetch.errors.push(`policy has an invalid mx value: ${mx}`);

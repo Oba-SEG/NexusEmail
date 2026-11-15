@@ -237,6 +237,14 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     assert.match(r.errors.join(' '), /invalid mx value/);
   });
 
+  test('mx labels cannot exceed 63 octets', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const long = `${'a'.repeat(64)}.example.test`;
+    const policy = { status: 200, body: `version: STSv1\nmode: enforce\nmax_age: 86400\nmx: ${long}\n` };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.match(r.errors.join(' '), /invalid mx value/);
+  });
+
   test('numeric-only final mx label is not a hostname', async () => {
     const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
     const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: 10.0.0.1\n' };
