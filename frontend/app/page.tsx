@@ -231,6 +231,7 @@ export default function Dashboard() {
   const resetDomainState = () => {
     domainDetailsGenRef.current += 1;
     domainDetailsIdRef.current = null;
+    setDomains([]);
     setSelectedDomain(null);
     setShowDetails(false);
     setDmarcUploading(false);
@@ -1082,13 +1083,16 @@ export default function Dashboard() {
   // refresh for an earlier domain can't overwrite the newer selection.
   const viewDomain = async (domain: any) => {
     const gen = sessionGenRef.current;
-    domainDetailsIdRef.current = domain.id;
     const selGen = ++domainDetailsGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
       if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
       if (!res.ok || data.error) return;
+      // The shown-domain ref follows the successful selection only — a
+      // failed Inspect leaves the panel (and the ref) on the previous
+      // domain, so uploads for it keep refreshing.
+      domainDetailsIdRef.current = domain.id;
       setSelectedDomain(data);
       setShowDetails(true);
     } catch (e) {
@@ -1143,7 +1147,10 @@ export default function Dashboard() {
         setDmarcUploadError('Upload failed: ' + (e as Error).message);
       }
     } finally {
-      setDmarcUploading(false);
+      // Only the upload that owns the current session may clear the
+      // busy state — an identity switch can start a newer upload while
+      // this one is still pending.
+      if (gen === sessionGenRef.current) setDmarcUploading(false);
     }
   };
 
