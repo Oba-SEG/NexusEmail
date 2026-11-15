@@ -99,7 +99,11 @@ async function deleteBThenRespond(reloadResponse: Res) {
   fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
   fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
   await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the post-delete reload fired
-  d3.resolve(reloadResponse);
+  // resolve AND flush the reload inside act, so loadDomains has fully
+  // processed the response (success or failure) before assertions run
+  await act(async () => {
+    d3.resolve(reloadResponse);
+  });
 }
 
 describe('Dashboard (real component) — delete/list races', () => {
