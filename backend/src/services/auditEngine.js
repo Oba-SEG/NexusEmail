@@ -368,7 +368,7 @@ class EmailSecurityAuditor {
       recommendations.push({
         priority: 'high',
         action: 'Create SPF record',
-        command: `v=spf1 include:_spf.${domain} ~all`,
+        command: "v=spf1 include:<provider-include-target> ~all — use your mail provider's documented include (e.g. _spf.google.com) or authorized sending IP addresses",
         target: 'SPF'
       });
     } else {
@@ -385,7 +385,7 @@ class EmailSecurityAuditor {
         recommendations.push({
           priority: 'high',
           action: `Flatten SPF record — ${lookups} DNS lookups exceeds the RFC 7208 limit of 10`,
-          command: 'Replace include: mechanisms with direct ip4:/ip6:/a:/mx: entries from your mail providers',
+          command: 'Replace include: mechanisms with verified ip4:/ip6: ranges from your mail providers — the flattened record must stay within the 10-DNS-lookup limit',
           target: 'SPF'
         });
       }

@@ -13,11 +13,14 @@ const okMta = (over) => ({ found: true, mode: 'enforce', errors: [], warnings: [
 const okRpt = (over) => ({ found: true, errors: [], warnings: [], ...over });
 
 describe('generateRecommendations — domain-aware text', () => {
-  test('missing SPF rec injects the real domain', () => {
+  test('missing SPF rec does not fabricate an include target from the domain', () => {
     const recs = auditor().generateRecommendations('acme.test', okSpf({ found: false }), okDkim(), okDmarc(), okMta(), okRpt(), { threats: [] });
     const spfRec = recs.find(r => r.target === 'SPF');
     assert.ok(spfRec);
-    assert.equal(spfRec.command, 'v=spf1 include:_spf.acme.test ~all');
+    // RFC 7208 §5.2: the include target is the PROVIDER's domain, never the
+    // audited one — publishing _spf.acme.test without a real record permerrors.
+    assert.ok(!spfRec.command.includes('acme.test'));
+    assert.match(spfRec.command, /provider's documented include/);
   });
 
   test('missing DMARC rec injects a real rua address', () => {
