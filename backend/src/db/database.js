@@ -151,6 +151,17 @@ async function initSchema() {
       generated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS dmarc_reports (
+      id BIGINT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      domain_id BIGINT NOT NULL,
+      report_id TEXT,
+      date_begin BIGINT,
+      data TEXT NOT NULL,
+      received_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dmarc_reports_org_domain ON dmarc_reports(org_id, domain_id);
+
     CREATE TABLE IF NOT EXISTS brands (
       id BIGINT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -492,6 +503,30 @@ async function addReport(report, orgId, tx) {
   const created = { ...report, id: report.id || nextNumericId(), org_id: orgId || report.org_id || 'segbytes', generated_at: report.generated_at || now() };
   await exec.q('INSERT INTO reports (id, org_id, domain_id, data, generated_at) VALUES ($1, $2, $3, $4, $5)', [created.id, created.org_id, created.domain_id || null, json(created), created.generated_at]);
   return created;
+}
+
+// ===== DMARC aggregate reports (issue #64) =====
+async function addDmarcReport(entry, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const created = {
+    ...entry,
+    id: entry.id || nextNumericId(),
+    org_id: orgId || entry.org_id || 'segbytes',
+    received_at: entry.received_at || now(),
+  };
+  await exec.q(
+    'INSERT INTO dmarc_reports (id, org_id, domain_id, report_id, date_begin, data, received_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [created.id, created.org_id, created.domain_id, created.report_id || null, created.date_begin || null, json(created), created.received_at]
+  );
+  return created;
+}
+async function getDmarcReports(domainId, orgId, limit = 20) {
+  const cap = Math.max(1, Math.min(Number.parseInt(limit, 10) || 20, 100));
+  const rows = await all(
+    `SELECT * FROM dmarc_reports WHERE domain_id = $1 ${orgId ? 'AND org_id = $2' : ''} ORDER BY received_at DESC LIMIT ${cap}`,
+    orgId ? [domainId, orgId] : [domainId]
+  );
+  return rows.map((r) => parseField(r.data, r));
 }
 async function getReports(domainId, orgId) {
   if (domainId) {
@@ -934,6 +969,7 @@ async function getOrgScans(orgId, limit = 100) {
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain, countActiveDomains,
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
+  addDmarcReport, getDmarcReports,
   mergeSetting, removeSettingKey, parseField, withTransaction,
   getSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, addOrganization, updateOrganization,

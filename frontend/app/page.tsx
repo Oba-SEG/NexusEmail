@@ -20,9 +20,10 @@ import {
   FileText, BarChart3, Bell, Plug, Clock, Wrench,
   TrendingUp, TrendingDown, Minus, Download, Trash2,
   CheckSquare, Square, MoreHorizontal, Save, MailPlus,
-  MessageSquare, Send,
+  MessageSquare, Send, Upload,
   X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
+import { clearedDomainPanel, runDomainListLoad } from "@/lib/domainPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -95,6 +96,28 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  // Domain selection generation — same pattern as the brand details:
+  // every open bumps it so an overlapping load or a slow upload refresh
+  // for an earlier domain can't overwrite the newer selection. Declared
+  // with the other refs, before any early return (rules of hooks).
+  const domainDetailsGenRef = useRef(0);
+  // The domain id the details panel currently shows — an upload must
+  // refresh the panel it was started against, not whichever domain a
+  // concurrent selection race installed.
+  const domainDetailsIdRef = useRef<number | null>(null);
+  // domain a detail request is currently fetching, owned by the
+  // request sequence — an older Inspect settling must not clear a
+  // newer request's pending entry (invalidate it if its target is
+  // deleted while the request is in flight)
+  const domainDetailsPendingRef = useRef<{ id: number; seq: number } | null>(null);
+  // whether the SHOWN selection is a complete detail record (a list row
+  // lacks dmarc_reports) — used to restart a detail fetch that a delete
+  // invalidated while the row was still displayed
+  const shownIsFullRef = useRef(false);
+  const domainDetailsReqSeq = useRef(0);
+  // list-generation: bumped on a successful delete so pre-delete list
+  // responses cannot resurrect deleted domains into the list
+  const domainListGenRef = useRef(0);
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
@@ -131,6 +154,17 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false);
   const [domains, setDomains] = useState<any[]>([]);
   const [selectedDomain, setSelectedDomain] = useState<any>(null);
+  // live mirrors of the panel state: handlers with stale closures
+  // (e.g. a delete started before the panel changed) must read the
+  // CURRENT values when invalidating or restarting detail fetches
+  const selectedDomainRef = useRef<any>(null);
+  const showDetailsRef = useRef(false);
+  // set when a delete force-closed the panel because the SHOWN domain
+  // was deleted: the reconcile may re-open the panel on the reconciled
+  // selection (a system close, not a user close)
+  const panelReopenRef = useRef(false);
+  const setSelectedDomainSync = (d: any) => { selectedDomainRef.current = d; setSelectedDomain(d); };
+  const setShowDetailsSync = (v: boolean) => { showDetailsRef.current = v; setShowDetails(v); };
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -182,6 +216,16 @@ export default function Dashboard() {
   const [brandAlerts, setBrandAlerts] = useState<any[]>([]);
   const [bulkScanning, setBulkScanning] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
+  // DMARC aggregate report ingestion (issue #64)
+  const [dmarcUploading, setDmarcUploading] = useState(false);
+  // a detail-record fetch is in flight (Inspect click, or the loadDomains
+  // reconcile for a domain installed from a list row): the report panel
+  // shows a loading state until the full record (with dmarc_reports)
+  // arrives, and an error state if the fetch fails
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  const [detailRefreshError, setDetailRefreshError] = useState<string | null>(null);
+  const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
+  const dmarcFileRef = useRef<HTMLInputElement>(null);
 
   const apiFetch = (url: string, options: any = {}) => fetch(url, {
     ...options,
@@ -212,6 +256,22 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
   };
 
+  // Domain details and its private report data must not survive an
+  // identity change either: a new sign-in must never inherit the
+  // previous identity's open panel.
+  const resetDomainState = () => {
+    domainDetailsGenRef.current += 1;
+    const panel = clearedDomainPanel();
+    setDomains(panel.domains);
+    domainDetailsIdRef.current = panel.shownId;
+    shownIsFullRef.current = false;
+    setSelectedDomainSync(panel.selected);
+    setShowDetailsSync(panel.showDetails);
+    panelReopenRef.current = false;
+    setDmarcUploading(false);
+    setDmarcUploadError(null);
+  };
+
   // load* handlers when they see a 401 against an authenticated endpoint —
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
@@ -226,6 +286,7 @@ export default function Dashboard() {
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
     resetAdminState();
+    resetDomainState();
     setToken(null);
     setUser(null);
   };
@@ -267,6 +328,7 @@ export default function Dashboard() {
       setResendForm({ api_key: '', from: '' });
       setSettings(null);
       resetAdminState();
+    resetDomainState();
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -313,6 +375,7 @@ export default function Dashboard() {
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
     resetAdminState();
+    resetDomainState();
     setToken(null);
     setUser(null);
   };
@@ -521,25 +584,80 @@ export default function Dashboard() {
   };
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
+    const listGen = domainListGenRef.current;
     try {
-      const res = await apiFetch(`${API_BASE}/domains`);
+      const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
+        domains,
+        selected: selectedDomain,
+        showDetails,
+        shownId: domainDetailsIdRef.current,
+      });
+      // A list response that predates a successful delete is stale:
+      // drop it instead of restoring deleted domains into the list.
+      if (listGen !== domainListGenRef.current) return;
+      // Generation is re-checked BEFORE any identity reset: a stale load
+      // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
-      if (res.status === 401) {
+      if (result.kind === 'auth') {
         handleAuthFailure();
         return;
       }
-      if (!res.ok) {
-        console.error(`Failed to load domains: HTTP ${res.status}`);
+      if (result.kind !== 'ok') {
+        console.error('Failed to load domains (non-ok response or invalid payload)');
         return;
       }
-      const data = await res.json();
-      if (gen !== sessionGenRef.current) return;
-      if (!Array.isArray(data)) {
-        console.error('Failed to load domains: API returned non-array', data);
-        return;
+      const next = result.state;
+      setDomains(next.domains);
+      // Reconcile against the CURRENT shown domain (the ref, kept in
+      // sync with the selection everywhere): a selection whose domain
+      // is still in the returned list survives — including a delayed
+      // load racing an Inspect; a selection whose domain is gone
+      // (deleted) is replaced by the auto-selected first domain, or
+      // cleared (closing the panel) when the list is empty.
+      const presentIds = next.domains.map((d: any) => d.id);
+      const stillThere = domainDetailsIdRef.current !== null &&
+        presentIds.includes(domainDetailsIdRef.current);
+      const shownGone = domainDetailsIdRef.current !== null && !stillThere;
+      // a successful apply consumes any pending reopen intent, even
+      // when the current selection is retained — otherwise a later
+      // reconcile could open the panel without user action
+      const pendingReopen = panelReopenRef.current;
+      panelReopenRef.current = false;
+      const pendingId = domainDetailsPendingRef.current ? domainDetailsPendingRef.current.id : null;
+      const pendingGone = pendingId !== null && !presentIds.includes(pendingId);
+      if (shownGone || pendingGone) {
+        // A detail request targets a deleted domain (the pending
+        // Inspect target, and/or the shown domain was deleted while
+        // its details were open): invalidate the pending request
+        // BEFORE re-selecting, so a late viewDomain success for the
+        // removed domain cannot select the deleted domain again.
+        domainDetailsGenRef.current += 1;
       }
-      setDomains(data);
-      if (data.length > 0) setSelectedDomain(data[0]);
+      if (!stillThere) {
+        // Nothing shown (nothing selected yet, or deleteDomains
+        // cleared the panel) or the shown domain was deleted: apply
+        // the reconciled selection — the first remaining domain, or
+        // none when the list is empty. Details open/close state
+        // follows applyDomainList: an existing showDetails carries
+        // over to the reconciled selection; an empty list closes the
+        // panel.
+        domainDetailsIdRef.current = next.selected ? next.selected.id : null;
+        shownIsFullRef.current = false; // a list row lacks dmarc_reports
+        setSelectedDomainSync(next.selected);
+        // applyDomainList semantics: an open details panel carries over
+        // to the reconciled selection; an empty list closes the panel.
+        // The LIVE visibility (refs, not the render snapshot) decides —
+        // a user Close during the flight must not re-open the panel,
+        // while a delete's system close may carry over.
+        const liveOpen = pendingReopen || showDetailsRef.current;
+        setShowDetailsSync(next.selected ? liveOpen : false);
+        if (next.selected && liveOpen) {
+          // The reconciled selection came from the list (a row without
+          // dmarc_reports): fetch its detail record so the report panel
+          // shows real data instead of a false "no reports" state.
+          viewDomain(next.selected);
+        }
+      }
     } catch (e) {
       console.error('Failed to load domains:', e);
     } finally {
@@ -998,11 +1116,51 @@ export default function Dashboard() {
     const gen = sessionGenRef.current;
     
     try {
-      await apiFetch(`${API_BASE}/settings/bulk-delete`, {
+      const res = await apiFetch(`${API_BASE}/settings/bulk-delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain_ids: selectedIds })
       });
+      // The invalidations below are gated on the session generation:
+      // if A's delete resolves after logout/login as B, B's in-flight
+      // list responses must NOT be dropped by A's generation bumps.
+      if (res.ok && gen === sessionGenRef.current) {
+        // A successful delete may have removed the target of an
+        // in-flight Inspect (or the shown domain): invalidate pending
+        // detail requests now — before the reload (which may itself
+        // fail) reconciles the panel. Also bump the list generation
+        // so pre-delete list responses are dropped.
+        domainDetailsGenRef.current += 1;
+        domainListGenRef.current += 1;
+        domainDetailsPendingRef.current = null;
+        // the invalidated detail request can no longer clear this
+        // itself (its seq ownership is gone) — clear it here so the
+        // panel does not stay on the loading state
+        setDetailRefreshing(false);
+        // If the shown selection is a list row whose detail fetch was
+        // just invalidated, restart it: the next reload retains the
+        // domain and starts no replacement, so otherwise the report
+        // panel would show a false "no reports" state for a row
+        // without dmarc_reports.
+        if (domainDetailsIdRef.current !== null && !shownIsFullRef.current && showDetailsRef.current && selectedDomainRef.current) {
+          viewDomain(selectedDomainRef.current);
+        }
+        // If the SHOWN domain was deleted, clear the panel right away:
+        // a failed reload must not leave a deleted domain's details
+        // (and upload action) on screen. A successful reload still
+        // applies the first remaining selection — with the ref null,
+        // the reconcile auto-selects it.
+        const deletedShown = domainDetailsIdRef.current !== null &&
+          selectedIds.includes(domainDetailsIdRef.current);
+        if (deletedShown) {
+          // preserve the PRIOR visibility: a reopen intent only when
+          // the panel was actually open when the delete happened
+          panelReopenRef.current = showDetailsRef.current;
+          domainDetailsIdRef.current = null;
+          setSelectedDomainSync(null);
+          setShowDetailsSync(false);
+        }
+      }
       await loadDomains(gen);
       setSelectedIds([]);
     } catch (e) {
@@ -1043,14 +1201,100 @@ export default function Dashboard() {
     failed: domains.filter(d => (d.last_score || 0) < 40).length
   };
 
+  // Selection generation for domain details — same pattern as the brand
+  // details: every open bumps it so an overlapping load or a slow upload
+  // refresh for an earlier domain can't overwrite the newer selection.
   const viewDomain = async (domain: any) => {
+    const gen = sessionGenRef.current;
+    const selGen = ++domainDetailsGenRef.current;
+    const seq = ++domainDetailsReqSeq.current;
+    domainDetailsPendingRef.current = { id: domain.id, seq };
+    setDetailRefreshError(null);
+    setDetailRefreshing(true);
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
-      setSelectedDomain(data);
-      setShowDetails(true);
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (!res.ok || data.error) {
+        setDetailRefreshError('Failed to load domain details');
+        return;
+      }
+      // The shown-domain ref follows the successful selection only — a
+      // failed Inspect leaves the panel (and the ref) on the previous
+      // domain, so uploads for it keep refreshing (transition semantics
+      // unit-tested in lib/domainPanel).
+      domainDetailsIdRef.current = domain.id;
+      shownIsFullRef.current = true;
+      setSelectedDomainSync(data);
+      setShowDetailsSync(true);
+      setDetailRefreshing(false);
     } catch (e) {
       console.error('Failed to load domain details:', e);
+      if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
+        setDetailRefreshError('Failed to load domain details');
+      }
+    } finally {
+      // only the settling request may clear its own pending entry —
+      // an older Inspect to the same domain must not clear the
+      // newer request's entry
+      if (domainDetailsPendingRef.current?.seq === seq) {
+        domainDetailsPendingRef.current = null;
+        setDetailRefreshing(false);
+      }
+    }
+  };
+
+  // DMARC aggregate report ingestion (issue #64): upload RFC 7489 XML,
+  // then refresh the domain detail so the new insights show up. Both
+  // the session generation and the domain-selection generation are
+  // captured and re-checked before applying anything, so a slow upload
+  // can never leak one identity's data into another session or replace
+  // a newer selection.
+  const uploadDmarcReport = async (domainId: number, file: File) => {
+    const gen = sessionGenRef.current;
+    const selGen = domainDetailsGenRef.current;
+    setDmarcUploadError(null);
+    setDmarcUploading(true);
+    try {
+      const xml = await file.text();
+      const res = await apiFetch(`${API_BASE}/domains/${domainId}/dmarc-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/xml' },
+        body: xml
+      });
+      const data = await res.json();
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (!res.ok || data.error) {
+        setDmarcUploadError(data.error || 'Upload failed');
+        return;
+      }
+      // The upload is associated with the domain it was started against:
+      // if the user has switched to another domain meanwhile, its panel
+      // must not be replaced by this refresh.
+      if (domainDetailsIdRef.current !== domainId) {
+        setDmarcUploadError('Report uploaded, but the details panel has switched domains');
+        return;
+      }
+      const fresh = await apiFetch(`${API_BASE}/domains/${domainId}`);
+      const freshData = await fresh.json();
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (domainDetailsIdRef.current !== domainId) return;
+      if (!fresh.ok || freshData.error) {
+        // the domain may have been deleted mid-upload — keep the current
+        // details instead of installing the error object
+        setDmarcUploadError(freshData.error || 'Domain details refresh failed');
+        return;
+      }
+      setSelectedDomainSync(freshData);
+    } catch (e) {
+      if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
+        setDmarcUploadError('Upload failed: ' + (e as Error).message);
+      }
+    } finally {
+      // Only the upload that owns the current session may clear the
+      // busy state — an identity switch can start a newer upload while
+      // this one is still pending.
+      if (gen === sessionGenRef.current) setDmarcUploading(false);
     }
   };
 
@@ -1065,7 +1309,7 @@ export default function Dashboard() {
       }
 
       setFixRecommendations(data);
-      setShowDetails(true);
+      setShowDetailsSync(true);
     } catch (e) {
       alert('Failed to analyze domain: ' + e.message);
     }
@@ -1622,7 +1866,7 @@ export default function Dashboard() {
                   <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
                     <Wrench className="w-4 h-4 mr-1" /> Get Fix Records
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowDetails(false)}>Close</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { panelReopenRef.current = false; setShowDetailsSync(false); }}>Close</Button>
                 </div>
               </CardHeader>
               <CardContent>
@@ -1651,6 +1895,69 @@ export default function Dashboard() {
                     </div>
                   );
                 })()}
+
+                {/* DMARC Aggregate Reports (issue #64): upload RFC 7489 XML */}
+                <div className="mb-4 p-4 rounded-lg border bg-background">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-medium text-sm">DMARC Aggregate Reports</p>
+                    <div>
+                      <input
+                        ref={dmarcFileRef}
+                        type="file"
+                        accept=".xml,text/xml,application/xml"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files && e.target.files[0];
+                          if (f && selectedDomain) uploadDmarcReport(selectedDomain.id, f);
+                          e.target.value = '';
+                        }}
+                      />
+                      <Button variant="outline" size="sm" disabled={dmarcUploading} onClick={() => dmarcFileRef.current && dmarcFileRef.current.click()}>
+                        <Upload className="w-4 h-4 mr-1" /> {dmarcUploading ? 'Uploading...' : 'Upload XML'}
+                      </Button>
+                    </div>
+                  </div>
+                  {dmarcUploadError && (
+                    <p className="text-xs text-red-500 mb-2">{dmarcUploadError}</p>
+                  )}
+                  {detailRefreshError ? (
+                    <p className="text-xs text-red-500 mb-2">{detailRefreshError} — the report list below may be incomplete.</p>
+                  ) : null}
+                  {detailRefreshing && !detailRefreshError ? (
+                    <p className="text-xs text-muted-foreground mb-2">Loading aggregate reports…</p>
+                  ) : null}
+                  {!detailRefreshing && selectedDomain.dmarc_reports?.length > 0 ? (
+                    <div className="space-y-2">
+                      {selectedDomain.dmarc_reports.map((r: any, i: number) => {
+                        const ins = r.insights || {};
+                        const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
+                        return (
+                          <div key={r.id || i} className="p-2 rounded border text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">{r.report?.orgName || 'Unknown reporter'}</span>
+                              <span className="text-muted-foreground">
+                                {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''} · {r.report?.reportId || ''}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
+                              {(ins.failingSources || []).length > 0 && (
+                                <span> · top fail source: {ins.failingSources[0].ip} ({ins.failingSources[0].count})</span>
+                              )}
+                            </div>
+                            {unauthorized.length > 0 && (
+                              <div className="mt-1 text-amber-500">
+                                External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : !detailRefreshing && !detailRefreshError ? (
+                    <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
+                  ) : null}
+                </div>
 
                 {/* Issues with Tooltips */}
                 {selectedDomain.issues?.length > 0 && (
