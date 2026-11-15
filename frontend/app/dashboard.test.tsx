@@ -313,6 +313,32 @@ describe('Dashboard (real component) — delete/list races', () => {
     expect(aCalls()).toBe(0); // no unrequested detail fetch
   });
 
+  test('deleting the shown domain while the panel is closed leaves it closed after the reload', async () => {
+    const d1 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => d1.promise });
+    render(<Dashboard />);
+    d1.resolve(resp(200, [DOM_A, DOM_B]));
+    await screen.findByText('a.test');
+
+    // inspect B, then CLOSE the panel before deleting
+    await inspectB();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+
+    // delete B: the panel was already closed, so no reopen intent —
+    // the reload's reconcile of A must not open it or fetch details
+    const dDetA = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => dDetA.promise });
+    fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    dDetA.resolve(resp(200, [DOM_A]));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+    const aCalls = () =>
+      (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains/1').length;
+    expect(aCalls()).toBe(0); // no unrequested detail fetch
+  });
+
   test('a failed reconciled detail fetch shows an error state', async () => {
     await renderDashboardWithList();
     await inspectB();

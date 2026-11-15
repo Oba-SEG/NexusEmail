@@ -1149,10 +1149,12 @@ export default function Dashboard() {
         const deletedShown = domainDetailsIdRef.current !== null &&
           selectedIds.includes(domainDetailsIdRef.current);
         if (deletedShown) {
+          // preserve the PRIOR visibility: a reopen intent only when
+          // the panel was actually open when the delete happened
+          panelReopenRef.current = showDetailsRef.current;
           domainDetailsIdRef.current = null;
           setSelectedDomainSync(null);
           setShowDetailsSync(false);
-          panelReopenRef.current = true;
         }
       }
       await loadDomains(gen);
