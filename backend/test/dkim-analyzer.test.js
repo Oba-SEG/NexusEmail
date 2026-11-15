@@ -136,6 +136,13 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
     assert.equal(parseSubjectPublicKeyInfo(der), null);
   });
 
+  test('rejects an outer SEQUENCE length that excludes a trailing key byte', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const der = Buffer.from(spkiB64(kp), 'base64');
+    der[1] = 0x29; // outer len 41 — last key byte now outside the SEQUENCE
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
   test('rejects an AlgorithmIdentifier that swallows the BIT STRING', () => {
     const kp = crypto.generateKeyPairSync('ed25519');
     const der = Buffer.from(spkiB64(kp), 'base64');
