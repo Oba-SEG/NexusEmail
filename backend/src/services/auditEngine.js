@@ -1,14 +1,10 @@
 const dns = require('dns').promises;
 const { createHash, publicEncrypt } = require('crypto');
 const { SpfValidator } = require('./spfValidator');
+const { DkimAnalyzer } = require('./dkimAnalyzer');
 
 class EmailSecurityAuditor {
-  constructor() {
-    this.commonSelectors = [
-      'default', 'google', 'selector1', 'selector2', 'selector3',
-      'mail', 'dkim', 'dkim1', 'smtp', 'mx', 'smtp1', 's1', 's2'
-    ];
-  }
+  constructor() {}
 
   // ===== COMPREHENSIVE DNS RECORD CHECKS =====
   
@@ -82,67 +78,19 @@ class EmailSecurityAuditor {
   }
 
   // ===== DKIM CHECK =====
+  // Delegated to DkimAnalyzer: real DER key decoding (actual RSA/Ed25519
+  // bit length), revoked/invalid key detection, t=y/t=s flags, and a
+  // 25-selector probe list. Scoring policy unchanged (20 base, +10 strong
+  // key, +5 otherwise).
   async checkDKIM(domain) {
-    const result = {
-      found: false,
-      selectors: [],
-      warnings: [],
-      errors: [],
-      score: 0
+    const r = await new DkimAnalyzer().analyze(domain);
+    return {
+      found: r.found,
+      selectors: r.selectors,
+      warnings: r.warnings,
+      errors: r.errors,
+      score: r.score
     };
-
-    for (const selector of this.commonSelectors) {
-      try {
-        const records = await dns.resolveTxt(`${selector}._domainkey.${domain}`);
-        if (records.length > 0) {
-          const record = records[0].join('');
-          const selectorInfo = {
-            selector,
-            record,
-            valid: true,
-            keySize: null,
-            algorithm: null,
-            notes: []
-          };
-
-          // Analyze key
-          if (record.includes('k=rsa')) {
-            if (record.length > 400) {
-              selectorInfo.keySize = '2048-bit';
-              selectorInfo.algorithm = 'RSA';
-            } else {
-              selectorInfo.keySize = '1024-bit';
-              selectorInfo.warnings.push('Key size below recommended 2048-bit');
-            }
-          }
-
-          // Check for test mode
-          if (record.includes('t=y')) {
-            selectorInfo.notes.push('Test mode (t=y) - not for production');
-          }
-
-          result.selectors.push(selectorInfo);
-          result.found = true;
-        }
-      } catch (e) {
-        // Selector not found, continue
-      }
-    }
-
-    if (result.selectors.length === 0) {
-      result.errors.push('No DKIM records found');
-    }
-
-    // Score based on selectors
-    if (result.selectors.length > 0) {
-      result.score = 20;
-      for (const sel of result.selectors) {
-        if (sel.keySize === '2048-bit') result.score += 10;
-        else result.score += 5;
-      }
-    }
-
-    return result;
   }
 
   // ===== DMARC CHECK =====
