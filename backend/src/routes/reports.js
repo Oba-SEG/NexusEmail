@@ -102,8 +102,10 @@ function normalizeDnsResults(scan) {
     if (flat && flat !== 'UNKNOWN') return flat;
     if (obj?.status) return obj.status;
     if (obj == null) return flat || null;
-    if (obj.found) return 'FOUND';
+    // Validation errors beat found:true — an SPF record with +all or a
+    // DMARC p=none row is found but failing, and must not render green.
     if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) return 'ERROR';
+    if (obj.found) return 'FOUND';
     return 'NOT_FOUND';
   };
   const present = (obj, ...flatKeys) => !!(obj || flatKeys.some(k => scan[k] != null));
