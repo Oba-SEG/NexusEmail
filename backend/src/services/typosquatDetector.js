@@ -10,6 +10,7 @@
  * rdapFetch is injectable for tests; lookups are concurrency-limited.
  */
 const https = require('https');
+const psl = require('psl');
 
 const RDAP_TIMEOUT_MS = 6000;
 const MAX_CONCURRENT = 6;
@@ -122,40 +123,17 @@ function defaultRdapFetch(url, opts = {}) {
 }
 
 /**
- * Pragmatic subset of the Public Suffix List: two-level suffixes where
- * the registrant-controlled label sits one level higher (acme.co.uk ->
- * sld "acme", not "co"). Extend as needed.
+ * Public-suffix-aware split via the `psl` library (full Public Suffix
+ * List): the registrant-controlled label is parsed correctly for any
+ * suffix, including multi-label ones (acme.co.uk -> sld "acme").
  */
-const MULTI_LABEL_SUFFIXES = new Set([
-  'co.uk', 'org.uk', 'me.uk', 'ac.uk', 'gov.uk', 'net.uk', 'sch.uk',
-  'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'id.au',
-  'co.jp', 'or.jp', 'ne.jp', 'ac.jp',
-  'com.br', 'net.br', 'org.br',
-  'co.in', 'net.in', 'org.in', 'firm.in',
-  'co.nz', 'net.nz', 'org.nz',
-  'co.za', 'net.za', 'org.za', 'web.za',
-  'com.mx', 'com.ar', 'com.tr', 'com.cn', 'com.tw', 'com.hk',
-  'com.sg', 'com.my', 'co.kr', 'com.pl', 'co.il', 'com.ua',
-  'com.vn', 'com.ph', 'com.co', 'com.pe', 'com.eg', 'com.sa',
-  'com.pk', 'com.ng', 'com.gh', 'com.ke', 'com.tz', 'com.ug',
-]);
-
-/** Split a domain; for public suffixes the registrant label is above them. */
 function splitDomain(domain) {
-  const labels = domain.toLowerCase().split('.');
-  if (labels.length < 2) return null;
-  const last2 = labels.slice(-2).join('.');
-  let tld;
-  let sldIdx;
-  if (labels.length >= 3 && MULTI_LABEL_SUFFIXES.has(last2)) {
-    tld = last2;
-    sldIdx = labels.length - 3;
-  } else {
-    tld = labels[labels.length - 1];
-    sldIdx = labels.length - 2;
-  }
-  const sld = labels[sldIdx];
-  const base = labels.slice(0, sldIdx + 1).join('.');
+  const parsed = psl.parse(domain.toLowerCase());
+  // invalid, null-input, or no registrable domain (e.g. single label)
+  if (parsed.error || !parsed.sld) return null;
+  const tld = parsed.tld;
+  const sld = parsed.sld;
+  const base = parsed.subdomain ? `${parsed.subdomain}.${sld}` : sld;
   return { tld, sld, base };
 }
 

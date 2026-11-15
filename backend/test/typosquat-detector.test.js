@@ -16,6 +16,15 @@ describe('splitDomain', () => {
     assert.deepEqual(splitDomain('acme.co.uk'), { tld: 'co.uk', sld: 'acme', base: 'acme' });
     assert.deepEqual(splitDomain('mail.acme.com.au'), { tld: 'com.au', sld: 'acme', base: 'mail.acme' });
   });
+  test('suffixes beyond any hand-maintained set parse correctly (full PSL)', () => {
+    // co.id is in the Public Suffix List but was missing from the old
+    // hardcoded two-level set — the psl library must handle it
+    assert.deepEqual(splitDomain('acme.co.id'), { tld: 'co.id', sld: 'acme', base: 'acme' });
+    assert.deepEqual(splitDomain('shop.acme.com.br'), { tld: 'com.br', sld: 'acme', base: 'shop.acme' });
+  });
+  test('suffix-only input has no registrant label', () => {
+    assert.equal(splitDomain('co.uk'), null);
+  });
 });
 
 describe('generateCandidates', () => {
@@ -123,8 +132,10 @@ describe('defaultRdapFetch — redirect transport', () => {
     const ca = cert; // self-signed, its own trust anchor
     const hits = [];
     let closes = 0; // sockets closed server-side for dead-end paths
-    const streamUntilClose = (req, res) => {
-      res.writeHead(302);
+    const streamUntilClose = (req, res, loc) => {
+      // a valid Location makes the hop a genuine redirect-limit dead-end;
+      // omitting it (noloc) instead tests the missing-Location dead-end
+      res.writeHead(302, loc ? { Location: loc } : {});
       const iv = setInterval(() => res.write('x'), 50);
       req.socket.on('close', () => { closes += 1; });
       req.on('close', () => clearInterval(iv));
@@ -145,7 +156,7 @@ describe('defaultRdapFetch — redirect transport', () => {
         res.end();
       } else if (req.url === '/domain/noloc.test') {
         // 302 with no Location — streams forever until the client destroys it
-        streamUntilClose(req, res);
+        streamUntilClose(req, res, null);
       } else if (req.url.startsWith('/loop')) {
         const n = Number(req.url.slice(5)) || 0;
         if (n < 4) {
@@ -154,8 +165,9 @@ describe('defaultRdapFetch — redirect transport', () => {
           res.writeHead(302, { Location: `/loop${n + 1}` });
           res.end();
         } else {
-          // dead-end hop — streams forever until destroyed
-          streamUntilClose(req, res);
+          // dead-end hop with a VALID Location — the redirect limit,
+          // not a missing header, is what stops the chain here
+          streamUntilClose(req, res, `/loop${n + 1}`);
         }
       } else if (req.url === '/domain/flood.test') {
         res.writeHead(302, { Location: '/registry/boot.test' });

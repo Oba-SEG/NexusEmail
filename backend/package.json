@@ -19,6 +19,7 @@
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.7",
     "pg": "^8.23.1",
+    "psl": "^1.15.0",
     "sql.js": "^1.10.0"
   },
   "devDependencies": {
