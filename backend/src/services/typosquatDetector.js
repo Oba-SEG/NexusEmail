@@ -57,7 +57,11 @@ function defaultRdapFetch(url, opts = {}) {
       try {
         req = https.get(parsed, {
           timeout: RDAP_TIMEOUT_MS,
-          headers: { Accept: 'application/rdap+json, application/json' },
+          // rdap.org sits behind Cloudflare and 403s UA-less requests
+          headers: {
+            Accept: 'application/rdap+json, application/json',
+            'User-Agent': 'NexusEmail-Audit/1.0 (+https://github.com/Oba-SEG/NexusEmail)',
+          },
           ...(opts.ca ? { ca: opts.ca } : {}),
         }, (res) => {
           const loc = res.headers.location;
