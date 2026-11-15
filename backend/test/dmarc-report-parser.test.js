@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { DmarcReportIngestor, parseAggregateXml, ruaDestination } = require('../src/services/dmarcReportParser');
+const { DmarcReportIngestor, parseAggregateXml, ruaDestination, ruaTargetsFromRecord, reportMatchesDomain, sameOrganizationalDomain } = require('../src/services/dmarcReportParser');
 
 // RFC 7489 appendix C style sample: one aligned row, one failing row.
 const SAMPLE_XML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -99,6 +99,13 @@ describe('parseAggregateXml', () => {
     assert.throws(() => parseAggregateXml('<feedback><unclosed>'), /XML parse failed|invalid aggregate report/);
   });
 
+  test('mismatched closing tags are rejected via parser validation', () => {
+    // fast-xml-parser skips validation without the second parse arg and
+    // would let `</feedback>` in place of `</policy_published>` through
+    const bad = SAMPLE_XML.replace('</policy_published>', '</feedback>');
+    assert.throws(() => parseAggregateXml(bad), /XML parse failed/);
+  });
+
   test('wrong root element is rejected', () => {
     assert.throws(() => parseAggregateXml('<notfeedback></notfeedback>'), /root element must be <feedback>/);
   });
@@ -110,6 +117,12 @@ describe('parseAggregateXml', () => {
   test('non-integer counts are rejected', () => {
     const bad = SAMPLE_XML.replace('<count>2</count>', '<count>two</count>');
     assert.throws(() => parseAggregateXml(bad), /record 0 has a missing or non-integer <count>/);
+  });
+
+  test('reports above the record limit are rejected, not truncated', () => {
+    const rows = Array.from({ length: 10001 }, (_, i) => `<record><row><source_ip>1.2.3.${i % 256}</source_ip><count>1</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>acme.test</header_from></identifiers></record>`).join('\n');
+    const bad = `<?xml version="1.0"?><feedback><policy_published><domain>acme.test</domain><p>none</p></policy_published>${rows}</feedback>`;
+    assert.throws(() => parseAggregateXml(bad), /exceeds the 10000 record limit/);
   });
 
   test('single record is normalized to an array', () => {
@@ -127,6 +140,36 @@ describe('ruaDestination', () => {
     assert.equal(ruaDestination('mailto:agg@ThirdParty.example'), 'thirdparty.example');
     assert.equal(ruaDestination('dmarc@acme.test'), 'acme.test');
     assert.equal(ruaDestination('nonsense'), null);
+  });
+  test('strips the report-size suffix before extracting the host', () => {
+    assert.equal(ruaDestination('agg@thirdparty.example!10m'), 'thirdparty.example');
+    assert.equal(ruaDestination('mailto:agg@thirdparty.example!10m'), 'thirdparty.example');
+  });
+});
+
+describe('ruaTargetsFromRecord', () => {
+  test('extracts mailto targets from a published DMARC record', () => {
+    assert.deepEqual(
+      ruaTargetsFromRecord(['v=DMARC1; p=quarantine; rua=mailto:dmarc@acme.test,mailto:agg@thirdparty.example!10m']),
+      ['dmarc@acme.test', 'agg@thirdparty.example!10m']
+    );
+  });
+  test('returns [] when no rua tag exists', () => {
+    assert.deepEqual(ruaTargetsFromRecord(['v=DMARC1; p=reject']), []);
+  });
+});
+
+describe('sameOrganizationalDomain / reportMatchesDomain', () => {
+  test('org-domain equality via the PSL', () => {
+    assert.equal(sameOrganizationalDomain('news.example.com', 'example.com'), true);
+    assert.equal(sameOrganizationalDomain('example.com', 'example.org'), false);
+  });
+  test('report matches target or target subdomain of reported domain', () => {
+    assert.equal(reportMatchesDomain({ policyPublished: { domain: 'acme.test' } }, 'acme.test'), true);
+    assert.equal(reportMatchesDomain({ policyPublished: { domain: 'acme.test' } }, 'ACME.TEST'), true);
+    assert.equal(reportMatchesDomain({ policyPublished: { domain: 'acme.test' } }, 'news.acme.test'), true);
+    assert.equal(reportMatchesDomain({ policyPublished: { domain: 'acme.test' } }, 'other.test'), false);
+    assert.equal(reportMatchesDomain({ policyPublished: { domain: 'news.acme.test' } }, 'acme.test'), false);
   });
 });
 
@@ -149,6 +192,12 @@ describe('DmarcReportIngestor', () => {
     ]);
   });
 
+  test('ext-rec: same organizational domain needs no authorization', async () => {
+    const ing = fakeResolver({});
+    const checks = await ing.checkExtRecAuth('news.example.com', ['reports@example.com']);
+    assert.deepEqual(checks, [{ destination: 'example.com', status: 'self' }]);
+  });
+
   test('ext-rec: not_authorized when the destination publishes nothing (NXDOMAIN)', async () => {
     const ing = fakeResolver({});
     const checks = await ing.checkExtRecAuth('acme.test', ['agg@thirdparty.example']);
@@ -168,7 +217,9 @@ describe('DmarcReportIngestor', () => {
       'acme.test._report._dmarc.thirdparty.example': [['v=DMARC1']],
     });
     const parsed = parseAggregateXml(SAMPLE_XML);
-    const ins = await ing.analyze(parsed, 'acme.test');
+    const ins = await ing.analyze(parsed, 'acme.test', {
+      publishedRua: ['dmarc@acme.test', 'agg@thirdparty.example'],
+    });
     assert.equal(ins.totalMessages, 7);
     assert.equal(ins.passingMessages, 2);
     assert.equal(ins.failingMessages, 5);
@@ -179,10 +230,40 @@ describe('DmarcReportIngestor', () => {
     ]);
   });
 
-  test('ingest ties parse + analyze together', async () => {
-    const ing = fakeResolver({});
+  test('ingest resolves destinations from the live policy, not the XML', async () => {
+    // RFC 7489 policy_published has no rua element — the ingestor must
+    // read the domain's published DMARC record via the resolver
+    const ing = fakeResolver({
+      '_dmarc.acme.test': [['v=DMARC1; p=quarantine; rua=mailto:dmarc@acme.test,mailto:agg@thirdparty.example!10m']],
+      'acme.test._report._dmarc.thirdparty.example': [['v=DMARC1']],
+    });
     const { report, insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
     assert.equal(report.reportId, '2026-11-01T00:00:00Z');
-    assert.equal(insights.extRecChecks[1].status, 'not_authorized');
+    assert.equal(insights.reportedPolicyDomain, 'acme.test');
+    assert.deepEqual(insights.extRecChecks, [
+      { destination: 'acme.test', status: 'self' },
+      { destination: 'thirdparty.example', status: 'authorized' },
+    ]);
+  });
+
+  test('ingest rejects reports for unrelated domains', async () => {
+    const ing = fakeResolver({});
+    await assert.rejects(
+      () => ing.ingest(SAMPLE_XML, 'other.test'),
+      /aggregate report is for acme\.test, not other\.test/
+    );
+  });
+
+  test('ingest accepts inherited org-policy reports (subdomain target)', async () => {
+    const ing = fakeResolver({ '_dmarc.news.acme.test': [['v=DMARC1']] });
+    // SAMPLE_XML reports for acme.test; target news.acme.test inherits
+    const { insights } = await ing.ingest(SAMPLE_XML, 'news.acme.test');
+    assert.equal(insights.totalMessages, 7);
+  });
+
+  test('ingest without a published DMARC record skips ext-rec checks', async () => {
+    const ing = fakeResolver({});
+    const { insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
+    assert.deepEqual(insights.extRecChecks, []);
   });
 });

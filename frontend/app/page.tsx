@@ -1047,10 +1047,19 @@ export default function Dashboard() {
     failed: domains.filter(d => (d.last_score || 0) < 40).length
   };
 
+  // Selection generation for domain details — same pattern as the brand
+  // details: every open bumps it so an overlapping load or a slow upload
+  // refresh for an earlier domain can't overwrite the newer selection.
+  const domainDetailsGenRef = useRef(0);
+
   const viewDomain = async (domain: any) => {
+    const gen = sessionGenRef.current;
+    domainDetailsGenRef.current += 1;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (!res.ok || data.error) return;
       setSelectedDomain(data);
       setShowDetails(true);
     } catch (e) {
@@ -1059,8 +1068,14 @@ export default function Dashboard() {
   };
 
   // DMARC aggregate report ingestion (issue #64): upload RFC 7489 XML,
-  // then refresh the domain detail so the new insights show up.
+  // then refresh the domain detail so the new insights show up. Both
+  // the session generation and the domain-selection generation are
+  // captured and re-checked before applying anything, so a slow upload
+  // can never leak one identity's data into another session or replace
+  // a newer selection.
   const uploadDmarcReport = async (domainId: number, file: File) => {
+    const gen = sessionGenRef.current;
+    const selGen = domainDetailsGenRef.current;
     setDmarcUploadError(null);
     setDmarcUploading(true);
     try {
@@ -1071,14 +1086,25 @@ export default function Dashboard() {
         body: xml
       });
       const data = await res.json();
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
       if (!res.ok || data.error) {
         setDmarcUploadError(data.error || 'Upload failed');
         return;
       }
       const fresh = await apiFetch(`${API_BASE}/domains/${domainId}`);
-      setSelectedDomain(await fresh.json());
+      const freshData = await fresh.json();
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (!fresh.ok || freshData.error) {
+        // the domain may have been deleted mid-upload — keep the current
+        // details instead of installing the error object
+        setDmarcUploadError(freshData.error || 'Domain details refresh failed');
+        return;
+      }
+      setSelectedDomain(freshData);
     } catch (e) {
-      setDmarcUploadError('Upload failed: ' + (e as Error).message);
+      if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
+        setDmarcUploadError('Upload failed: ' + (e as Error).message);
+      }
     } finally {
       setDmarcUploading(false);
     }

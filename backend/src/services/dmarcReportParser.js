@@ -13,6 +13,7 @@
  */
 const { XMLParser } = require('fast-xml-parser');
 const dns = require('dns');
+const psl = require('psl');
 
 const MAX_RECORDS = 10000;
 const MAX_SOURCES_LISTED = 10;
@@ -73,7 +74,9 @@ function parseAggregateXml(xml) {
 
   let doc;
   try {
-    doc = xmlParser.parse(xml);
+    // second arg enables validation: without it, fast-xml-parser 5.x
+    // accepts mismatched closing tags silently
+    doc = xmlParser.parse(xml, true);
   } catch (e) {
     throw new Error(`invalid aggregate report: XML parse failed (${e.message})`);
   }
@@ -90,7 +93,15 @@ function parseAggregateXml(xml) {
     throw new Error('invalid aggregate report: policy_published.domain is required');
   }
 
-  const records = asArray(feedback.record).slice(0, MAX_RECORDS).map((rec, idx) => {
+  // Reject over-large reports outright instead of silently truncating —
+  // analysis and persistence must never mistake a partial report for a
+  // complete one.
+  const rawRecords = asArray(feedback.record);
+  if (rawRecords.length > MAX_RECORDS) {
+    throw new Error(`invalid aggregate report: ${rawRecords.length} records exceeds the ${MAX_RECORDS} record limit`);
+  }
+
+  const records = rawRecords.map((rec, idx) => {
     const row = (rec && rec.row) || {};
     const identifiers = (rec && rec.identifiers) || {};
     const authResults = (rec && rec.auth_results) || {};
@@ -150,10 +161,40 @@ function defaultTxtResolver(name, cb) {
   dns.resolveTxt(name, cb);
 }
 
-/** The destination domain of a rua mailto target (host of the email). */
+/** The destination domain of a rua mailto target. Handles the optional
+ * report-size suffix RFC 7489 allows after the URI (`!10m`), which must
+ * not leak into the DNS name. */
 function ruaDestination(target) {
-  const at = target.lastIndexOf('@');
-  return at === -1 ? null : target.slice(at + 1).toLowerCase().trim();
+  const withoutSize = target.split('!')[0];
+  const at = withoutSize.lastIndexOf('@');
+  return at === -1 ? null : withoutSize.slice(at + 1).toLowerCase().trim();
+}
+
+/** Extract mailto destinations from a DMARC record string. */
+function ruaTargetsFromRecord(record) {
+  const joined = (record || []).map((c) => (Array.isArray(c) ? c.join('') : String(c))).join('');
+  const m = joined.match(/(^|;)\s*rua\s*=\s*([^;]+)/i);
+  if (!m) return [];
+  return m[2].split(',')
+    .map((s) => s.trim().replace(/^mailto:/i, ''))
+    .filter((s) => s.length > 0);
+}
+
+/** RFC 7489 §7.1 base: organizational domains match -> same org, no
+ * external authorization required (news.example.com -> example.com). */
+function sameOrganizationalDomain(a, b) {
+  const oa = psl.get(String(a).toLowerCase());
+  const ob = psl.get(String(b).toLowerCase());
+  if (oa && ob) return oa === ob;
+  return String(a).toLowerCase() === String(b).toLowerCase();
+}
+
+/** A report covers the target domain if policy_published.domain equals
+ * the target or the target is a subdomain of it (inherited org policy). */
+function reportMatchesDomain(parsed, targetDomain) {
+  const reported = parsed.policyPublished.domain.toLowerCase();
+  const target = String(targetDomain).toLowerCase();
+  return reported === target || target.endsWith(`.${reported}`);
 }
 
 class DmarcReportIngestor {
@@ -163,9 +204,9 @@ class DmarcReportIngestor {
 
   /**
    * RFC 7489 §7.1 external destination authorization: for each rua
-   * destination that is not the reporting domain itself, the
-   * destination must publish `<domain>._report._dmarc.<dest>` TXT
-   * containing a v=DMARC1 record.
+   * destination of the domain's PUBLISHED policy that is not in the
+   * same organizational domain, the destination must publish
+   * `<domain>._report._dmarc.<dest>` TXT containing a v=DMARC1 record.
    */
   async checkExtRecAuth(reportDomain, destinations) {
     const checks = [];
@@ -174,7 +215,7 @@ class DmarcReportIngestor {
       const dest = ruaDestination(target);
       if (!dest || seen.has(dest)) continue;
       seen.add(dest);
-      if (dest === reportDomain.toLowerCase() || dest.endsWith(`.${reportDomain.toLowerCase()}`)) {
+      if (sameOrganizationalDomain(reportDomain, dest)) {
         checks.push({ destination: dest, status: 'self' });
         continue;
       }
@@ -197,10 +238,27 @@ class DmarcReportIngestor {
   }
 
   /**
-   * Compute insights from a parsed report: totals, failing sources,
-   * and the ext-rec authorization state of its rua destinations.
+   * RFC 7489's policy_published XML schema has no rua element, so the
+   * reporting destinations must come from the domain's LIVE published
+   * DMARC record (via the injectable resolver). Returns [] when no
+   * record/rua tag exists.
    */
-  async analyze(parsed, domain) {
+  async resolvePolicyRua(domain) {
+    const records = await new Promise((resolve) => {
+      this.txtResolver(`_dmarc.${String(domain).toLowerCase()}`, (err, recs) => {
+        resolve(err ? [] : recs || []);
+      });
+    });
+    const dmarc = records.find((chunks) => chunks.join('').trim().toLowerCase().startsWith('v=dmarc1'));
+    return dmarc ? ruaTargetsFromRecord(dmarc) : [];
+  }
+
+  /**
+   * Compute insights from a parsed report: totals, failing sources,
+   * and the ext-rec authorization state of the domain's published
+   * reporting destinations (live DNS, not the XML).
+   */
+  async analyze(parsed, domain, { publishedRua } = {}) {
     const totalMessages = parsed.records.reduce((n, r) => n + r.count, 0);
     const passing = parsed.records.filter((r) => r.dkimAligned === true || r.spfAligned === true);
     const failing = parsed.records.filter((r) => r.dkimAligned !== true && r.spfAligned !== true);
@@ -215,7 +273,7 @@ class DmarcReportIngestor {
       .sort((a, b) => b.count - a.count)
       .slice(0, MAX_SOURCES_LISTED);
 
-    const destinations = parsed.policyPublished.rua;
+    const destinations = publishedRua || [];
     const extRecChecks = await this.checkExtRecAuth(domain, destinations);
 
     return {
@@ -224,15 +282,21 @@ class DmarcReportIngestor {
       failingMessages: failing.reduce((n, r) => n + r.count, 0),
       failingSources,
       extRecChecks,
+      reportedPolicyDomain: parsed.policyPublished.domain,
     };
   }
 
-  /** Parse + analyze one uploaded XML document for a domain. */
+  /** Parse + validate domain match + analyze one uploaded XML document
+   * for a domain. Throws when the report is for an unrelated domain. */
   async ingest(xml, domain) {
     const report = parseAggregateXml(xml);
-    const insights = await this.analyze(report, domain);
+    if (!reportMatchesDomain(report, domain)) {
+      throw new Error(`aggregate report is for ${report.policyPublished.domain}, not ${domain} — reports must cover the target domain`);
+    }
+    const publishedRua = await this.resolvePolicyRua(domain);
+    const insights = await this.analyze(report, domain, { publishedRua });
     return { report, insights };
   }
 }
 
-module.exports = { DmarcReportIngestor, parseAggregateXml, defaultTxtResolver, ruaDestination };
+module.exports = { DmarcReportIngestor, parseAggregateXml, defaultTxtResolver, ruaDestination, ruaTargetsFromRecord, reportMatchesDomain, sameOrganizationalDomain };
