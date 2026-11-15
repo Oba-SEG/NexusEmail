@@ -232,12 +232,15 @@ class SpfValidator {
             ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
             break;
           }
+          // The term is evaluated (a query would be issued at send time),
+          // so it counts toward the lookup budget regardless of macro skip.
+          ctx.lookups += 1;
+          if (overBudget()) break; // count the term, skip the query
           if (this.hasMacro(arg)) {
             ctx.warnings.push(`include:${arg} contains macros that cannot be evaluated — skipped`);
             ctx.includes.push({ domain: arg, status: 'macro_skipped', record: null, policy: null });
             break;
           }
-          ctx.lookups += 1;
           const inc = await this.resolveInclude(arg, ctx, depth);
           ctx.includes.push({ domain: arg, ...inc });
           break;
@@ -245,6 +248,18 @@ class SpfValidator {
 
         case 'a':
         case 'mx': {
+          ctx.mechanisms.push({ type: mech, value: arg || name, qualifier: qual });
+          if (afterAll) {
+            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
+            break;
+          }
+          // Macro arguments may contain '/' inside the macro braces
+          // (e.g. %{l1r/}), so skip CIDR parsing for them entirely.
+          if (this.hasMacro(arg)) {
+            ctx.warnings.push(`${mech}:${arg} contains macros that cannot be evaluated — skipped`);
+            ctx.lookups += 1;
+            break;
+          }
           const { target, ip4Mask, ip6Mask } = this.parseDualCidr(arg);
           if (ip4Mask !== null && !this.validMask(ip4Mask, 32)) {
             ctx.errors.push(`Invalid CIDR length in "${token}" (permerror)`);
@@ -254,16 +269,7 @@ class SpfValidator {
             ctx.errors.push(`Invalid IPv6 CIDR length in "${token}" (permerror)`);
             break;
           }
-          ctx.mechanisms.push({ type: mech, value: arg || name, qualifier: qual });
-          if (afterAll) {
-            ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
-            break;
-          }
           const host = target || name;
-          if (this.hasMacro(host)) {
-            ctx.warnings.push(`${mech}:${host} contains macros that cannot be evaluated — skipped`);
-            break;
-          }
           ctx.lookups += 1;
           if (overBudget()) break; // count the term, skip the query
           if (mech === 'a') await this.resolveA(host, ctx);
@@ -296,12 +302,12 @@ class SpfValidator {
             ctx.warnings.push(`Term "${token}" appears after all and is ignored (all must be last)`);
             break;
           }
+          ctx.lookups += 1;
+          if (overBudget()) break; // count the term, skip the query
           if (this.hasMacro(arg)) {
             ctx.warnings.push(`exists:${arg} contains macros that cannot be evaluated — skipped`);
             break;
           }
-          ctx.lookups += 1;
-          if (overBudget()) break; // count the term, skip the query
           // §5.7: exists performs an A query only.
           await this.resolveA(arg, ctx, { aOnly: true });
           break;
@@ -315,18 +321,16 @@ class SpfValidator {
     if (sawAll) return { policy };
 
     if (redirect) {
+      ctx.lookups += 1;
+      if (overBudget()) return { policy: null };
       if (this.hasMacro(redirect)) {
         ctx.warnings.push(`redirect=${redirect} contains macros that cannot be evaluated — skipped`);
         return { policy: null };
       }
-      ctx.lookups += 1;
-      if (!overBudget()) {
-        const red = await this.resolveInclude(redirect, ctx, depth, 'redirect');
-        // §6.1: redirect's target record decides the policy when the parent
-        // has no all mechanism.
-        return { policy: red.policy || null };
-      }
-      return { policy: null };
+      const red = await this.resolveInclude(redirect, ctx, depth, 'redirect');
+      // §6.1: redirect's target record decides the policy when the parent
+      // has no all mechanism.
+      return { policy: red.policy || null };
     }
 
     // §4.7: neither all nor redirect — implicit neutral (?all).

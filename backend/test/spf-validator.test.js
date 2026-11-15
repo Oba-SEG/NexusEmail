@@ -434,17 +434,31 @@ describe('SpfValidator — review round 2', () => {
     assert.match(r.warnings.join(' '), /cannot be evaluated/);
     assert.doesNotMatch(r.errors.join(' '), /does not exist/);
     assert.equal(r.includes[0].status, 'macro_skipped');
-    assert.equal(r.lookupCount, 0);
+    // The term is evaluated (a query would be issued at send time), so it
+    // counts toward the lookup budget even though resolution is skipped.
+    assert.equal(r.lookupCount, 1);
   });
 
-  test('macro a/exists/redirect targets are skipped', async () => {
+  test('macro a/exists/redirect targets are skipped but counted', async () => {
     const v = fakeValidator({
       'example.com': [['v=spf1 a:%{ir}.spf.example exists:%{i}.exists.example redirect=%{d}.example']],
     });
     const r = await v.validate('example.com');
     assert.match(r.warnings.join(' '), /cannot be evaluated/);
     assert.equal(r.voidLookups, 0);
-    assert.equal(r.lookupCount, 0);
+    assert.equal(r.lookupCount, 3);
+  });
+
+  test('CIDR parsing does not split inside macro expressions', async () => {
+    // %{l1r/} contains a '/' INSIDE the macro braces — the parser must not
+    // treat it as a CIDR separator.
+    const v = fakeValidator({
+      'example.com': [['v=spf1 a:%{l1r/}.example.com -all']],
+    });
+    const r = await v.validate('example.com');
+    assert.doesNotMatch(r.errors.join(' '), /Invalid CIDR/);
+    assert.match(r.warnings.join(' '), /cannot be evaluated/);
+    assert.equal(r.lookupCount, 1);
   });
 
   test('dual CIDR a/24//64 and a//64 are accepted', async () => {
