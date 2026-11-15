@@ -581,6 +581,11 @@ export default function Dashboard() {
       const stillThere = domainDetailsIdRef.current !== null &&
         next.domains.some((d: any) => d.id === domainDetailsIdRef.current);
       if (!stillThere) {
+        // The shown domain is gone (deleted while its details were
+        // open): invalidate pending detail requests for it BEFORE
+        // re-selecting, so a late viewDomain success for the removed
+        // domain cannot select the deleted domain again.
+        domainDetailsGenRef.current += 1;
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
         setSelectedDomain(next.selected);
         setShowDetails(next.selected ? true : false);

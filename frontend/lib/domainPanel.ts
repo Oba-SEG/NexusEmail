@@ -51,7 +51,7 @@ export interface DomainListResponse {
 }
 
 export type DomainListResult =
-  | { kind: 'ok'; state: DomainPanelState }
+  | { kind: 'ok'; state: DomainPanelState; invalidateDetails: boolean }
   | { kind: 'auth' }
   | { kind: 'fail' };
 
@@ -79,5 +79,12 @@ export async function runDomainListLoad(
     return { kind: 'fail' };
   }
   if (!Array.isArray(data)) return { kind: 'fail' };
-  return { kind: 'ok', state: applyDomainList(state, data) };
+  const before = state.shownId;
+  const next = applyDomainList(state, data);
+  // The previously shown domain vanished from the list (deleted while
+  // its details were open). The caller must invalidate pending detail
+  // requests for it BEFORE re-selecting — a late viewDomain success
+  // for the removed domain must not select it again.
+  const invalidateDetails = before !== null && !data.some((d: any) => d.id === before);
+  return { kind: 'ok', state: next, invalidateDetails };
 }

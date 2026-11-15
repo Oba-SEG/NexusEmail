@@ -111,6 +111,33 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     expect(after.shownId).toBeNull();
     expect(after.showDetails).toBe(false);
   });
+
+  test('dashboard race: a late viewDomain success for a deleted domain is invalidated', async () => {
+    // models the Dashboard's domainDetailsGenRef / domainDetailsIdRef
+    let gen = 0;
+
+    // user loads domains, opens Inspect on domain 2 (request in flight)
+    let r = await runDomainListLoad(
+      async () => res(true, 200, [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]),
+      clearedDomainPanel()
+    );
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    let panel = r.state; // selection auto-selects domain 1; user then inspects 2
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+    const selGen = ++gen; // viewDomain(2) in flight
+
+    // domain 2 is deleted; the reload arrives without it
+    r = await runDomainListLoad(async () => res(true, 200, [{ id: 1, name: 'a.test' }]), panel);
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.invalidateDetails).toBe(true); // shown domain vanished -> loadDomains bumps the gen
+    if (r.invalidateDetails) gen += 1;
+    panel = r.state;
+    expect(panel.selected?.id).toBe(1); // auto-selected the first remaining
+
+    // the late viewDomain(2) success arrives with the old selGen
+    const guardPasses = selGen === gen; // selGen !== domainDetailsGenRef.current -> return
+    expect(guardPasses).toBe(false); // dropped: deleted domain is not re-selected
+  });
 });
 
 describe('selection and upload refresh association', () => {
