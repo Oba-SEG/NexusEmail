@@ -31,6 +31,63 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+// Scan rows exist in two storage shapes: object fields (spf/dkim/dmarc,
+// scheduler + /scans/run) and flat *_status fields plus *_record JSON
+// strings (audit routes; their *_status is always 'UNKNOWN' because
+// auditEngine objects carry no status). Mirror of the backend's
+// normalizeDnsResults: resolve a display row per record.
+function parseMaybeJson(v: any): any {
+  if (v == null) return null;
+  if (typeof v === 'object') return v;
+  try { return JSON.parse(v); } catch { return null; }
+}
+
+function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: string; tone: 'pass' | 'fail' | 'warn' | 'none' } {
+  if (!scan) return { label: 'Unknown', tone: 'none' };
+  const selectorsForDkim = key === 'dkim' ? parseMaybeJson(scan.dkim_selectors) : null;
+  const obj = parseMaybeJson(scan[key])
+    ?? (key === 'dkim' ? null : parseMaybeJson(scan[`${key}_record`]))
+    ?? (Array.isArray(selectorsForDkim) ? { found: selectorsForDkim.length > 0, selectors: selectorsForDkim } : null);
+  const flat = scan[`${key}_status`];
+
+  let status: string | null = null;
+  if (flat && flat !== 'UNKNOWN' && typeof flat === 'string') status = flat;
+  else if (obj?.status) status = String(obj.status);
+  else if (obj == null) status = flat ? String(flat) : null;
+  else if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) {
+    // Validation errors beat found:true (+all, p=none); absent records
+    // (ENOTFOUND / "No X record found") are NOT_FOUND, not ERROR.
+    const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])].filter(Boolean).join(' ');
+    if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found/i.test(msgs)) status = 'NOT_FOUND';
+    else status = 'ERROR';
+  } else if (obj.found) status = 'FOUND';
+  else status = 'NOT_FOUND';
+
+  if (!status) return { label: 'Unknown', tone: 'none' };
+
+  const selectors = Array.isArray(selectorsForDkim) ? selectorsForDkim : (Array.isArray(obj?.selectors) ? obj.selectors : []);
+  const policy = obj?.policy ?? null;
+  const enforcing = key === 'spf' ? (policy === 'hardfail' || policy === 'softfail')
+    : key === 'dmarc' ? (policy === 'reject' || policy === 'quarantine')
+    : selectors.length > 0;
+
+  if (status === 'FOUND' || status === 'pass') {
+    if (key === 'dkim') return { label: selectors.length ? `${selectors.length} selector${selectors.length === 1 ? '' : 's'}` : 'Found', tone: 'pass' };
+    if (policy) return { label: String(policy), tone: enforcing ? 'pass' : 'warn' };
+    return { label: 'Found', tone: 'warn' };
+  }
+  if (status === 'NOT_FOUND') return { label: 'Not found', tone: 'fail' };
+  if (status === 'ERROR') return { label: 'Error', tone: 'fail' };
+  return { label: status, tone: 'warn' };
+}
+
+const recordToneClass: Record<string, string> = {
+  pass: 'border-emerald-500 bg-emerald-500/10',
+  fail: 'border-red-500 bg-red-500/10',
+  warn: 'border-amber-500 bg-amber-500/10',
+  none: 'border-white/10 bg-white/5'
+};
+
 export default function Dashboard() {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
@@ -1570,32 +1627,30 @@ export default function Dashboard() {
               </CardHeader>
               <CardContent>
                 {/* DNS Status Cards */}
-                <div className="grid md:grid-cols-3 gap-4 mb-4">
-                  <div className={`p-4 rounded-lg border ${selectedDomain.latest_scan?.spf_status === 'PASS' ? 'border-emerald-500 bg-emerald-500/10' : 'border-amber-500 bg-amber-500/10'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium">SPF</p>
-                      <span className="text-xs cursor-help" title="Sender Policy Framework - Specifies which mail servers can send email for your domain">?</span>
+                {(() => {
+                  const spfRow = recordState(selectedDomain.latest_scan, 'spf');
+                  const dkimRow = recordState(selectedDomain.latest_scan, 'dkim');
+                  const dmarcRow = recordState(selectedDomain.latest_scan, 'dmarc');
+                  const cards = [
+                    { key: 'SPF', row: spfRow, desc: 'Authorizes senders for your domain', tip: "Sender Policy Framework - Specifies which mail servers can send email for your domain" },
+                    { key: 'DKIM', row: dkimRow, desc: 'Digital signature verification', tip: "DomainKeys Identified Mail - Cryptographic signature to verify email hasn't been tampered" },
+                    { key: 'DMARC', row: dmarcRow, desc: 'Policy for SPF/DKIM failures', tip: 'Domain-based Message Authentication - Policy for handling failed auth' }
+                  ];
+                  return (
+                    <div className="grid md:grid-cols-3 gap-4 mb-4">
+                      {cards.map((c) => (
+                        <div key={c.key} className={`p-4 rounded-lg border ${recordToneClass[c.row.tone]}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-sm font-medium">{c.key}</p>
+                            <span className="text-xs cursor-help" title={c.tip}>?</span>
+                          </div>
+                          <p className="font-semibold">{c.row.label}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{c.desc}</p>
+                        </div>
+                      ))}
                     </div>
-                    <p className="font-semibold">{selectedDomain.latest_scan?.spf_status || 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Authorizes senders for your domain</p>
-                  </div>
-                  <div className={`p-4 rounded-lg border ${selectedDomain.latest_scan?.dkim_status === 'PASS' ? 'border-emerald-500 bg-emerald-500/10' : 'border-amber-500 bg-amber-500/10'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium">DKIM</p>
-                      <span className="text-xs cursor-help" title="DomainKeys Identified Mail - Cryptographic signature to verify email hasn't been tampered">?</span>
-                    </div>
-                    <p className="font-semibold">{selectedDomain.latest_scan?.dkim_status || 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Digital signature verification</p>
-                  </div>
-                  <div className={`p-4 rounded-lg border ${selectedDomain.latest_scan?.dmarc_status === 'PASS' ? 'border-emerald-500 bg-emerald-500/10' : 'border-amber-500 bg-amber-500/10'}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium">DMARC</p>
-                      <span className="text-xs cursor-help" title="Domain-based Message Authentication - Policy for handling failed auth">?</span>
-                    </div>
-                    <p className="font-semibold">{selectedDomain.latest_scan?.dmarc_status || 'Unknown'}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Policy for SPF/DKIM failures</p>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Issues with Tooltips */}
                 {selectedDomain.issues?.length > 0 && (
@@ -1833,13 +1888,14 @@ export default function Dashboard() {
                       if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
                       return `${Math.floor(sec / 86400)}d ago`;
                     })();
-                    const spf = domain.latest_scan?.spf_status || (hasScore ? 'UNKNOWN' : null);
-                    const dkim = domain.latest_scan?.dkim_status || (hasScore ? 'UNKNOWN' : null);
-                    const dmarc = domain.latest_scan?.dmarc_status || (hasScore ? 'UNKNOWN' : null);
-                    const pillClass = (status: string | null) => !status ? 'bg-white/5 text-muted-foreground border-white/5' :
-                      status === 'PASS' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
-                      status === 'FAIL' ? 'bg-red-500/10 text-red-300 border-red-500/30' :
-                      'bg-amber-500/10 text-amber-300 border-amber-500/30';
+                    const spf = recordState(domain.latest_scan, 'spf');
+                    const dkim = recordState(domain.latest_scan, 'dkim');
+                    const dmarc = recordState(domain.latest_scan, 'dmarc');
+                    const pillClass = (row: { tone: string }) =>
+                      row.tone === 'pass' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                      row.tone === 'fail' ? 'bg-red-500/10 text-red-300 border-red-500/30' :
+                      row.tone === 'warn' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                      'bg-white/5 text-muted-foreground border-white/5';
 
                     return (
                       <div
@@ -1896,10 +1952,10 @@ export default function Dashboard() {
                             </div>
                             <div className="flex items-center gap-3 flex-wrap">
                               {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
-                                <span key={p.k} className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
+                                <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
                                   {p.k}
-                                  {p.v && <span className="opacity-70">·</span>}
-                                  {p.v && <span>{p.v === 'PASS' ? '✓' : p.v === 'FAIL' ? '✕' : '?'}</span>}
+                                  {p.v.tone !== 'none' && <span className="opacity-70">·</span>}
+                                  {p.v.tone !== 'none' && <span>{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
                                 </span>
                               ))}
                               <span className="text-[11px] text-muted-foreground flex items-center gap-1">
