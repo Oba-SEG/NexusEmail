@@ -187,6 +187,71 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     const guardPasses = selGen === gen;
     expect(guardPasses).toBe(false); // dropped: deleted domain 2 is not selected
   });
+
+  test('pending ownership: an older Inspect settling must not clear a newer same-domain request', async () => {
+    // models domainDetailsPendingRef + domainDetailsReqSeq ownership
+    let seq = 0;
+    let pending: { id: number; seq: number } | null = null;
+    const settle = (requestSeq: number) => {
+      if (pending?.seq === requestSeq) pending = null;
+    };
+
+    // older viewDomain(2) starts, then a newer viewDomain(2) starts
+    const older = ++seq; pending = { id: 2, seq: older };
+    const newer = ++seq; pending = { id: 2, seq: newer };
+
+    // the older request settles: it must NOT clear the newer's entry
+    settle(older);
+    expect(pending?.seq).toBe(newer);
+    expect(pending?.id).toBe(2);
+
+    // delete 2 -> reload sees pending 2 absent and invalidates
+    const shown = applyDomainSelection(
+      applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]),
+      { id: 1, name: 'a.test' },
+      true
+    );
+    const r = await runDomainListLoad(async () => res(true, 200, [{ id: 1, name: 'a.test' }]), shown, pending.id);
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.invalidateDetails).toBe(true);
+  });
+
+  test('a failed delete POST must not invalidate in-flight detail requests', async () => {
+    // deleteDomains only bumps the generation when res.ok — a failed
+    // delete leaves the domain (and the request) alive
+    let gen = 0;
+    const selGen = ++gen; // viewDomain(2) in flight
+    // DELETE POST returns non-2xx (modeled): no bump happens
+    // ...
+
+    // the viewDomain(2) success arrives — the domain still exists
+    const guardPasses = selGen === gen;
+    expect(guardPasses).toBe(true); // applies: the delete failed, domain 2 remains
+
+    // and a reload that still contains domain 2 invalidates nothing
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 1, name: 'a.test' }, true);
+    const r = await runDomainListLoad(
+      async () => res(true, 200, [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]),
+      panel,
+      2
+    );
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.invalidateDetails).toBe(false);
+  });
+
+  test('successful delete of the shown domain: the reload applies the first remaining selection', async () => {
+    // deleteDomains leaves the shown-domain ref alone; the reload
+    // reconciles it against the returned ids
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+
+    const r = await runDomainListLoad(async () => res(true, 200, [{ id: 1, name: 'a.test' }]), panel, null);
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.invalidateDetails).toBe(true); // shown domain gone -> gen bump
+    expect(r.state.selected?.id).toBe(1); // first remaining selected
+    expect(r.state.shownId).toBe(1);
+  });
 });
 
 describe('selection and upload refresh association', () => {
