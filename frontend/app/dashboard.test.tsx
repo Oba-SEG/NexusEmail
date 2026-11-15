@@ -86,6 +86,14 @@ async function renderDashboardWithList() {
   await screen.findByText('b.test');
 }
 
+async function inspectA() {
+  const dIns = deferred();
+  oneShot.push({ key: 'GET /domains/1', fn: () => dIns.promise });
+  fireEvent.click(screen.getAllByTitle('Inspect')[0]); // rows render in list order: a, b
+  dIns.resolve(resp(200, DOM_A_FULL));
+  await screen.findByText('DMARC Aggregate Reports'); // the details panel is open on a.test
+}
+
 async function inspectB() {
   const dIns = deferred();
   oneShot.push({ key: 'GET /domains/2', fn: () => dIns.promise });
@@ -109,6 +117,26 @@ async function deleteBThenRespond(reloadResponse: Res) {
 }
 
 describe('Dashboard (real component) — delete/list races', () => {
+  test("deleting another domain clears a pending Inspect's loading state", async () => {
+    await renderDashboardWithList();
+
+    // A is displayed with its report data...
+    await inspectA();
+    // ...then Inspect A starts again and is held in flight
+    const dHeld = deferred();
+    oneShot.push({ key: 'GET /domains/1', fn: () => dHeld.promise });
+    fireEvent.click(screen.getAllByTitle('Inspect')[0]);
+    await screen.findByText('Loading aggregate reports…');
+
+    // delete B while Inspect A is pending: the delete invalidates the
+    // pending request, so the panel must not stay on the loading state
+    await deleteBThenRespond(resp(200, [DOM_A]));
+    await waitFor(() => {
+      expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
+      expect(screen.getByText('5 messages · 4 aligned · 1 failed')).toBeTruthy();
+    });
+  });
+
   test('a pre-delete list response cannot resurrect the deleted domain', async () => {
     await renderDashboardWithList();
 

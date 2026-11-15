@@ -1106,6 +1106,10 @@ export default function Dashboard() {
         domainDetailsGenRef.current += 1;
         domainListGenRef.current += 1;
         domainDetailsPendingRef.current = null;
+        // the invalidated detail request can no longer clear this
+        // itself (its seq ownership is gone) — clear it here so the
+        // panel does not stay on the loading state
+        setDetailRefreshing(false);
         // If the SHOWN domain was deleted, clear the panel right away:
         // a failed reload must not leave a deleted domain's details
         // (and upload action) on screen. A successful reload still
