@@ -1911,7 +1911,7 @@ export default function Dashboard() {
                         );
                       })}
                     </div>
-                  ) : !detailRefreshing ? (
+                  ) : !detailRefreshing && !detailRefreshError ? (
                     <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
                   ) : null}
                 </div>

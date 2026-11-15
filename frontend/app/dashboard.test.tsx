@@ -189,5 +189,6 @@ describe('Dashboard (real component) — delete/list races', () => {
     dDet.resolve(resp(500, { error: 'boom' }));
     await screen.findByText(/Failed to load domain details/); // error state, not a false empty state
     expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
+    expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull(); // no false empty state below the error
   });
 });
