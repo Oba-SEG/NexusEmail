@@ -33,6 +33,7 @@ const defaults: Record<string, () => Res> = {
   'GET /brands/alerts': () => resp(200, []),
   'GET /settings/integrations': () => resp(200, []),
   'GET /settings/config': () => resp(200, {}),
+  'POST /domains/1/scan': () => resp(200, {}),
   'POST /domains/2/scan': () => resp(200, {}),
   'GET /domains/2': () => resp(200, DOM_B),
   'GET /domains/1': () => resp(200, DOM_A_FULL),
@@ -279,6 +280,37 @@ describe('Dashboard (real component) — delete/list races', () => {
     dReloadC.resolve(resp(200, [DOM_A]));
     await screen.findByText('5 messages · 4 aligned · 1 failed'); // full record, no false empty state
     expect(screen.queryByText(/No aggregate reports ingested yet/)).toBeNull();
+  });
+
+  test('closing the panel while the reload is in flight keeps it closed after reconciliation', async () => {
+    const d1 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => d1.promise });
+    render(<Dashboard />);
+    d1.resolve(resp(200, [DOM_A, DOM_B]));
+    await screen.findByText('a.test');
+
+    // Inspect B (panel open), then start a list reload via Re-scan on A
+    await inspectB();
+    const dReload = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => dReload.promise });
+    fireEvent.click(screen.getAllByTitle('Re-scan')[0]);
+    await waitFor(() => {
+      expect((global.fetch as any).mock.calls.some((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains' && oneShot.length === 0)).toBe(true);
+    });
+
+    // the user CLOSES the panel while the reload is in flight
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+
+    // the reload returns without B (deleted server-side): the
+    // reconcile selects A but the panel must STAY closed and no
+    // detail fetch may open it again
+    dReload.resolve(resp(200, [DOM_A]));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+    const aCalls = () =>
+      (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains/1').length;
+    expect(aCalls()).toBe(0); // no unrequested detail fetch
   });
 
   test('a failed reconciled detail fetch shows an error state', async () => {

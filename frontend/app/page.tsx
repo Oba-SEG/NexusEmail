@@ -159,6 +159,10 @@ export default function Dashboard() {
   // CURRENT values when invalidating or restarting detail fetches
   const selectedDomainRef = useRef<any>(null);
   const showDetailsRef = useRef(false);
+  // set when a delete force-closed the panel because the SHOWN domain
+  // was deleted: the reconcile may re-open the panel on the reconciled
+  // selection (a system close, not a user close)
+  const panelReopenRef = useRef(false);
   const setSelectedDomainSync = (d: any) => { selectedDomainRef.current = d; setSelectedDomain(d); };
   const setShowDetailsSync = (v: boolean) => { showDetailsRef.current = v; setShowDetails(v); };
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -263,6 +267,7 @@ export default function Dashboard() {
     shownIsFullRef.current = false;
     setSelectedDomainSync(panel.selected);
     setShowDetailsSync(panel.showDetails);
+    panelReopenRef.current = false;
     setDmarcUploading(false);
     setDmarcUploadError(null);
   };
@@ -635,9 +640,14 @@ export default function Dashboard() {
         shownIsFullRef.current = false; // a list row lacks dmarc_reports
         setSelectedDomainSync(next.selected);
         // applyDomainList semantics: an open details panel carries over
-        // to the reconciled selection; an empty list closes the panel
-        setShowDetailsSync(next.selected ? showDetails : false);
-        if (next.selected && showDetails) {
+        // to the reconciled selection; an empty list closes the panel.
+        // The LIVE visibility (refs, not the render snapshot) decides —
+        // a user Close during the flight must not re-open the panel,
+        // while a delete's system close may carry over.
+        const liveOpen = panelReopenRef.current || showDetailsRef.current;
+        panelReopenRef.current = false;
+        setShowDetailsSync(next.selected ? liveOpen : false);
+        if (next.selected && liveOpen) {
           // The reconciled selection came from the list (a row without
           // dmarc_reports): fetch its detail record so the report panel
           // shows real data instead of a false "no reports" state.
@@ -1142,6 +1152,7 @@ export default function Dashboard() {
           domainDetailsIdRef.current = null;
           setSelectedDomainSync(null);
           setShowDetailsSync(false);
+          panelReopenRef.current = true;
         }
       }
       await loadDomains(gen);
