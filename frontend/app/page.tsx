@@ -572,13 +572,18 @@ export default function Dashboard() {
       }
       const next = result.state;
       setDomains(next.domains);
-      // Auto-select only when the CURRENT state has no selection
-      // (functional update), so a delayed load can never overwrite a
-      // selection made while it was in flight; the shown-domain ref
-      // stays synchronized with the selection that actually happened.
-      setSelectedDomain((cur: any) => cur ?? next.selected ?? null);
-      if (domainDetailsIdRef.current === null && next.selected) {
-        domainDetailsIdRef.current = next.selected.id;
+      // Reconcile against the CURRENT shown domain (the ref, kept in
+      // sync with the selection everywhere): a selection whose domain
+      // is still in the returned list survives — including a delayed
+      // load racing an Inspect; a selection whose domain is gone
+      // (deleted) is replaced by the auto-selected first domain, or
+      // cleared (closing the panel) when the list is empty.
+      const stillThere = domainDetailsIdRef.current !== null &&
+        next.domains.some((d: any) => d.id === domainDetailsIdRef.current);
+      if (!stillThere) {
+        domainDetailsIdRef.current = next.selected ? next.selected.id : null;
+        setSelectedDomain(next.selected);
+        setShowDetails(next.selected ? true : false);
       }
     } catch (e) {
       console.error('Failed to load domains:', e);

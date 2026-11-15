@@ -18,16 +18,21 @@ export function clearedDomainPanel(): DomainPanelState {
 
 /** A domain-list load result. `null` data means the load FAILED — the
  * panel must not be touched (a cleared panel stays cleared; the current
- * identity's list stays). A successful load keeps an existing selection
- * and only auto-selects the first domain when nothing is selected. */
+ * identity's list stays). A successful load reconciles the selection
+ * against the returned ids: a selection whose domain is still present
+ * survives (deletes included — a removed domain must not stay selected),
+ * otherwise the first domain is auto-selected, or nothing when the list
+ * is empty. */
 export function applyDomainList(panel: DomainPanelState, data: any[] | null): DomainPanelState {
   if (data === null) return panel;
-  const selected = panel.selected ?? data[0] ?? null;
+  const kept = panel.selected && data.some((d) => d.id === panel.selected.id) ? panel.selected : null;
+  const selected = kept ?? data[0] ?? null;
   return {
     ...panel,
     domains: data,
     selected,
-    shownId: panel.selected ? panel.shownId : selected ? selected.id : null,
+    showDetails: selected ? panel.showDetails : false,
+    shownId: selected ? selected.id : null,
   };
 }
 

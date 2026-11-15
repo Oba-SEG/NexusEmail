@@ -93,6 +93,24 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
       expect(r.state.shownId).toBe(2);
     }
   });
+
+  test('deleting the selected domain clears it and auto-selects the first remaining', () => {
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+    const after = applyDomainList(panel, [{ id: 1, name: 'a.test' }]);
+    expect(after.selected?.id).toBe(1);
+    expect(after.shownId).toBe(1);
+    expect(after.showDetails).toBe(true);
+  });
+
+  test('deleting the last domain clears the selection and closes the panel', () => {
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+    const after = applyDomainList(panel, []);
+    expect(after.selected).toBeNull();
+    expect(after.shownId).toBeNull();
+    expect(after.showDetails).toBe(false);
+  });
 });
 
 describe('selection and upload refresh association', () => {

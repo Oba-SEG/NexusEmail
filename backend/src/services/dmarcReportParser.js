@@ -258,7 +258,7 @@ class DmarcReportIngestor {
         resolve({ err: null, records: recs || [] });
       });
     });
-    const findDmarc = (records) => records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1'));
+    const findDmarcRecords = (records) => records.filter((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1'));
 
     // try the target, then the organizational domain
     const org = psl.get(target);
@@ -271,8 +271,17 @@ class DmarcReportIngestor {
         }
         continue;
       }
-      const dmarc = findDmarc(records);
-      if (dmarc) return { rua: ruaTargetsFromRecord(dmarc), policyDomain: cand };
+      const dmarcRecords = findDmarcRecords(records);
+      if (dmarcRecords.length === 1) {
+        return { rua: ruaTargetsFromRecord(dmarcRecords[0]), policyDomain: cand };
+      }
+      if (dmarcRecords.length > 1) {
+        // RFC 7489 §6.6.3: discovery terminates when multiple records
+        // remain — picking one would report its destinations as the
+        // domain's, so return none instead.
+        return { rua: [], policyDomain: target };
+      }
+      // none remain at this level: fall through to the org domain
     }
     return { rua: [], policyDomain: target };
   }

@@ -327,6 +327,20 @@ describe('DmarcReportIngestor', () => {
     assert.deepEqual(insights.extRecChecks, []);
   });
 
+  test('multiple DMARC records terminate discovery (no destinations picked)', async () => {
+    // RFC 7489 §6.6.3: when more than one record remains after
+    // filtering, discovery must not silently pick one — its rua must
+    // not become the domain's reporting destinations
+    const ing = fakeResolver({
+      '_dmarc.news.example.com': [['unrelated txt']],
+      '_dmarc.example.com': [['v=DMARC1; rua=mailto:a@thirdparty.example'], ['v=DMARC1; rua=mailto:b@thirdparty.example']],
+    });
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.example.com</header_from></identifiers></record>`;
+    const xml = `<?xml version="1.0"?><feedback><report_metadata><org_name>r</org_name><report_id>x</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published>${subRecord}</feedback>`;
+    const { insights } = await ing.ingest(xml, 'news.example.com');
+    assert.deepEqual(insights.extRecChecks, []);
+  });
+
   test('ingest without a published DMARC record skips ext-rec checks', async () => {
     const ing = fakeResolver({});
     const { insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
