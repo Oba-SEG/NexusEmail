@@ -10,14 +10,14 @@ router.use(requirePlatformAdmin);
 
 // Fail-closed audit: the access row is awaited BEFORE the response. A failed
 // audit write fails the request instead of serving unaudited customer data.
-async function audit(req, action, targetOrgId, detail) {
+async function audit(req, action, targetOrgId, detail, tx) {
   await db.insertAuditLog({
     actorUserId: req.user.id,
     actorEmail: req.user.email,
     action,
     targetOrgId,
     detail
-  });
+  }, tx);
 }
 
 function maskSecret(value) {
@@ -165,8 +165,13 @@ router.post('/organizations/:orgId/users/:userId/password', async (req, res, nex
     if (!user || user.org_id !== org.id) {
       return res.status(404).json({ error: 'User not found in this organization' });
     }
-    await db.setUserPassword(user.id, hashPassword(password));
-    await audit(req, 'admin.user.password_set', org.id, { user_id: user.id, user_email: user.email });
+    // Password change + audit row are one transaction: a failed audit
+    // insert rolls the password change back, so a 500 can never mean
+    // 'password changed but unaudited'.
+    await db.withTransaction(async (tx) => {
+      await db.setUserPassword(user.id, hashPassword(password), tx);
+      await audit(req, 'admin.user.password_set', org.id, { user_id: user.id, user_email: user.email }, tx);
+    });
     res.json({ success: true });
   } catch (err) { next(err); }
 });

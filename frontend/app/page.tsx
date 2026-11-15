@@ -61,6 +61,10 @@ export default function Dashboard() {
   const [pwResetError, setPwResetError] = useState<string | null>(null);
   const [pwResetBusy, setPwResetBusy] = useState(false);
   const [pwResetDone, setPwResetDone] = useState<string | null>(null);
+  // Form-operation generation: bumped whenever the open reset form or
+  // organization changes; a password response from an earlier form
+  // generation must not touch the current one's state.
+  const pwFormGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -139,10 +143,12 @@ export default function Dashboard() {
     setAdminOrgsError(null);
     setAdminDetail(null);
     setAdminLoading(false);
+    pwFormGenRef.current += 1;
     setPwResetFor(null);
     setPwResetValue('');
     setPwResetError(null);
     setPwResetDone(null);
+    setPwResetBusy(false);
     if (activeTab === 'admin') setActiveTab('domains');
   };
 
@@ -594,17 +600,29 @@ export default function Dashboard() {
 
   const closeAdminOrg = () => {
     adminGenRef.current += 1;
+    pwFormGenRef.current += 1;
     setAdminDetail(null);
     setPwResetFor(null);
     setPwResetValue('');
     setPwResetError(null);
+    setPwResetBusy(false);
   };
 
   const submitPasswordReset = async (orgId: string, userId: string) => {
+    // Enter and the Set button share this handler: block every submission
+    // path while one is in flight (the Set button is disabled, the input
+    // is not).
+    if (pwResetBusy) return;
     if (pwResetValue.length < 8) {
       setPwResetError('At least 8 characters.');
       return;
     }
+    // Capture both generations before the request: a response from an
+    // earlier session (logout/login elsewhere) or an earlier form
+    // generation (admin switched to another user's reset form or org)
+    // must not apply its updates to the current state.
+    const sgen = sessionGenRef.current;
+    const fgen = pwFormGenRef.current;
     setPwResetBusy(true);
     setPwResetError(null);
     try {
@@ -616,6 +634,7 @@ export default function Dashboard() {
           body: JSON.stringify({ password: pwResetValue })
         }
       );
+      if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -626,18 +645,26 @@ export default function Dashboard() {
           const data = await res.json();
           if (data?.error) message = data.error;
         } catch { /* keep HTTP status */ }
+        if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
         setPwResetError(message);
         return;
       }
+      if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
       setPwResetFor(null);
       setPwResetValue('');
       setPwResetDone(userId);
       setTimeout(() => setPwResetDone((cur) => (cur === userId ? null : cur)), 4000);
     } catch (e) {
       console.error('Password set failed:', e);
-      setPwResetError('Network error.');
+      if (sgen === sessionGenRef.current && fgen === pwFormGenRef.current) {
+        setPwResetError('Network error.');
+      }
     } finally {
-      setPwResetBusy(false);
+      // Busy is per-session (only one submission can ever be in flight —
+      // the guard above enforces it), so a session change is the only
+      // condition that must not clear it: the replacement session may
+      // already have started its own submission.
+      if (sgen === sessionGenRef.current) setPwResetBusy(false);
     }
   };
 
@@ -2892,6 +2919,7 @@ export default function Dashboard() {
                                 <button
                                   className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
                                   onClick={() => {
+                                    pwFormGenRef.current += 1;
                                     setPwResetFor(pwResetFor === u.id ? null : u.id);
                                     setPwResetValue('');
                                     setPwResetError(null);
@@ -2915,7 +2943,7 @@ export default function Dashboard() {
                                 <Button size="sm" className="h-8" disabled={pwResetBusy} onClick={() => submitPasswordReset(adminDetail.org.id, u.id)}>
                                   {pwResetBusy ? 'Setting…' : 'Set'}
                                 </Button>
-                                <Button size="sm" variant="ghost" className="h-8" onClick={() => { setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
+                                <Button size="sm" variant="ghost" className="h-8" onClick={() => { pwFormGenRef.current += 1; setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
                                   Cancel
                                 </Button>
                                 {pwResetError && <span className="text-xs text-red-400">{pwResetError}</span>}
