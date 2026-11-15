@@ -13,103 +13,202 @@ const https = require('https');
 
 const RDAP_TIMEOUT_MS = 6000;
 const MAX_CONCURRENT = 6;
+const MAX_REDIRECTS = 4;
+const MAX_BODY_BYTES = 256 * 1024;
 
-/** Fetch an RDAP URL over HTTPS with a size cap and timeout. */
-function defaultRdapFetch(url) {
+/**
+ * Fetch an RDAP URL over HTTPS with a size cap and one total deadline.
+ * Follows up to MAX_REDIRECTS https redirects (rdap.org bootstraps to
+ * the authoritative registry service via 302). Returns the final status
+ * plus the redirect count so callers can distinguish a bootstrap miss
+ * (rdap.org itself 404s, no redirect) from an authoritative answer.
+ * opts.ca allows pinning extra trust anchors (used by tests).
+ */
+function defaultRdapFetch(url, opts = {}) {
   return new Promise((resolve, reject) => {
     let timer;
     let req;
+    let redirects = 0;
+    let done = false;
     const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
       if (timer) clearTimeout(timer);
       fn(arg);
     };
+    // Total deadline across the whole redirect chain.
     timer = setTimeout(() => {
       if (req) req.destroy(new Error('rdap fetch deadline exceeded'));
     }, RDAP_TIMEOUT_MS);
-    try {
-      req = https.get(url, {
-        timeout: RDAP_TIMEOUT_MS,
-        headers: { Accept: 'application/rdap+json, application/json' },
-      }, (res) => {
-        // Any final status is fine — 200 registered, 404 unregistered.
-        const chunks = [];
-        let size = 0;
-        res.on('data', (c) => {
-          size += c.length;
-          if (size > 256 * 1024) {
-            req.destroy();
-            finish(reject, new Error('rdap body too large'));
+
+    const request = (current) => {
+      let parsed;
+      try {
+        parsed = new URL(current);
+      } catch (e) {
+        finish(reject, e);
+        return;
+      }
+      if (parsed.protocol !== 'https:') {
+        finish(reject, new Error('rdap fetch requires https'));
+        return;
+      }
+      try {
+        req = https.get(parsed, {
+          timeout: RDAP_TIMEOUT_MS,
+          headers: { Accept: 'application/rdap+json, application/json' },
+          ...(opts.ca ? { ca: opts.ca } : {}),
+        }, (res) => {
+          const loc = res.headers.location;
+          const isRedirect = [301, 302, 303, 307, 308].includes(res.statusCode);
+          if (isRedirect && loc && redirects < MAX_REDIRECTS) {
+            redirects += 1;
+            res.resume();
+            request(new URL(loc, parsed).href);
             return;
           }
-          chunks.push(c);
+          if (isRedirect) {
+            finish(reject, new Error('rdap redirect chain too long or missing Location'));
+            return;
+          }
+          const chunks = [];
+          let size = 0;
+          res.on('data', (c) => {
+            size += c.length;
+            if (size > MAX_BODY_BYTES) {
+              req.destroy();
+              finish(reject, new Error('rdap body too large'));
+              return;
+            }
+            chunks.push(c);
+          });
+          res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
+          res.on('error', (e) => finish(reject, e));
+          res.on('end', () => finish(resolve, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8'), redirects }));
         });
-        res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
-        res.on('error', (e) => finish(reject, e));
-        res.on('end', () => finish(resolve, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
-      });
-    } catch (e) {
-      finish(reject, e);
-      return;
-    }
-    req.on('timeout', () => req.destroy(new Error('rdap fetch timeout')));
-    req.on('error', (e) => finish(reject, e));
+      } catch (e) {
+        finish(reject, e);
+        return;
+      }
+      req.on('timeout', () => req.destroy(new Error('rdap fetch timeout')));
+      req.on('error', (e) => finish(reject, e));
+    };
+
+    request(url);
   });
 }
 
-/** Split a domain into labels; the SLD is the label before the TLD. */
+/**
+ * Pragmatic subset of the Public Suffix List: two-level suffixes where
+ * the registrant-controlled label sits one level higher (acme.co.uk ->
+ * sld "acme", not "co"). Extend as needed.
+ */
+const MULTI_LABEL_SUFFIXES = new Set([
+  'co.uk', 'org.uk', 'me.uk', 'ac.uk', 'gov.uk', 'net.uk', 'sch.uk',
+  'com.au', 'net.au', 'org.au', 'edu.au', 'gov.au', 'id.au',
+  'co.jp', 'or.jp', 'ne.jp', 'ac.jp',
+  'com.br', 'net.br', 'org.br',
+  'co.in', 'net.in', 'org.in', 'firm.in',
+  'co.nz', 'net.nz', 'org.nz',
+  'co.za', 'net.za', 'org.za', 'web.za',
+  'com.mx', 'com.ar', 'com.tr', 'com.cn', 'com.tw', 'com.hk',
+  'com.sg', 'com.my', 'co.kr', 'com.pl', 'co.il', 'com.ua',
+  'com.vn', 'com.ph', 'com.co', 'com.pe', 'com.eg', 'com.sa',
+  'com.pk', 'com.ng', 'com.gh', 'com.ke', 'com.tz', 'com.ug',
+]);
+
+/** Split a domain; for public suffixes the registrant label is above them. */
 function splitDomain(domain) {
   const labels = domain.toLowerCase().split('.');
   if (labels.length < 2) return null;
-  const tld = labels[labels.length - 1];
-  const sld = labels[labels.length - 2];
-  const base = domain.toLowerCase().slice(0, domain.length - tld.length - 1);
+  const last2 = labels.slice(-2).join('.');
+  let tld;
+  let sldIdx;
+  if (labels.length >= 3 && MULTI_LABEL_SUFFIXES.has(last2)) {
+    tld = last2;
+    sldIdx = labels.length - 3;
+  } else {
+    tld = labels[labels.length - 1];
+    sldIdx = labels.length - 2;
+  }
+  const sld = labels[sldIdx];
+  const base = labels.slice(0, sldIdx + 1).join('.');
   return { tld, sld, base };
 }
 
 /**
  * Generate lookalike candidate SLDs for a given SLD.
- * Deduplicated, never includes the original.
+ * Mutations are grouped into families (swaps, drops, homoglyphs,
+ * prefix/suffix) and merged round-robin so any lookup budget keeps a
+ * share of every family instead of truncating later ones.
  */
 function generateCandidates(sld) {
-  const out = new Set();
-  const add = (c) => {
-    if (c && c !== sld && /^[a-z0-9-]+$/.test(c)) out.add(c);
-  };
+  const valid = (c) => c && c !== sld && /^[a-z0-9-]+$/.test(c);
 
-  // Character swaps (adjacent transposition)
+  // Family 1: adjacent character swaps
+  const swaps = [];
   for (let i = 0; i < sld.length - 1; i++) {
     if (sld[i] !== sld[i + 1]) {
-      add(sld.slice(0, i) + sld[i + 1] + sld[i] + sld.slice(i + 2));
+      const c = sld.slice(0, i) + sld[i + 1] + sld[i] + sld.slice(i + 2);
+      if (valid(c)) swaps.push(c);
     }
   }
 
-  // Character drops
+  // Family 2: character drops
+  const drops = [];
   for (let i = 0; i < sld.length; i++) {
-    add(sld.slice(0, i) + sld.slice(i + 1));
+    const c = sld.slice(0, i) + sld.slice(i + 1);
+    if (valid(c)) drops.push(c);
   }
 
-  // Homoglyphs
+  // Family 3: homoglyphs
+  const homoglyphs = [];
   const HOMOGLYPHS = { 0: 'o', o: '0', 1: 'l', l: '1', i: 'l', e: '3', a: '4', s: '5', g: '9' };
   for (let i = 0; i < sld.length; i++) {
     const rep = HOMOGLYPHS[sld[i]];
-    if (rep) add(sld.slice(0, i) + rep + sld.slice(i + 1));
+    if (rep) {
+      const c = sld.slice(0, i) + rep + sld.slice(i + 1);
+      if (valid(c)) homoglyphs.push(c);
+    }
   }
-  // rn -> m (classic)
-  if (sld.includes('rn')) add(sld.replace('rn', 'm'));
-  // vv -> w
-  if (sld.includes('vv')) add(sld.replace('vv', 'w'));
+  // rn -> m and vv -> w (classic confusables)
+  if (sld.includes('rn')) { const c = sld.replace('rn', 'm'); if (valid(c)) homoglyphs.push(c); }
+  if (sld.includes('vv')) { const c = sld.replace('vv', 'w'); if (valid(c)) homoglyphs.push(c); }
 
-  // Prefix / suffix additions
-  for (const p of ['-secure', '-support', '-login']) add(p.slice(1) + sld);
-  for (const s of ['-secure', '-support', '-login', '-auth']) add(sld + s);
+  // Family 4: prefix / suffix additions
+  const affixes = [];
+  for (const p of ['-secure', '-support', '-login']) { const c = p.slice(1) + sld; if (valid(c)) affixes.push(c); }
+  for (const s of ['-secure', '-support', '-login', '-auth']) { const c = sld + s; if (valid(c)) affixes.push(c); }
 
-  return [...out];
+  // Round-robin merge with de-dup; the original SLD is never emitted.
+  const families = [swaps, drops, homoglyphs, affixes];
+  const cursors = families.map(() => 0);
+  const seen = new Set([sld]);
+  const out = [];
+  let progress = true;
+  while (progress) {
+    progress = false;
+    for (let f = 0; f < families.length; f++) {
+      const fam = families[f];
+      while (cursors[f] < fam.length && seen.has(fam[cursors[f]])) cursors[f]++;
+      if (cursors[f] < fam.length) {
+        const c = fam[cursors[f]++];
+        seen.add(c);
+        out.push(c);
+        progress = true;
+      }
+    }
+  }
+
+  return out;
 }
 
-/** TLD swap candidates: the most-abused TLDs that differ from the current one. */
+/** TLD swap candidates: the most-abused single-label TLDs. Multi-label
+ * public suffixes keep their suffix (only SLD candidates are checked). */
 const SWAP_TLDS = ['com', 'net', 'org', 'xyz', 'top', 'io', 'info', 'co'];
 
 function generateTldSwaps(tld) {
+  if (tld.includes('.')) return [];
   return SWAP_TLDS.filter((t) => t !== tld);
 }
 
@@ -132,12 +231,16 @@ class TyposquatDetector {
     this.rdapFetch = rdapFetch || defaultRdapFetch;
   }
 
-  /** RDAP check one domain. Returns 'registered' | 'unregistered' | 'error'. */
+  /** RDAP check one domain.
+   * 200 -> registered. A 404 after a redirect is the authoritative
+   * registry answering "not found" -> unregistered. A 404 with no
+   * redirect is rdap.org itself having no known service (bootstrap
+   * failure), which proves nothing -> error. Anything else -> error. */
   async checkRegistration(candidate) {
     try {
-      const { status } = await this.rdapFetch(`https://rdap.org/domain/${candidate}`);
+      const { status, redirects } = await this.rdapFetch(`https://rdap.org/domain/${candidate}`);
       if (status === 200) return 'registered';
-      if (status === 404) return 'unregistered';
+      if (status === 404 && redirects > 0) return 'unregistered';
       return 'error';
     } catch (e) {
       return 'error';
