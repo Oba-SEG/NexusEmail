@@ -148,7 +148,10 @@ export default function Dashboard() {
     setPwResetValue('');
     setPwResetError(null);
     setPwResetDone(null);
-    setPwResetBusy(false);
+    // pwResetBusy is intentionally left alone — it belongs to the
+    // in-flight request, which clears it in its own finally (see
+    // closeAdminOrg). The busy guard blocks new submissions meanwhile,
+    // across identity changes included.
     if (activeTab === 'admin') setActiveTab('domains');
   };
 
@@ -605,7 +608,10 @@ export default function Dashboard() {
     setPwResetFor(null);
     setPwResetValue('');
     setPwResetError(null);
-    setPwResetBusy(false);
+    // pwResetBusy deliberately NOT cleared: it is owned by the in-flight
+    // request (the only one the busy guard allows) and cleared solely in
+    // that request's finally — clearing it here would let a reopen start
+    // a second request whose busy state the first one could then clobber.
   };
 
   const submitPasswordReset = async (orgId: string, userId: string) => {
@@ -660,11 +666,11 @@ export default function Dashboard() {
         setPwResetError('Network error.');
       }
     } finally {
-      // Busy is per-session (only one submission can ever be in flight —
-      // the guard above enforces it), so a session change is the only
-      // condition that must not clear it: the replacement session may
-      // already have started its own submission.
-      if (sgen === sessionGenRef.current) setPwResetBusy(false);
+      // The busy flag is request-owned: this submission is the only one
+      // the guard ever lets in flight (it is never cleared anywhere else
+      // — form close, org close, and identity change all keep it), so
+      // clearing it here can never stomp a second request's state.
+      setPwResetBusy(false);
     }
   };
 
