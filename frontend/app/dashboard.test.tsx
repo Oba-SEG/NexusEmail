@@ -170,7 +170,7 @@ describe('Dashboard (real component) — delete/list races', () => {
     oneShot.push({ key: 'GET /domains/1', fn: () => dDet.promise });
     await deleteBThenRespond(resp(200, [DOM_A]));
     await screen.findByText('Loading aggregate reports…'); // pending, not a false "no reports"
-    expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull();
+    expect(screen.queryByText(/No aggregate reports ingested yet/)).toBeNull();
 
     dDet.resolve(resp(200, DOM_A_FULL));
     await screen.findByText('5 messages · 4 aligned · 1 failed'); // the full record arrived
@@ -189,6 +189,6 @@ describe('Dashboard (real component) — delete/list races', () => {
     dDet.resolve(resp(500, { error: 'boom' }));
     await screen.findByText(/Failed to load domain details/); // error state, not a false empty state
     expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
-    expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull(); // no false empty state below the error
+    expect(screen.queryByText(/No aggregate reports ingested yet/)).toBeNull(); // no false empty state below the error
   });
 });
