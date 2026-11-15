@@ -61,7 +61,8 @@ router.get('/export/csv', async (req, res) => {
     for (const d of domains) {
       const scan = await db.getLatestScan(d.id, req.orgId);
       const results = scan?.results ? JSON.parse(scan.results) : {};
-      csv += `${csvField(d.name)},${csvField(d.provider || 'Manual')},${csvField(d.last_score || '')},${csvField(d.last_scan || '')},${csvField(d.verified ? 'Yes' : 'No')},${csvField(results.spf?.status || 'N/A')},${csvField(results.dkim?.status || 'N/A')},${csvField(results.dmarc?.status || 'N/A')}\n`;
+      // ?? not ||: a real score of 0 must survive (|| would coerce it to '')
+      csv += `${csvField(d.name)},${csvField(d.provider || 'Manual')},${csvField(scan?.score ?? '')},${csvField(scan?.scanned_at ?? '')},${csvField(d.verified ? 'Yes' : 'No')},${csvField(results.spf?.status || 'N/A')},${csvField(results.dkim?.status || 'N/A')},${csvField(results.dmarc?.status || 'N/A')}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
@@ -114,7 +115,7 @@ function generateReportHtml(domain, scans, issues) {
     <h1>🔒 NexusEmail Security Report</h1>
     <p>Domain: <strong>${escapeHtml(domain.name)}</strong></p>
     <p>Generated: ${new Date().toLocaleString()}</p>
-    <div class="score">${domain.last_score || 'N/A'}</div>
+    <div class="score">${latestScan?.score ?? 'N/A'}</div>
   </div>
   
   <div class="card">
