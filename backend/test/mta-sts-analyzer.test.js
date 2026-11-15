@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { MtaStsAnalyzer, parsePolicyFile } = require('../src/services/mtaStsAnalyzer');
+const { MtaStsAnalyzer, parsePolicyFile, isPrivateIp } = require('../src/services/mtaStsAnalyzer');
 
 function analyzer(zone, policyResponse) {
   const txtResolver = async (name) => {
@@ -32,6 +32,25 @@ describe('parsePolicyFile', () => {
   test('flags unknown fields', () => {
     const p = parsePolicyFile('version: STSv1\nmode: enforce\nmax_age: 604800\nmx: a.test\nwat: yes\n');
     assert.deepEqual(p.unknown, ['wat: yes']);
+  });
+});
+
+describe('isPrivateIp — SSRF address blocklist', () => {
+  test('blocks private, loopback, link-local, CGNAT and v4-mapped forms', () => {
+    for (const ip of [
+      '10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.1.1',
+      '127.0.0.1', '169.254.169.254', '0.0.0.0', '100.64.0.1',
+      '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1',
+      '::ffff:169.254.169.254', '::ffff:10.0.0.5', 'not-an-ip',
+    ]) {
+      assert.equal(isPrivateIp(ip), true, `expected ${ip} to be blocked`);
+    }
+  });
+
+  test('allows public addresses', () => {
+    for (const ip of ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111']) {
+      assert.equal(isPrivateIp(ip), false, `expected ${ip} to be allowed`);
+    }
   });
 });
 
@@ -102,6 +121,44 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     const policy = { status: 200, body: 'version: STSv2\nmode: enforce\nmax_age: 86400\nmx: a.test\n' };
     const r = await analyzer({ '_mta-sts.acme.test': DNS }, policy).analyze('acme.test');
     assert.match(r.errors.join(' '), /version must be STSv1/);
+    // a failed policy earns no points
+    assert.equal(r.score, 0);
+  });
+
+  test('max_age 0 is a valid zero-lifetime policy (RFC 8461 §3.2)', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 0\nmx: a.test\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.equal(r.errors.length, 0);
+    assert.equal(r.maxAge, 0);
+    assert.equal(r.score, 0); // enforce but under the 86400 scoring threshold
+  });
+
+  test('mode none does not require mx lines', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: none\nmax_age: 86400\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.equal(r.errors.length, 0);
+    assert.equal(r.mode, 'none');
+    assert.equal(r.score, 0);
+  });
+
+  test('multiple v=STSv1 TXT records are rejected (RFC 8461 §3.1)', async () => {
+    const zone = {
+      '_mta-sts.acme.test': [
+        ['v=STSv1; id=a;'],
+        ['v=STSv1; id=b;'],
+      ],
+    };
+    const r = await analyzer(zone, POLICY).analyze('acme.test');
+    assert.equal(r.found, true);
+    assert.match(r.errors.join(' '), /2 MTA-STS TXT records/);
+    assert.equal(r.policyFetch.status, 'skipped');
+  });
+
+  test('repeated non-mx fields keep their first value (RFC 8461 §3.2)', async () => {
+    const p = parsePolicyFile('version: STSv1\nmode: none\nmode: enforce\nmax_age: 604800\nmx: a.test\n');
+    assert.equal(p.mode, 'none');
   });
 
   test('invalid policy mode is an error', async () => {
@@ -113,7 +170,7 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
   test('max_age over the 31557600 limit is an error', async () => {
     const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 31557601\nmx: a.test\n' };
     const r = await analyzer({ '_mta-sts.acme.test': DNS }, policy).analyze('acme.test');
-    assert.match(r.errors.join(' '), /between 1 and 31557600/);
+    assert.match(r.errors.join(' '), /between 0 and 31557600/);
   });
 
   test('policy without mx lines is an error', async () => {

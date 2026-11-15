@@ -7,36 +7,95 @@
  * for tests.
  */
 const dns = require('dns').promises;
+const dnsCb = require('dns');
 const https = require('https');
 
 const FETCH_TIMEOUT_MS = 5000;
 const MAX_POLICY_BYTES = 64 * 1024;
 const VALID_MODES = ['enforce', 'testing', 'none'];
-const MAX_AGE_LIMIT = 31557600; // RFC 8460 §4.5: max_age must not exceed this
+const MAX_AGE_LIMIT = 31557600; // RFC 8461 §3.2: max_age must not exceed this
 
-/** Fetch the policy file over HTTPS with a size cap and timeout. */
+/**
+ * True for addresses a policy host must never resolve to: this-network,
+ * RFC 1918 private ranges, loopback, link-local (v4 + v6), CGNAT, and
+ * IPv4-mapped IPv6 forms of those. Guards the policy fetch against
+ * domains whose mta-sts host points at internal infrastructure (SSRF).
+ */
+function isPrivateIp(ip) {
+  let v4 = ip;
+  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) v4 = mapped[1];
+  if (v4.includes('.')) {
+    const parts = v4.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
+    const [a, b] = parts;
+    if (a === 0 || a === 10 || a === 127) return true;      // this-network, private, loopback
+    if (a === 169 && b === 254) return true;                // link-local (incl. cloud metadata)
+    if (a === 172 && b >= 16 && b <= 31) return true;       // private
+    if (a === 192 && b === 168) return true;                // private
+    if (a === 100 && b >= 64 && b <= 127) return true;      // CGNAT
+    return false;
+  }
+  const low = ip.toLowerCase();
+  if (low === '::' || low === '::1') return true;           // unspecified, loopback
+  if (low.startsWith('fe80:')) return true;                 // link-local
+  if (/^f[cd][0-9a-f]{2}:/.test(low)) return true;          // fc00::/7 unique local
+  // Fail closed: anything that is not a plausible public IPv6 literal
+  // (and was not valid IPv4 above) is treated as blocked.
+  return !/^[0-9a-f:]+$/.test(low) || !low.includes(':');
+}
+
+/** Fetch the policy file over HTTPS with a size cap, socket timeout,
+ *  total deadline, complete-response tracking, and a private-address
+ *  blocklist resolved before connecting. */
 function defaultFetchPolicy(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { timeout: FETCH_TIMEOUT_MS }, (res) => {
+    let timer;
+    let req;
+    const finish = (fn, arg) => {
+      if (timer) clearTimeout(timer);
+      fn(arg);
+    };
+    // Resolve the host first and refuse private targets (SSRF guard).
+    // Uses the CALLBACK dns API — dns.promises.lookup ignores callbacks.
+    const lookup = (host, opts, cb) => {
+      dnsCb.lookup(host, { all: true, verbatim: true }, (err, addrs) => {
+        if (err) return cb(err);
+        if ((addrs || []).some((a) => isPrivateIp(a.address))) {
+          return cb(new Error('mta-sts host resolves to a private, loopback, or link-local address'));
+        }
+        // Prefer IPv4 when available — hosts without IPv6 routing would
+        // otherwise hang until the deadline on an unreachable AAAA.
+        const pick = (addrs || []).find((a) => a.family === 4) || (addrs || [])[0];
+        if (!pick) return cb(new Error('mta-sts host has no usable addresses'));
+        cb(null, pick.address, pick.family);
+      });
+    };
+    // Total deadline — a slow-drip server must not hold the audit open.
+    timer = setTimeout(() => req.destroy(new Error('fetch deadline exceeded')), FETCH_TIMEOUT_MS);
+    req = https.get(url, { timeout: FETCH_TIMEOUT_MS, lookup, autoSelectFamily: false }, (res) => {
       const chunks = [];
       let size = 0;
       res.on('data', (c) => {
         size += c.length;
         if (size > MAX_POLICY_BYTES) {
           req.destroy();
-          reject(new Error('policy body too large'));
+          finish(reject, new Error('policy body too large'));
           return;
         }
         chunks.push(c);
       });
-      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+      res.on('aborted', () => finish(reject, new Error('response aborted before completion')));
+      res.on('error', (e) => finish(reject, e));
+      res.on('end', () => finish(resolve, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('timeout', () => req.destroy(new Error('fetch timeout')));
-    req.on('error', reject);
+    req.on('error', (e) => finish(reject, e));
   });
 }
 
-/** Parse the key:value lines of an MTA-STS policy file (RFC 8460 §4.2). */
+/** Parse the key:value lines of an MTA-STS policy file (RFC 8461 §3.2).
+ *  Fields other than mx keep their FIRST value when repeated. */
 function parsePolicyFile(body) {
   const out = { version: null, mode: null, maxAge: null, mx: [], unknown: [] };
   for (const raw of body.split(/\r?\n/)) {
@@ -46,9 +105,9 @@ function parsePolicyFile(body) {
     if (idx <= 0) { out.unknown.push(line); continue; }
     const key = line.slice(0, idx).trim().toLowerCase();
     const value = line.slice(idx + 1).trim();
-    if (key === 'version') out.version = value;
-    else if (key === 'mode') out.mode = value.toLowerCase();
-    else if (key === 'max_age') out.maxAge = value;
+    if (key === 'version') { if (out.version === null) out.version = value; }
+    else if (key === 'mode') { if (out.mode === null) out.mode = value.toLowerCase(); }
+    else if (key === 'max_age') { if (out.maxAge === null) out.maxAge = value; }
     else if (key === 'mx') out.mx.push(value);
     else out.unknown.push(line);
   }
@@ -96,27 +155,31 @@ class MtaStsAnalyzer {
       return result;
     }
     const candidates = (records || []).map((chunks) => (chunks || []).map(String).join(''));
-    const record = candidates.find((r) => /(?:^|\s|;)v\s*=\s*STSv1(?:\s|;|$)/i.test(r));
-    if (!record) {
+    const matching = candidates.filter((r) => /(?:^|\s|;)v\s*=\s*STSv1(?:\s|;|$)/i.test(r));
+    if (matching.length === 0) {
       result.errors.push('No MTA-STS record found - email not secured with TLS enforcement');
       return result;
     }
+    // RFC 8461 §3.1: exactly one matching TXT record may be published.
+    if (matching.length > 1) {
+      result.found = true;
+      result.record = matching[0];
+      result.errors.push(`${matching.length} MTA-STS TXT records published — RFC 8461 §3.1 requires exactly one; remove all but one record`);
+      return result;
+    }
+    const record = matching[0];
 
     result.found = true;
     result.record = record;
     const tags = parseRecordTags(record);
-    if (!tags.id) result.warnings.push('MTA-STS DNS record is missing the required id= tag (RFC 8460 §3.1)');
+    if (!tags.id) result.warnings.push('MTA-STS DNS record is missing the required id= tag (RFC 8461 §3.1)');
     result.policy = tags.id || null;
-    // RFC 8460 §3.1: the DNS record only carries v=STSv1 and id= —
+    // RFC 8461 §3.1: the DNS record only carries v=STSv1 and id= —
     // mode/max_age live in the policy file. Keep DNS-side values as a
     // fallback (old behavior) until the policy is fetched.
     result.mode = tags.mode || 'enforce';
     result.maxAge = parseInt(tags.max_age || '0', 10);
     result.includeSubdomains = tags.include_subdomains === 'yes';
-
-    // Score (DNS-side fallback; recomputed from the policy file below)
-    if (result.mode === 'enforce' && result.maxAge >= 86400) result.score = 15;
-    else if (result.mode === 'testing') result.score = 10;
 
     // 2. Fetch and validate the policy file (RFC 8460 §4)
     const url = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
@@ -150,19 +213,28 @@ class MtaStsAnalyzer {
     if (pf.version !== 'STSv1') result.policyFetch.errors.push(`policy version must be STSv1 (got ${pf.version || 'none'})`);
     if (!VALID_MODES.includes(pf.mode)) result.policyFetch.errors.push(`policy mode must be one of enforce, testing, none (got ${pf.mode || 'none'})`);
     const ma = pf.maxAge && /^\d+$/.test(pf.maxAge) ? parseInt(pf.maxAge, 10) : null;
-    if (ma === null || ma < 1 || ma > MAX_AGE_LIMIT) {
-      result.policyFetch.errors.push(`policy max_age must be an integer between 1 and ${MAX_AGE_LIMIT} seconds (got ${pf.maxAge || 'none'})`);
+    if (ma === null || ma < 0 || ma > MAX_AGE_LIMIT) {
+      result.policyFetch.errors.push(`policy max_age must be an integer between 0 and ${MAX_AGE_LIMIT} seconds (got ${pf.maxAge || 'none'})`);
     }
-    if (pf.mx.length === 0) result.policyFetch.errors.push('policy has no mx: lines (RFC 8460 §4.2)');
+    // RFC 8461 §3.2: a mode of none carries no MX requirement.
+    if (pf.mode !== 'none' && pf.mx.length === 0) {
+      result.policyFetch.errors.push('policy has no mx: lines (RFC 8461 §3.2)');
+    }
     if (pf.unknown.length > 0) result.policyFetch.warnings.push(`unknown fields in policy: ${pf.unknown.slice(0, 3).join(', ')}`);
 
-    // RFC 8460 §4: senders honour the policy file, so mode/max_age for
+    // RFC 8461 §3.2: senders honour the policy file, so mode/max_age for
     // scoring come from it; DNS-side tags (when present) are the fallback.
     if (VALID_MODES.includes(pf.mode)) result.mode = pf.mode;
     if (ma !== null) result.maxAge = ma;
-    if (result.mode === 'enforce' && result.maxAge >= 86400) result.score = 15;
-    else if (result.mode === 'testing') result.score = 10;
-    else result.score = 0;
+    // Policy points are only earned when the fetched policy is fully
+    // valid — validation failures score 0.
+    if (result.policyFetch.errors.length === 0) {
+      if (result.mode === 'enforce' && result.maxAge >= 86400) result.score = 15;
+      else if (result.mode === 'testing') result.score = 10;
+      else result.score = 0;
+    } else {
+      result.score = 0;
+    }
 
     // 3. Consistency: warn only when the DNS record explicitly carries
     // non-standard mode/max_age tags that disagree with the policy file.
@@ -181,4 +253,4 @@ class MtaStsAnalyzer {
   }
 }
 
-module.exports = { MtaStsAnalyzer, parsePolicyFile, defaultFetchPolicy };
+module.exports = { MtaStsAnalyzer, parsePolicyFile, defaultFetchPolicy, isPrivateIp };
