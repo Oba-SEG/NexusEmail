@@ -122,6 +122,13 @@ describe('defaultRdapFetch — redirect transport', () => {
     const cert = fs.readFileSync(path.join(__dirname, 'fixtures/rdap/cert.pem'));
     const ca = cert; // self-signed, its own trust anchor
     const hits = [];
+    let closes = 0; // sockets closed server-side for dead-end paths
+    const streamUntilClose = (req, res) => {
+      res.writeHead(302);
+      const iv = setInterval(() => res.write('x'), 50);
+      req.socket.on('close', () => { closes += 1; });
+      req.on('close', () => clearInterval(iv));
+    };
     const server = https.createServer({ key, cert }, (req, res) => {
       hits.push(req.url);
       if (req.url === '/domain/boot.test') {
@@ -137,12 +144,19 @@ describe('defaultRdapFetch — redirect transport', () => {
         res.writeHead(302, { Location: 'http://' });
         res.end();
       } else if (req.url === '/domain/noloc.test') {
-        res.writeHead(302);
-        res.end();
+        // 302 with no Location — streams forever until the client destroys it
+        streamUntilClose(req, res);
       } else if (req.url.startsWith('/loop')) {
         const n = Number(req.url.slice(5)) || 0;
-        res.writeHead(302, { Location: `/loop${n + 1}` });
-        res.end();
+        if (n < 4) {
+          // hops 0-3 are followed; the 5th response (n=4) is the
+          // MAX_REDIRECTS dead-end and must be destroyed by the client
+          res.writeHead(302, { Location: `/loop${n + 1}` });
+          res.end();
+        } else {
+          // dead-end hop — streams forever until destroyed
+          streamUntilClose(req, res);
+        }
       } else if (req.url === '/domain/flood.test') {
         res.writeHead(302, { Location: '/registry/boot.test' });
         // slow-drip a huge redirect body; the size cap must cut it off
@@ -183,6 +197,14 @@ describe('defaultRdapFetch — redirect transport', () => {
         /redirect chain too long/,
         'chains beyond MAX_REDIRECTS must destroy the request and reject'
       );
+
+      // both dead-end responses streamed forever; the client must have
+      // destroyed their connections, which the server observes as closes
+      const t0 = Date.now();
+      while (closes < 2 && Date.now() - t0 < 2000) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      assert.ok(closes >= 2, `dead-end sockets must be destroyed (observed ${closes} closes)`);
 
       await assert.rejects(
         () => defaultRdapFetch(`${base}/domain/flood.test`, { ca }),
