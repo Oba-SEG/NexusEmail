@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, test, beforeEach, vi, afterEach } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import Dashboard from './page';
 
 const API = 'http://localhost:4000/api';
@@ -32,6 +32,7 @@ const defaults: Record<string, () => Res> = {
   'GET /settings/integrations': () => resp(200, []),
   'GET /settings/config': () => resp(200, {}),
   'POST /domains/2/scan': () => resp(200, {}),
+  'GET /domains/2': () => resp(200, DOM_B),
   'POST /settings/bulk-delete': () => resp(200, {}),
 };
 
@@ -40,6 +41,9 @@ const keyOf = (input: unknown, init?: RequestInit) => {
   const method = (init?.method || 'GET').toUpperCase();
   return `${method} ${url}`;
 };
+
+const listCallCount = () =>
+  (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains').length;
 
 beforeEach(() => {
   oneShot = [];
@@ -80,6 +84,24 @@ async function renderDashboardWithList() {
   await screen.findByText('b.test');
 }
 
+async function inspectB() {
+  const dIns = deferred();
+  oneShot.push({ key: 'GET /domains/2', fn: () => dIns.promise });
+  fireEvent.click(screen.getAllByTitle('Inspect')[1]); // rows render in list order: a, b
+  dIns.resolve(resp(200, DOM_B));
+  await screen.findByText('DMARC Aggregate Reports'); // the details panel is open on b.test
+}
+
+async function deleteBThenRespond(reloadResponse: Res) {
+  const before = listCallCount();
+  const d3 = deferred();
+  oneShot.push({ key: 'GET /domains', fn: () => d3.promise });
+  fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
+  fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+  await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the post-delete reload fired
+  d3.resolve(reloadResponse);
+}
+
 describe('Dashboard (real component) — delete/list races', () => {
   test('a pre-delete list response cannot resurrect the deleted domain', async () => {
     await renderDashboardWithList();
@@ -88,66 +110,46 @@ describe('Dashboard (real component) — delete/list races', () => {
     // Re-scan b.test (scanDomain -> POST scan -> loadDomains)
     const d2 = deferred();
     oneShot.push({ key: 'GET /domains', fn: () => d2.promise });
-    const rescanButtons = screen.getAllByTitle('Re-scan');
-    fireEvent.click(rescanButtons[1]); // rows render in list order: a, b
-    await waitFor(() => expect(d2.promise).toBeTruthy());
-    await waitFor(() => {
-      // the scan-triggered loadDomains consumed the deferred
-      expect((global.fetch as any).mock.calls.some((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains')).toBe(true);
-    });
+    const before = listCallCount();
+    fireEvent.click(screen.getAllByTitle('Re-scan')[1]);
+    await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the scan-triggered load fired
 
-    // select b.test and delete it: the DELETE succeeds, the reload
-    // (deferred d3) runs after the list generation bumped
-    const selectButtons = screen.getAllByLabelText('Select');
-    fireEvent.click(selectButtons[1]); // b.test
-    const d3 = deferred();
-    oneShot.push({ key: 'GET /domains', fn: () => d3.promise });
-    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
-    // post-delete reload returns [] (last domain of the pair deleted)
-    d3.resolve(resp(200, []));
+    // select b.test and delete it; the post-delete reload applies []
+    await deleteBThenRespond(resp(200, []));
     await waitFor(() => expect(screen.queryByText('b.test')).toBeNull());
 
-    // the stale PRE-delete list response (contains b.test) arrives now
-    d2.resolve(resp(200, [DOM_A, DOM_B]));
+    // the stale PRE-delete list response (contains b.test) arrives now;
+    // act flushes its processing before the assertion
+    await act(async () => {
+      d2.resolve(resp(200, [DOM_A, DOM_B]));
+    });
+    expect(screen.queryByText('b.test')).toBeNull(); // dropped: stays out of the list
+  });
+
+  test('a failed post-delete reload closes the deleted domain details and upload action', async () => {
+    await renderDashboardWithList();
+    await inspectB(); // b.test details open (with the DMARC upload action)
+
+    await deleteBThenRespond(resp(500, { error: 'boom' }));
     await waitFor(() => {
-      // must be dropped: deleted domain stays out of the list
-      expect(screen.queryByText('b.test')).toBeNull();
+      // the shown domain was deleted: the panel is cleared immediately,
+      // and the failed reload must not resurrect it
+      expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+      expect(screen.queryByRole('button', { name: /Upload XML/ })).toBeNull();
     });
   });
 
-  test('a failed post-delete reload leaves the panel untouched (no crash)', async () => {
+  test('a successful post-delete reload selects the first remaining domain', async () => {
     await renderDashboardWithList();
+    await inspectB(); // b.test details open
 
-    // select b.test and delete: the reload fails this time
-    const selectButtons = screen.getAllByLabelText('Select');
-    fireEvent.click(selectButtons[1]);
-    oneShot.push({ key: 'POST /settings/bulk-delete', fn: () => resp(200, {}) });
-    const d3 = deferred();
-    oneShot.push({ key: 'GET /domains', fn: () => d3.promise });
-    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
-    d3.resolve(resp(500, { error: 'boom' }));
+    await deleteBThenRespond(resp(200, [DOM_A]));
     await waitFor(() => {
-      // failure semantics: the list is unchanged (b.test row remains
-      // until a successful reload reconciles it), nothing crashed
-      expect(screen.getByText('b.test')).toBeTruthy();
-      expect(screen.getByText('a.test')).toBeTruthy();
-    });
-  });
-
-  test('a successful post-delete reload re-selects the first remaining domain', async () => {
-    await renderDashboardWithList();
-
-    // select b.test and delete: the reload returns a.test
-    const selectButtons = screen.getAllByLabelText('Select');
-    fireEvent.click(selectButtons[1]);
-    oneShot.push({ key: 'POST /settings/bulk-delete', fn: () => resp(200, {}) });
-    const d3 = deferred();
-    oneShot.push({ key: 'GET /domains', fn: () => d3.promise });
-    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
-    d3.resolve(resp(200, [DOM_A]));
-    await waitFor(() => {
+      // the reconciled selection is the first remaining domain, shown
+      // in the details panel (row + details title both render a.test)
       expect(screen.queryByText('b.test')).toBeNull();
-      expect(screen.getByText('a.test')).toBeTruthy();
+      expect(screen.getAllByText('a.test').length).toBe(2);
+      expect(screen.getByText('DMARC Aggregate Reports')).toBeTruthy();
     });
   });
 });

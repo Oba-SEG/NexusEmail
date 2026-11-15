@@ -615,7 +615,9 @@ export default function Dashboard() {
         // panel.
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
         setSelectedDomain(next.selected);
-        if (!next.selected) setShowDetails(false);
+        // applyDomainList semantics: an open details panel carries over
+        // to the reconciled selection; an empty list closes the panel
+        setShowDetails(next.selected ? showDetails : false);
       }
     } catch (e) {
       console.error('Failed to load domains:', e);
