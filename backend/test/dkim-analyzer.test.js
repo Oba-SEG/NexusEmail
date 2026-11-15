@@ -7,6 +7,30 @@ function spkiB64(keyPair) {
   return keyPair.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
 }
 
+// RFC 8463 §3: Ed25519 DKIM keys publish the RAW 32-byte public key.
+function rawEd25519B64(keyPair) {
+  const der = keyPair.publicKey.export({ type: 'spki', format: 'der' });
+  return der.slice(-32).toString('base64');
+}
+
+// Minimal DER length encoding (short + long form)
+function derLen(n) {
+  if (n < 0x80) return Buffer.from([n]);
+  if (n < 0x100) return Buffer.from([0x81, n]);
+  return Buffer.from([0x82, n >> 8, n & 0xff]);
+}
+
+// Assemble a hand-built SPKI DER: SEQ { SEQ { OID oidBytes, NULL }, BITSTRING keyData }
+function customSpki(oidBytes, keyData) {
+  const oidTlv = Buffer.concat([Buffer.from([0x06, oidBytes.length]), Buffer.from(oidBytes)]);
+  const algBody = Buffer.concat([oidTlv, Buffer.from([0x05, 0x00])]);
+  const algSeq = Buffer.concat([Buffer.from([0x30]), derLen(algBody.length), algBody]);
+  const bitBody = Buffer.concat([Buffer.from([0x00]), keyData]);
+  const bitString = Buffer.concat([Buffer.from([0x03]), derLen(bitBody.length), bitBody]);
+  const inner = Buffer.concat([algSeq, bitString]);
+  return Buffer.concat([Buffer.from([0x30]), derLen(inner.length), inner]);
+}
+
 function dkimRecord(pB64, extra = '') {
   return `v=DKIM1; k=rsa; ${extra ? extra + '; ' : ''}p=${pB64}`;
 }
@@ -48,6 +72,39 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
   test('rejects garbage DER', () => {
     assert.equal(parseSubjectPublicKeyInfo(Buffer.from('deadbeefdeadbeef', 'hex')), null);
     assert.equal(parseSubjectPublicKeyInfo(Buffer.alloc(0)), null);
+  });
+
+  test('rejects SPKI with an unknown algorithm OID', () => {
+    // OID 1.2 (content bytes 2a) — not rsaEncryption, not Ed25519
+    const der = customSpki([0x2a], Buffer.alloc(32, 0xab));
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects an RSA key with no public exponent INTEGER', () => {
+    // SEQ { INTEGER modulus } — exponent removed
+    const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
+    const intSeq = Buffer.concat([Buffer.from([0x02, 0x82, 0x01, 0x01]), modulus]);
+    const der = customSpki(
+      [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
+      Buffer.concat([Buffer.from([0x30, intSeq.length]), intSeq])
+    );
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('parses a hand-built RSA SPKI with modulus and exponent', () => {
+    const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
+    const exponent = Buffer.from([0x01, 0x00, 0x01]);
+    const intSeq = Buffer.concat([
+      Buffer.from([0x02, 0x82, 0x01, 0x01]), modulus,
+      Buffer.from([0x02, 0x03]), exponent,
+    ]);
+    const der = customSpki(
+      [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
+      Buffer.concat([Buffer.from([0x30, intSeq.length]), intSeq])
+    );
+    const parsed = parseSubjectPublicKeyInfo(der);
+    assert.equal(parsed.algorithm, 'rsa');
+    assert.equal(parsed.bits, 2048);
   });
 });
 
@@ -119,12 +176,23 @@ describe('DkimAnalyzer — selector probing', () => {
   test('Ed25519 keys are recognized as strong', async () => {
     const kp = crypto.generateKeyPairSync('ed25519');
     const v = fakeAnalyzer({
-      'default._domainkey.example.com': [[`v=DKIM1; k=ed25519; p=${spkiB64(kp)}`]],
+      'default._domainkey.example.com': [[`v=DKIM1; k=ed25519; p=${rawEd25519B64(kp)}`]],
     });
     const r = await v.analyze('example.com');
     assert.equal(r.selectors[0].algorithm, 'Ed25519');
     assert.equal(r.selectors[0].keySize, '256-bit');
     assert.equal(r.score, 30);
+  });
+
+  test('SPKI-wrapped Ed25519 still parses with an RFC 8463 warning', async () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const v = fakeAnalyzer({
+      'default._domainkey.example.com': [[`v=DKIM1; k=ed25519; p=${spkiB64(kp)}`]],
+    });
+    const r = await v.analyze('example.com');
+    assert.equal(r.selectors[0].algorithm, 'Ed25519');
+    assert.equal(r.selectors[0].keySize, '256-bit');
+    assert.match(r.warnings.join(' '), /SPKI-wrapped/);
   });
 
   test('missing v= tag warns, missing k= defaults to rsa', async () => {
@@ -137,14 +205,42 @@ describe('DkimAnalyzer — selector probing', () => {
     assert.match(r.warnings.join(' '), /missing v=DKIM1/);
   });
 
-  test('k= mismatch with the actual key type warns', async () => {
+  test('k=rsa with Ed25519 key data is an error (wrong key type)', async () => {
     const kp = crypto.generateKeyPairSync('ed25519');
     const v = fakeAnalyzer({
-      'default._domainkey.example.com': [[`v=DKIM1; k=rsa; p=${spkiB64(kp)}`]],
+      'default._domainkey.example.com': [[`v=DKIM1; k=rsa; p=${rawEd25519B64(kp)}`]],
     });
     const r = await v.analyze('example.com');
-    assert.equal(r.selectors[0].algorithm, 'Ed25519');
-    assert.match(r.warnings.join(' '), /does not match the parsed key type/);
+    assert.equal(r.selectors[0].valid, false);
+    assert.match(r.errors.join(' '), /could not be parsed/);
+  });
+
+  test('duplicate tag names make the record invalid (RFC 6376 §3.2)', async () => {
+    const v = fakeAnalyzer({
+      'default._domainkey.example.com': [['v=DKIM1; p=; p=']],
+    });
+    const r = await v.analyze('example.com');
+    assert.equal(r.selectors[0].valid, false);
+    assert.match(r.errors.join(' '), /duplicate tag/);
+  });
+
+  test('whitespace before the p= separator is accepted', async () => {
+    const kp = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const v = fakeAnalyzer({
+      'default._domainkey.example.com': [[`v=DKIM1; k=rsa; p =${spkiB64(kp)}`]],
+    });
+    const r = await v.analyze('example.com');
+    assert.equal(r.found, true);
+    assert.equal(r.selectors[0].keySize, '2048-bit');
+  });
+
+  test('base64 padding not at the end of p= is rejected', async () => {
+    const v = fakeAnalyzer({
+      'default._domainkey.example.com': [['v=DKIM1; k=rsa; p==AAAA']],
+    });
+    const r = await v.analyze('example.com');
+    assert.equal(r.selectors[0].valid, false);
+    assert.match(r.errors.join(' '), /not valid base64/);
   });
 
   test('t=y test mode and t=s strict mode are surfaced', async () => {
