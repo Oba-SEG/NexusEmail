@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/node-18+-blue.svg" alt="Node.js">
+  <img src="https://img.shields.io/badge/node-20.19+-blue.svg" alt="Node.js">
   <img src="https://img.shields.io/badge/nextjs-14-black.svg" alt="Next.js">
 </p>
 
@@ -29,7 +29,7 @@
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.19+
 
 ### Installation
 

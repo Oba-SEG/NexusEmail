@@ -618,6 +618,12 @@ export default function Dashboard() {
         // applyDomainList semantics: an open details panel carries over
         // to the reconciled selection; an empty list closes the panel
         setShowDetails(next.selected ? showDetails : false);
+        if (next.selected && showDetails) {
+          // The reconciled selection came from the list (a row without
+          // dmarc_reports): fetch its detail record so the report panel
+          // shows real data instead of a false "no reports" state.
+          viewDomain(next.selected);
+        }
       }
     } catch (e) {
       console.error('Failed to load domains:', e);
@@ -1082,7 +1088,10 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain_ids: selectedIds })
       });
-      if (res.ok) {
+      // The invalidations below are gated on the session generation:
+      // if A's delete resolves after logout/login as B, B's in-flight
+      // list responses must NOT be dropped by A's generation bumps.
+      if (res.ok && gen === sessionGenRef.current) {
         // A successful delete may have removed the target of an
         // in-flight Inspect (or the shown domain): invalidate pending
         // detail requests now — before the reload (which may itself

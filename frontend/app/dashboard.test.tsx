@@ -33,6 +33,7 @@ const defaults: Record<string, () => Res> = {
   'GET /settings/config': () => resp(200, {}),
   'POST /domains/2/scan': () => resp(200, {}),
   'GET /domains/2': () => resp(200, DOM_B),
+  'GET /domains/1': () => resp(200, DOM_A),
   'POST /settings/bulk-delete': () => resp(200, {}),
 };
 

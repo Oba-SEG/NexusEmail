@@ -170,6 +170,15 @@ function ruaDestination(target) {
   return at === -1 ? null : withoutSize.slice(at + 1).toLowerCase().trim();
 }
 
+/**
+ * RFC 7489 §6.6.3: the version tag's complete value must match DMARC1
+ * exactly — 'v=DMARC10; ...' is a different version, not a prefix match.
+ */
+const versionTagIsDmarc1 = (chunks) => {
+  const m = chunks.join('').trim().match(/^v\s*=\s*([^;]+)/i);
+  return m ? m[1].trim().toUpperCase() === 'DMARC1' : false;
+};
+
 /** Extract mailto destinations from a DMARC record string. */
 function ruaTargetsFromRecord(record) {
   const joined = (record || []).map((c) => (Array.isArray(c) ? c.join('') : String(c))).join('');
@@ -231,7 +240,7 @@ class DmarcReportIngestor {
             const code = err.code || '';
             return resolve(['ENOTFOUND', 'ENODATA'].includes(code) ? 'not_authorized' : 'unknown');
           }
-          const hit = (records || []).some((chunks) => chunks.join('').trim().toLowerCase().startsWith('v=dmarc1'));
+          const hit = (records || []).some(versionTagIsDmarc1);
           resolve(hit ? 'authorized' : 'not_authorized');
         });
       });
@@ -258,7 +267,7 @@ class DmarcReportIngestor {
         resolve({ err: null, records: recs || [] });
       });
     });
-    const findDmarcRecords = (records) => records.filter((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1'));
+    const findDmarcRecords = (records) => records.filter(versionTagIsDmarc1);
 
     // try the target, then the organizational domain
     const org = psl.get(target);

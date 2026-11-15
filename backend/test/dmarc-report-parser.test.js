@@ -347,6 +347,22 @@ describe('DmarcReportIngestor', () => {
     assert.deepEqual(insights.extRecChecks, []);
   });
 
+  test('a v=DMARC10 record is not counted as a DMARC1 policy', async () => {
+    // RFC 7489: the version value must match DMARC1 exactly — a
+    // prefix-only match ('v=DMARC10') would wrongly terminate
+    // discovery while a valid policy exists
+    const ing = fakeResolver({
+      '_dmarc.news.example.com': [['unrelated txt']],
+      '_dmarc.example.com': [['v=DMARC1; rua=mailto:valid@thirdparty.example'], ['v=DMARC10; p=none']],
+    });
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.example.com</header_from></identifiers></record>`;
+    const xml = `<?xml version="1.0"?><feedback><report_metadata><org_name>r</org_name><report_id>x</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published>${subRecord}</feedback>`;
+    const { insights } = await ing.ingest(xml, 'news.example.com');
+    // exactly one DMARC1 record remains: its rua authorizes the check
+    assert.equal(insights.extRecChecks.length, 1);
+    assert.equal(insights.extRecChecks[0].destination, 'thirdparty.example');
+  });
+
   test('transient resolver failures do not fall back to the org policy', async () => {
     const ing = new DmarcReportIngestor({
       txtResolver: (name, cb) => cb(Object.assign(new Error('SERVFAIL'), { code: 'ESERVFAIL' })),
