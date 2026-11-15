@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
-const { requirePlatformAdmin } = require('../auth');
+const { requirePlatformAdmin, hashPassword } = require('../auth');
 
 // Every route in this module reads customer data. Gate the whole router so
 // a route added later can never ship ungated — the mount in index.js only
@@ -10,14 +10,14 @@ router.use(requirePlatformAdmin);
 
 // Fail-closed audit: the access row is awaited BEFORE the response. A failed
 // audit write fails the request instead of serving unaudited customer data.
-async function audit(req, action, targetOrgId, detail) {
+async function audit(req, action, targetOrgId, detail, tx) {
   await db.insertAuditLog({
     actorUserId: req.user.id,
     actorEmail: req.user.email,
     action,
     targetOrgId,
     detail
-  });
+  }, tx);
 }
 
 function maskSecret(value) {
@@ -146,6 +146,33 @@ router.get('/organizations/:orgId/notifications', async (req, res, next) => {
         notify_weekly_report: await db.getSetting('notify_weekly_report', org.id) === '1'
       }
     });
+  } catch (err) { next(err); }
+});
+
+// Admin-initiated password set (issue #43): the recovery path for accounts
+// with forgotten or unknown passwords (e.g. admin-provisioned random
+// credentials). Path-scoped: the target user must belong to :orgId.
+// Sets the hash and bumps token_version (all existing sessions end).
+router.post('/organizations/:orgId/users/:userId/password', async (req, res, next) => {
+  try {
+    const org = await requireOrg(req, res);
+    if (!org) return;
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    const user = await db.getUser(req.params.userId);
+    if (!user || user.org_id !== org.id) {
+      return res.status(404).json({ error: 'User not found in this organization' });
+    }
+    // Password change + audit row are one transaction: a failed audit
+    // insert rolls the password change back, so a 500 can never mean
+    // 'password changed but unaudited'.
+    await db.withTransaction(async (tx) => {
+      await db.setUserPassword(user.id, hashPassword(password), tx);
+      await audit(req, 'admin.user.password_set', org.id, { user_id: user.id, user_email: user.email }, tx);
+    });
+    res.json({ success: true });
   } catch (err) { next(err); }
 });
 

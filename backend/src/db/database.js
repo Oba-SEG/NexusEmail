@@ -847,6 +847,18 @@ async function migrateBrandsFromSettingsBlob() {
   }
 }
 
+// Admin password set (issue #43): replace the hash AND bump token_version
+// in one statement so every existing session for that user stops verifying
+// immediately (same revocation semantics as logout-everywhere).
+async function setUserPassword(userId, passwordHash, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const row = await exec.one(
+    'UPDATE users SET password_hash = $2, token_version = COALESCE(token_version, 1) + 1, updated_at = $3 WHERE id = $1 RETURNING token_version',
+    [userId, passwordHash, now()]
+  );
+  return row?.token_version;
+}
+
 // Idempotent column add for tables created before a column existed.
 async function ensureColumn(table, column, ddl) {
   const row = await one('SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = $2', [table, column]);
@@ -882,8 +894,9 @@ async function initDatabase() {
 
 // Platform-admin audit trail: one row per admin read of customer data,
 // written (awaited) before the response is served (fail-closed).
-async function insertAuditLog({ actorUserId, actorEmail, action, targetOrgId, detail }) {
-  const row = await one(
+async function insertAuditLog({ actorUserId, actorEmail, action, targetOrgId, detail }, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const row = await exec.one(
     'INSERT INTO audit_log (actor_user_id, actor_email, action, target_org_id, detail, created_at) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
     [actorUserId || null, actorEmail || null, action, targetOrgId || null, detail ? json(detail) : null, now()]
   );
@@ -926,7 +939,7 @@ module.exports = {
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,
-  ensureColumn, bumpUserTokenVersion,
+  ensureColumn, bumpUserTokenVersion, setUserPassword,
   initDatabase,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
