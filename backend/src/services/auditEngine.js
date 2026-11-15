@@ -2,6 +2,7 @@ const dns = require('dns').promises;
 const { createHash, publicEncrypt } = require('crypto');
 const { SpfValidator } = require('./spfValidator');
 const { DkimAnalyzer } = require('./dkimAnalyzer');
+const { MtaStsAnalyzer } = require('./mtaStsAnalyzer');
 
 class EmailSecurityAuditor {
   constructor() {}
@@ -162,47 +163,24 @@ class EmailSecurityAuditor {
   }
 
   // ===== MTA-STS CHECK =====
+  // Delegated to MtaStsAnalyzer: fetches and validates the policy file at
+  // https://mta-sts.<domain>/.well-known/mta-sts.txt (RFC 8460 §4), checks
+  // consistency with the DNS record, and keeps the previous DNS-side
+  // scoring (enforce + max_age>=86400 = 15, testing = 10).
   async checkMTASTS(domain) {
-    const result = {
-      found: false,
-      policy: null,
-      mode: null,
-      maxAge: null,
-      includeSubdomains: false,
-      warnings: [],
-      errors: [],
-      score: 0
+    const r = await new MtaStsAnalyzer().analyze(domain);
+    return {
+      found: r.found,
+      record: r.record,
+      policy: r.policy,
+      mode: r.mode,
+      maxAge: r.maxAge,
+      includeSubdomains: r.includeSubdomains,
+      policyFetch: r.policyFetch,
+      warnings: r.warnings,
+      errors: r.errors,
+      score: r.score
     };
-
-    try {
-      const records = await dns.resolveTxt(`_mta-sts.${domain}`);
-      const stsRecord = records.find(r => r.join('').includes('v=STSv1'));
-
-      if (!stsRecord) {
-        result.errors.push('No MTA-STS record found - email not secured with TLS enforcement');
-        return result;
-      }
-
-      result.found = true;
-      const tags = {};
-      stsRecord[0].split(';').forEach(part => {
-        const [k, v] = part.trim().split('=');
-        if (k) tags[k] = v;
-      });
-
-      result.mode = tags.mode || 'enforce';
-      result.maxAge = parseInt(tags.max_age || '0');
-      result.includeSubdomains = tags.include_subdomains === 'yes';
-
-      // Score
-      if (result.mode === 'enforce' && result.maxAge >= 86400) result.score = 15;
-      else if (result.mode === 'testing') result.score = 10;
-
-    } catch (error) {
-      result.errors.push(error.message);
-    }
-
-    return result;
   }
 
   // ===== TLS-RPT CHECK =====
