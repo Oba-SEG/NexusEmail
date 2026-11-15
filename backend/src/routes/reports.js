@@ -85,11 +85,65 @@ router.get('/export/json', async (req, res) => {
   }
 });
 
+// Scan rows exist in two storage shapes: the audit routes
+// (domains.js bulk-scan /:id/scan) store flat *_status fields plus
+// *_record JSON strings of the audit objects, while the scheduler and
+// the /scans/run route store spf/dkim/dmarc objects (mirrored as JSON
+// strings). hydrateScan adds no `results` field — normalize both
+// shapes into what the report table reads.
+function normalizeDnsResults(scan) {
+  if (!scan) return {};
+  const parse = (v) => {
+    if (v == null) return null;
+    if (typeof v === 'object') return v;
+    try { return JSON.parse(v); } catch { return null; }
+  };
+  const deriveStatus = (obj, flat) => {
+    if (flat && flat !== 'UNKNOWN') return flat;
+    if (obj?.status) return obj.status;
+    if (obj == null) return flat || null;
+    if (obj.found) return 'FOUND';
+    if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) return 'ERROR';
+    return 'NOT_FOUND';
+  };
+  const present = (obj, ...flatKeys) => !!(obj || flatKeys.some(k => scan[k] != null));
+  const spf = parse(scan.spf) || parse(scan.spf_record);
+  const dkim = parse(scan.dkim);
+  const dmarc = parse(scan.dmarc) || parse(scan.dmarc_record);
+  const selectors = parse(scan.dkim_selectors) || dkim?.selectors || [];
+  const selectorNames = selectors
+    .map(s => (typeof s === 'string' ? s : s?.selector))
+    .filter(Boolean)
+    .join(', ');
+  return {
+    spf: present(spf, 'spf_status', 'spf_record')
+      ? { status: deriveStatus(spf, scan.spf_status), record: spf?.record || spf?.error || (spf?.errors || [])[0] }
+      : null,
+    dkim: present(dkim, 'dkim_status', 'dkim_selectors')
+      ? {
+        status: dkim
+          ? deriveStatus(dkim, scan.dkim_status)
+          : (scan.dkim_status && scan.dkim_status !== 'UNKNOWN'
+            ? scan.dkim_status
+            : selectors.length ? 'FOUND' : 'NOT_FOUND'),
+        selector: selectorNames
+      }
+      : null,
+    dmarc: present(dmarc, 'dmarc_status', 'dmarc_record')
+      ? { status: deriveStatus(dmarc, scan.dmarc_status), policy: dmarc?.policy || dmarc?.error || (dmarc?.errors || [])[0] }
+      : null
+  };
+}
+
+function passClass(status) {
+  return status === 'pass' || status === 'FOUND' ? 'pass' : 'fail';
+}
+
 function generateReportHtml(domain, scans, issues) {
   // getScans returns oldest-first (DESC query then .reverse()), so the
   // newest scan is the last element.
   const latestScan = scans[scans.length - 1];
-  const results = latestScan?.results ? JSON.parse(latestScan.results) : {};
+  const results = normalizeDnsResults(latestScan);
   
   return `<!DOCTYPE html>
 <html>
@@ -133,11 +187,11 @@ function generateReportHtml(domain, scans, issues) {
     <h3>DNS Records</h3>
     <table>
       <tr><th>Record</th><th>Status</th><th>Details</th></tr>
-      <tr><td>SPF</td><td class="${results.spf?.status === 'pass' ? 'pass' : 'fail'}">${escapeHtml(results.spf?.status || 'Not checked')}</td><td>${escapeHtml(results.spf?.record || 'No record')}</td></tr>
-      <tr><td>DKIM</td><td class="${results.dkim?.status === 'pass' ? 'pass' : 'fail'}">${escapeHtml(results.dkim?.status || 'Not checked')}</td><td>${escapeHtml(results.dkim?.selector || 'No record')}</td></tr>
-      <tr><td>DMARC</td><td class="${results.dmarc?.status === 'pass' ? 'pass' : 'fail'}">${escapeHtml(results.dmarc?.status || 'Not checked')}</td><td>${escapeHtml(results.dmarc?.policy || 'No policy')}</td></tr>
-      <tr><td>MTA-STS</td><td class="${results.mta_sts?.status === 'pass' ? 'pass' : 'fail'}">${escapeHtml(results.mta_sts?.status || 'Not checked')}</td><td>${escapeHtml(results.mta_sts?.mode || 'N/A')}</td></tr>
-      <tr><td>TLS-RPT</td><td class="${results.tls_rpt?.status === 'pass' ? 'pass' : 'fail'}">${escapeHtml(results.tls_rpt?.status || 'Not checked')}</td><td>${escapeHtml(results.tls_rpt?.reportUri || 'No reporting')}</td></tr>
+      <tr><td>SPF</td><td class="${passClass(results.spf?.status)}">${escapeHtml(results.spf?.status || 'Not checked')}</td><td>${escapeHtml(results.spf?.record || 'No record')}</td></tr>
+      <tr><td>DKIM</td><td class="${passClass(results.dkim?.status)}">${escapeHtml(results.dkim?.status || 'Not checked')}</td><td>${escapeHtml(results.dkim?.selector || 'No record')}</td></tr>
+      <tr><td>DMARC</td><td class="${passClass(results.dmarc?.status)}">${escapeHtml(results.dmarc?.status || 'Not checked')}</td><td>${escapeHtml(results.dmarc?.policy || 'No policy')}</td></tr>
+      <tr><td>MTA-STS</td><td class="${passClass(results.mta_sts?.status)}">${escapeHtml(results.mta_sts?.status || 'Not checked')}</td><td>${escapeHtml(results.mta_sts?.mode || 'N/A')}</td></tr>
+      <tr><td>TLS-RPT</td><td class="${passClass(results.tls_rpt?.status)}">${escapeHtml(results.tls_rpt?.status || 'Not checked')}</td><td>${escapeHtml(results.tls_rpt?.reportUri || 'No reporting')}</td></tr>
     </table>
   </div>
   
