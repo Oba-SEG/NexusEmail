@@ -23,7 +23,7 @@ import {
   MessageSquare, Send, Upload,
   X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
-import { applyDomainList, clearedDomainPanel } from "@/lib/domainPanel";
+import { clearedDomainPanel, runDomainListLoad } from "@/lib/domainPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -553,30 +553,33 @@ export default function Dashboard() {
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
     try {
-      const res = await apiFetch(`${API_BASE}/domains`);
+      const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
+        domains,
+        selected: selectedDomain,
+        showDetails,
+        shownId: domainDetailsIdRef.current,
+      });
+      // Generation is re-checked BEFORE any identity reset: a stale load
+      // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
-      if (res.status === 401) {
+      if (result.kind === 'auth') {
         handleAuthFailure();
         return;
       }
-      if (!res.ok) {
-        console.error(`Failed to load domains: HTTP ${res.status}`);
+      if (result.kind !== 'ok') {
+        console.error('Failed to load domains (non-ok response or invalid payload)');
         return;
       }
-      const data = await res.json();
-      if (gen !== sessionGenRef.current) return;
-      if (!Array.isArray(data)) {
-        console.error('Failed to load domains: API returned non-array', data);
-        return;
+      const next = result.state;
+      setDomains(next.domains);
+      // Auto-select only when the CURRENT state has no selection
+      // (functional update), so a delayed load can never overwrite a
+      // selection made while it was in flight; the shown-domain ref
+      // stays synchronized with the selection that actually happened.
+      setSelectedDomain((cur: any) => cur ?? next.selected ?? null);
+      if (domainDetailsIdRef.current === null && next.selected) {
+        domainDetailsIdRef.current = next.selected.id;
       }
-      // Only auto-select when nothing is selected yet — a reload must
-      // not clobber the user's active selection (or an in-flight upload
-      // refresh for it). Failures leave the panel untouched (the
-      // transition helpers are unit-tested in lib/domainPanel).
-      const panel = applyDomainList({ domains, selected: selectedDomain, showDetails, shownId: domainDetailsIdRef.current }, data);
-      setDomains(panel.domains);
-      domainDetailsIdRef.current = panel.shownId;
-      if (panel.selected !== selectedDomain) setSelectedDomain(panel.selected);
     } catch (e) {
       console.error('Failed to load domains:', e);
     } finally {

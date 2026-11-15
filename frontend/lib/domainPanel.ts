@@ -38,3 +38,41 @@ export function applyDomainSelection(panel: DomainPanelState, domain: any, ok: b
   if (!ok) return panel;
   return { ...panel, selected: domain, showDetails: true, shownId: domain.id };
 }
+
+export interface DomainListResponse {
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+}
+
+export type DomainListResult =
+  | { kind: 'ok'; state: DomainPanelState }
+  | { kind: 'auth' }
+  | { kind: 'fail' };
+
+/** The Dashboard's domain-list load flow, framework-free so the
+ * identity-boundary behavior is exercised by tests. Auth results are
+ * reported back instead of handled here — the caller re-checks its
+ * session generation BEFORE triggering an identity reset, so a stale
+ * load from session A can never sign user B out. */
+export async function runDomainListLoad(
+  fetchDomains: () => Promise<DomainListResponse>,
+  state: DomainPanelState
+): Promise<DomainListResult> {
+  let res: DomainListResponse;
+  try {
+    res = await fetchDomains();
+  } catch (e) {
+    return { kind: 'fail' };
+  }
+  if (res.status === 401) return { kind: 'auth' };
+  if (!res.ok) return { kind: 'fail' };
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (e) {
+    return { kind: 'fail' };
+  }
+  if (!Array.isArray(data)) return { kind: 'fail' };
+  return { kind: 'ok', state: applyDomainList(state, data) };
+}
