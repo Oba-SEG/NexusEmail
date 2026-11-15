@@ -252,6 +252,38 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     expect(r.state.selected?.id).toBe(1); // first remaining selected
     expect(r.state.shownId).toBe(1);
   });
+
+  test('delete shown domain + FAILED reload: panel stays cleared, no deleted-domain details', async () => {
+    // deleteDomains clears the panel immediately when the shown
+    // domain was deleted; the failed reload must not resurrect it
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 2, name: 'b.test' }, true);
+
+    // DELETE succeeds -> deleteDomains clears the panel (modeled)
+    panel = clearedDomainPanel();
+    expect(panel.selected).toBeNull();
+    expect(panel.showDetails).toBe(false);
+
+    // the reload then fails — the cleared panel must stay cleared
+    const r = await runDomainListLoad(async () => res(false, 500, { error: 'boom' }), panel, null);
+    expect(r.kind).toBe('fail');
+    expect(panel.selected).toBeNull();
+    expect(panel.showDetails).toBe(false);
+    expect(panel.domains).toEqual([]);
+  });
+
+  test('delete shown domain + failed reload, then a later successful reload selects the first remaining', async () => {
+    // after the failed reload, the next successful reload (ref null)
+    // still applies the first-remaining selection
+    const r = await runDomainListLoad(
+      async () => res(true, 200, [{ id: 1, name: 'a.test' }]),
+      clearedDomainPanel(),
+      null
+    );
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.state.selected?.id).toBe(1);
+    expect(r.state.shownId).toBe(1);
+  });
 });
 
 describe('selection and upload refresh association', () => {

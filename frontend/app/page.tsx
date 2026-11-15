@@ -1070,10 +1070,21 @@ export default function Dashboard() {
         // A successful delete may have removed the target of an
         // in-flight Inspect (or the shown domain): invalidate pending
         // detail requests now — before the reload (which may itself
-        // fail) reconciles the panel. The shown-domain ref is left
-        // for the reload to reconcile against the returned ids.
+        // fail) reconciles the panel.
         domainDetailsGenRef.current += 1;
         domainDetailsPendingRef.current = null;
+        // If the SHOWN domain was deleted, clear the panel right away:
+        // a failed reload must not leave a deleted domain's details
+        // (and upload action) on screen. A successful reload still
+        // applies the first remaining selection — with the ref null,
+        // the reconcile auto-selects it.
+        const deletedShown = domainDetailsIdRef.current !== null &&
+          selectedIds.includes(domainDetailsIdRef.current);
+        if (deletedShown) {
+          domainDetailsIdRef.current = null;
+          setSelectedDomain(null);
+          setShowDetails(false);
+        }
       }
       await loadDomains(gen);
       setSelectedIds([]);
