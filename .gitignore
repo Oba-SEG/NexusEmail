@@ -54,6 +54,7 @@ secrets.*
 
 # Build
 .next/
+*.tsbuildinfo
 dist/
 build/
 # Next.js static export output
