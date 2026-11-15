@@ -112,13 +112,34 @@ describe('parseSubjectPublicKeyInfo — DER key decoding', () => {
     // SEQ { INTEGER modulus } — exponent removed
     const modulus = Buffer.concat([Buffer.from([0x00]), Buffer.alloc(256, 0xc1)]);
     const intBody = Buffer.concat([Buffer.from([0x00]), modulus]);
-    const intSeq = Buffer.concat([
-      Buffer.from([0x30]), derLen(intBody.length), Buffer.from([0x02]), derLen(intBody.length), intBody,
-    ]);
+    const modInt = Buffer.concat([Buffer.from([0x02]), derLen(intBody.length), intBody]);
+    const intSeq = Buffer.concat([Buffer.from([0x30]), derLen(modInt.length), modInt]);
     const der = customSpki(
       [0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01],
       intSeq
     );
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects a zero-length outer SEQUENCE followed by a full body', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const valid = Buffer.from(spkiB64(kp), 'base64');
+    // `30 00` claims an empty outer SEQUENCE, then a complete SPKI body
+    const der = Buffer.concat([Buffer.from([0x30, 0x00]), valid.slice(2)]);
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects an outer SEQUENCE that excludes the BIT STRING', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const der = Buffer.from(spkiB64(kp), 'base64');
+    der[1] = 0x07; // outer len 7 stops before the BIT STRING field
+    assert.equal(parseSubjectPublicKeyInfo(der), null);
+  });
+
+  test('rejects an AlgorithmIdentifier that swallows the BIT STRING', () => {
+    const kp = crypto.generateKeyPairSync('ed25519');
+    const der = Buffer.from(spkiB64(kp), 'base64');
+    der[3] = 0x28; // AlgId len 40 extends over the BIT STRING field
     assert.equal(parseSubjectPublicKeyInfo(der), null);
   });
 

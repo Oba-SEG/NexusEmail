@@ -225,16 +225,18 @@ function parseSubjectPublicKeyInfo(buf) {
     if (i + l > limit) return null;
     return l;
   };
-  // Outer SEQUENCE
+  // Outer SEQUENCE — all child fields must live inside its declared extent
   if (buf[i++] !== 0x30) return null;
-  if (readLen(buf.length) === null) return null;
+  const seqLen = readLen(buf.length);
+  if (seqLen === null) return null;
+  const seqEnd = i + seqLen;
   // AlgorithmIdentifier SEQUENCE
-  if (buf[i++] !== 0x30) return null;
-  const algLen = readLen(buf.length);
+  if (i >= seqEnd || buf[i++] !== 0x30) return null;
+  const algLen = readLen(seqEnd);
   if (algLen === null) return null;
   const algEnd = i + algLen;
   // Algorithm OID
-  if (buf[i++] !== 0x06) return null;
+  if (i >= algEnd || buf[i++] !== 0x06) return null;
   const oidLen = readLen(algEnd);
   if (oidLen === null) return null;
   const oid = buf.slice(i, i + oidLen);
@@ -244,9 +246,11 @@ function parseSubjectPublicKeyInfo(buf) {
     i += 1;
     if (readLen(algEnd) === null) return null;
   }
-  // subjectPublicKey BIT STRING — declared extent must fit the buffer
-  if (buf[i++] !== 0x03) return null;
-  const bitLen = readLen(buf.length);
+  // AlgorithmIdentifier ends exactly here; the BIT STRING must follow
+  // inside the outer SEQUENCE, not within an over-long AlgIdentifier.
+  if (i !== algEnd) return null;
+  if (i >= seqEnd || buf[i++] !== 0x03) return null;
+  const bitLen = readLen(seqEnd);
   if (bitLen === null || bitLen < 1) return null;
   if (i >= buf.length) return null;
   const unusedBits = buf[i++];
@@ -282,15 +286,15 @@ function parseSubjectPublicKeyInfo(buf) {
   };
   const rsaSeqLen = readKeyLen(keyData.length);
   if (rsaSeqLen === null) return null;
-  const seqEnd = j + rsaSeqLen;
-  if (j >= seqEnd || keyData[j++] !== 0x02) return null;
-  const modLen = readKeyLen(seqEnd);
+  const rsaSeqEnd = j + rsaSeqLen;
+  if (j >= rsaSeqEnd || keyData[j++] !== 0x02) return null;
+  const modLen = readKeyLen(rsaSeqEnd);
   if (modLen === null || modLen <= 0) return null;
   let modulus = keyData.slice(j, j + modLen);
   j += modLen;
   // The public exponent INTEGER must be present and fit the key data.
-  if (j >= seqEnd || keyData[j++] !== 0x02) return null;
-  const expLen = readKeyLen(seqEnd);
+  if (j >= rsaSeqEnd || keyData[j++] !== 0x02) return null;
+  const expLen = readKeyLen(rsaSeqEnd);
   if (expLen === null || expLen <= 0) return null;
   // DER positive INTEGERs may carry a leading zero byte.
   while (modulus.length > 1 && modulus[0] === 0x00) modulus = modulus.slice(1);
