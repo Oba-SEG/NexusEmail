@@ -253,9 +253,16 @@ class MtaStsAnalyzer {
     if (pf.mode !== 'none' && pf.mx.length === 0) {
       result.policyFetch.errors.push('policy has no mx: lines (RFC 8461 §3.2)');
     }
-    // MX values are hostname patterns, optionally '*.'-wildcard prefixed.
+    // MX values are hostname patterns per RFC 5321 Domain grammar
+    // (optional '*.' wildcard; labels are alnum/hyphen but never start
+    // or end with a hyphen; final label is not all-numeric).
     for (const mx of pf.mx) {
-      if (!/^(\*\.)?[A-Za-z0-9_][A-Za-z0-9_.-]*$/.test(mx) || mx.includes('..') || mx.length > 253) {
+      const body = mx.startsWith('*.') ? mx.slice(2) : mx;
+      const labels = body.split('.');
+      const labelsOk = body.length > 0 &&
+        labels.every((l) => /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$/.test(l)) &&
+        !labels[labels.length - 1].match(/^\d+$/);
+      if (!labelsOk || body.includes('..') || mx.length > 253) {
         result.policyFetch.errors.push(`policy has an invalid mx value: ${mx}`);
         break;
       }

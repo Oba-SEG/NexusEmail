@@ -230,6 +230,20 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     assert.equal(r.score, 0);
   });
 
+  test('mx labels cannot start with a hyphen', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: mail.-invalid.test\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.match(r.errors.join(' '), /invalid mx value/);
+  });
+
+  test('numeric-only final mx label is not a hostname', async () => {
+    const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
+    const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: 10.0.0.1\n' };
+    const r = await analyzer(zone, policy).analyze('acme.test');
+    assert.match(r.errors.join(' '), /invalid mx value/);
+  });
+
   test('wildcard mx values are valid', async () => {
     const zone = { '_mta-sts.acme.test': [['v=STSv1; id=x;']] };
     const policy = { status: 200, body: 'version: STSv1\nmode: enforce\nmax_age: 86400\nmx: *.mail.acme.test\nmx: mail.acme.test\n' };
