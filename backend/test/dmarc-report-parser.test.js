@@ -198,6 +198,14 @@ describe('DmarcReportIngestor', () => {
     assert.deepEqual(checks, [{ destination: 'example.com', status: 'self' }]);
   });
 
+  test('ext-rec: authorization query uses the policy-publishing domain', async () => {
+    const ing = fakeResolver({
+      'example.com._report._dmarc.thirdparty.example': [['v=DMARC1']],
+    });
+    const checks = await ing.checkExtRecAuth('example.com', ['agg@thirdparty.example']);
+    assert.deepEqual(checks, [{ destination: 'thirdparty.example', status: 'authorized' }]);
+  });
+
   test('ext-rec: not_authorized when the destination publishes nothing (NXDOMAIN)', async () => {
     const ing = fakeResolver({});
     const checks = await ing.checkExtRecAuth('acme.test', ['agg@thirdparty.example']);
@@ -240,6 +248,7 @@ describe('DmarcReportIngestor', () => {
     const { report, insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
     assert.equal(report.reportId, '2026-11-01T00:00:00Z');
     assert.equal(insights.reportedPolicyDomain, 'acme.test');
+    assert.equal(insights.ruaPolicyDomain, 'acme.test');
     assert.deepEqual(insights.extRecChecks, [
       { destination: 'acme.test', status: 'self' },
       { destination: 'thirdparty.example', status: 'authorized' },
@@ -254,16 +263,56 @@ describe('DmarcReportIngestor', () => {
     );
   });
 
-  test('ingest accepts inherited org-policy reports (subdomain target)', async () => {
+  test('inherited-policy reports are scoped to the target domain', async () => {
+    // a record for news.acme.test inside an acme.test report: only that
+    // record counts as subdomain traffic
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.acme.test</header_from></identifiers></record>`;
+    const mixed = SAMPLE_XML.replace('</feedback>', `${subRecord}</feedback>`);
     const ing = fakeResolver({ '_dmarc.news.acme.test': [['v=DMARC1']] });
-    // SAMPLE_XML reports for acme.test; target news.acme.test inherits
-    const { insights } = await ing.ingest(SAMPLE_XML, 'news.acme.test');
-    assert.equal(insights.totalMessages, 7);
+    const { report, insights } = await ing.ingest(mixed, 'news.acme.test');
+    assert.equal(report.records.length, 1);
+    assert.equal(insights.totalMessages, 3);
+    assert.equal(insights.passingMessages, 3);
+    assert.equal(insights.failingMessages, 0);
+  });
+
+  test('ingest rejects inherited reports with no records for the target', async () => {
+    // SAMPLE_XML only contains header_from=acme.test traffic — none of
+    // it is news.acme.test traffic, so nothing may be counted or stored
+    const ing = fakeResolver({ '_dmarc.news.acme.test': [['v=DMARC1']] });
+    await assert.rejects(
+      () => ing.ingest(SAMPLE_XML, 'news.acme.test'),
+      /no records for news\.acme\.test/
+    );
+  });
+
+  test('ingest falls back to the org-domain policy when the target has none', async () => {
+    // news.example.com has no _dmarc record; example.com publishes an
+    // external rua — the fallback policy domain must be used both for
+    // destinations and for the §7.1 authorization query
+    const ing = fakeResolver({
+      '_dmarc.example.com': [['v=DMARC1; rua=mailto:agg@thirdparty.example']],
+      'example.com._report._dmarc.thirdparty.example': [['v=DMARC1']],
+    });
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.example.com</header_from></identifiers></record>`;
+    const xml = `<?xml version="1.0"?><feedback><report_metadata><org_name>r</org_name><report_id>x</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published>${subRecord}</feedback>`;
+    const { insights } = await ing.ingest(xml, 'news.example.com');
+    assert.equal(insights.ruaPolicyDomain, 'example.com');
+    assert.deepEqual(insights.extRecChecks, [{ destination: 'thirdparty.example', status: 'authorized' }]);
   });
 
   test('ingest without a published DMARC record skips ext-rec checks', async () => {
     const ing = fakeResolver({});
     const { insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
+    assert.deepEqual(insights.extRecChecks, []);
+  });
+
+  test('transient resolver failures do not fall back to the org policy', async () => {
+    const ing = new DmarcReportIngestor({
+      txtResolver: (name, cb) => cb(Object.assign(new Error('SERVFAIL'), { code: 'ESERVFAIL' })),
+    });
+    const { insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
+    assert.equal(insights.ruaPolicyDomain, 'acme.test');
     assert.deepEqual(insights.extRecChecks, []);
   });
 });

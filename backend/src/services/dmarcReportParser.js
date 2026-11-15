@@ -206,21 +206,24 @@ class DmarcReportIngestor {
    * RFC 7489 §7.1 external destination authorization: for each rua
    * destination of the domain's PUBLISHED policy that is not in the
    * same organizational domain, the destination must publish
-   * `<domain>._report._dmarc.<dest>` TXT containing a v=DMARC1 record.
+   * `<policyDomain>._report._dmarc.<dest>` TXT containing a v=DMARC1
+   * record. policyDomain is the domain that publishes the evaluated
+   * policy (the target, or its organizational domain when inheriting).
    */
-  async checkExtRecAuth(reportDomain, destinations) {
+  async checkExtRecAuth(policyDomain, destinations) {
     const checks = [];
     const seen = new Set();
+    const base = String(policyDomain).toLowerCase();
     for (const target of destinations) {
       const dest = ruaDestination(target);
       if (!dest || seen.has(dest)) continue;
       seen.add(dest);
-      if (sameOrganizationalDomain(reportDomain, dest)) {
+      if (sameOrganizationalDomain(base, dest)) {
         checks.push({ destination: dest, status: 'self' });
         continue;
       }
       const status = await new Promise((resolve) => {
-        this.txtResolver(`${reportDomain.toLowerCase()}._report._dmarc.${dest}`, (err, records) => {
+        this.txtResolver(`${base}._report._dmarc.${dest}`, (err, records) => {
           if (err) {
             // NXDOMAIN / no-data: the destination has not published the
             // authorization record -> not authorized. Other failures
@@ -238,19 +241,60 @@ class DmarcReportIngestor {
   }
 
   /**
-   * RFC 7489's policy_published XML schema has no rua element, so the
-   * reporting destinations must come from the domain's LIVE published
-   * DMARC record (via the injectable resolver). Returns [] when no
-   * record/rua tag exists.
+   * Resolve the domain's published reporting destinations from live
+   * DNS. RFC 7489 §6.3: a subdomain without its own record inherits
+   * the organizational domain's policy, so `_dmarc.<target>` NXDOMAIN
+   * falls back to `_dmarc.<org domain>`. Returns the rua targets plus
+   * the domain that publishes the policy (used for §7.1 queries).
    */
   async resolvePolicyRua(domain) {
-    const records = await new Promise((resolve) => {
-      this.txtResolver(`_dmarc.${String(domain).toLowerCase()}`, (err, recs) => {
-        resolve(err ? [] : recs || []);
+    const target = String(domain).toLowerCase();
+    const lookup = (name) => new Promise((resolve) => {
+      this.txtResolver(name, (err, recs) => {
+        if (err) return resolve({ err, records: [] });
+        resolve({ err: null, records: recs || [] });
       });
     });
-    const dmarc = records.find((chunks) => chunks.join('').trim().toLowerCase().startsWith('v=dmarc1'));
-    return dmarc ? ruaTargetsFromRecord(dmarc) : [];
+
+    const own = await lookup(`_dmarc.${target}`);
+    if (!own.err) {
+      const rua = ruaTargetsFromRecord(own.records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1')));
+      return { rua, policyDomain: target };
+    }
+
+    // inherit: only fall back when the own lookup was a genuine
+    // not-found/no-data (not a transient failure), and the org domain
+    // actually differs from the target
+    if (!['ENOTFOUND', 'ENODATA'].includes(own.err.code || '')) {
+      return { rua: [], policyDomain: target };
+    }
+    const org = psl.get(target);
+    if (!org || org === target) {
+      return { rua: [], policyDomain: target };
+    }
+    const inherited = await lookup(`_dmarc.${org}`);
+    if (!inherited.err) {
+      const rua = ruaTargetsFromRecord(inherited.records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1')));
+      return { rua, policyDomain: org };
+    }
+    return { rua: [], policyDomain: target };
+  }
+
+  /**
+   * Scope a parsed report's records to the target domain. Aggregate
+   * reports distinguish subdomain traffic from organizational-domain
+   * traffic, so a shared policy does not make the message domains
+   * interchangeable: for an inherited-policy report (target is a
+   * subdomain of the reported domain) only records with
+   * header_from === target count. Returns null when nothing matches.
+   */
+  scopeRecordsToTarget(report, targetDomain) {
+    const reported = report.policyPublished.domain.toLowerCase();
+    const target = String(targetDomain).toLowerCase();
+    if (reported === target) return report;
+    const scoped = report.records.filter((r) => String(r.headerFrom || '').toLowerCase() === target);
+    if (scoped.length === 0) return null;
+    return { ...report, records: scoped };
   }
 
   /**
@@ -258,7 +302,7 @@ class DmarcReportIngestor {
    * and the ext-rec authorization state of the domain's published
    * reporting destinations (live DNS, not the XML).
    */
-  async analyze(parsed, domain, { publishedRua } = {}) {
+  async analyze(parsed, domain, { publishedRua, ruaPolicyDomain } = {}) {
     const totalMessages = parsed.records.reduce((n, r) => n + r.count, 0);
     const passing = parsed.records.filter((r) => r.dkimAligned === true || r.spfAligned === true);
     const failing = parsed.records.filter((r) => r.dkimAligned !== true && r.spfAligned !== true);
@@ -274,7 +318,7 @@ class DmarcReportIngestor {
       .slice(0, MAX_SOURCES_LISTED);
 
     const destinations = publishedRua || [];
-    const extRecChecks = await this.checkExtRecAuth(domain, destinations);
+    const extRecChecks = await this.checkExtRecAuth(ruaPolicyDomain || domain, destinations);
 
     return {
       totalMessages,
@@ -283,19 +327,25 @@ class DmarcReportIngestor {
       failingSources,
       extRecChecks,
       reportedPolicyDomain: parsed.policyPublished.domain,
+      ruaPolicyDomain: ruaPolicyDomain || String(domain).toLowerCase(),
     };
   }
 
-  /** Parse + validate domain match + analyze one uploaded XML document
-   * for a domain. Throws when the report is for an unrelated domain. */
+  /** Parse + validate domain match + scope records + analyze one
+   * uploaded XML document for a domain. Throws when the report is for
+   * an unrelated domain or carries no records for the target. */
   async ingest(xml, domain) {
     const report = parseAggregateXml(xml);
     if (!reportMatchesDomain(report, domain)) {
       throw new Error(`aggregate report is for ${report.policyPublished.domain}, not ${domain} — reports must cover the target domain`);
     }
-    const publishedRua = await this.resolvePolicyRua(domain);
-    const insights = await this.analyze(report, domain, { publishedRua });
-    return { report, insights };
+    const scoped = this.scopeRecordsToTarget(report, domain);
+    if (!scoped) {
+      throw new Error(`aggregate report contains no records for ${domain} — inherited-policy reports only cover their own header_from domain`);
+    }
+    const { rua, policyDomain } = await this.resolvePolicyRua(domain);
+    const insights = await this.analyze(scoped, domain, { publishedRua: rua, ruaPolicyDomain: policyDomain });
+    return { report: scoped, insights };
   }
 }
 

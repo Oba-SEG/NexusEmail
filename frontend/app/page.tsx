@@ -95,6 +95,11 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  // Domain selection generation — same pattern as the brand details:
+  // every open bumps it so an overlapping load or a slow upload refresh
+  // for an earlier domain can't overwrite the newer selection. Declared
+  // with the other refs, before any early return (rules of hooks).
+  const domainDetailsGenRef = useRef(0);
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
@@ -543,7 +548,10 @@ export default function Dashboard() {
         return;
       }
       setDomains(data);
-      if (data.length > 0) setSelectedDomain(data[0]);
+      // Only auto-select when nothing is selected yet — a reload must
+      // not clobber the user's active selection (or an in-flight upload
+      // refresh for it).
+      setSelectedDomain((cur: any) => cur ?? data[0]);
     } catch (e) {
       console.error('Failed to load domains:', e);
     } finally {
@@ -1050,15 +1058,13 @@ export default function Dashboard() {
   // Selection generation for domain details — same pattern as the brand
   // details: every open bumps it so an overlapping load or a slow upload
   // refresh for an earlier domain can't overwrite the newer selection.
-  const domainDetailsGenRef = useRef(0);
-
   const viewDomain = async (domain: any) => {
     const gen = sessionGenRef.current;
-    domainDetailsGenRef.current += 1;
+    const selGen = ++domainDetailsGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
-      if (gen !== sessionGenRef.current) return;
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
       if (!res.ok || data.error) return;
       setSelectedDomain(data);
       setShowDetails(true);
