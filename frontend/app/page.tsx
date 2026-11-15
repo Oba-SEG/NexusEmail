@@ -100,6 +100,10 @@ export default function Dashboard() {
   // for an earlier domain can't overwrite the newer selection. Declared
   // with the other refs, before any early return (rules of hooks).
   const domainDetailsGenRef = useRef(0);
+  // The domain id the details panel currently shows — an upload must
+  // refresh the panel it was started against, not whichever domain a
+  // concurrent selection race installed.
+  const domainDetailsIdRef = useRef<number | null>(null);
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
@@ -221,6 +225,18 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
   };
 
+  // Domain details and its private report data must not survive an
+  // identity change either: a new sign-in must never inherit the
+  // previous identity's open panel.
+  const resetDomainState = () => {
+    domainDetailsGenRef.current += 1;
+    domainDetailsIdRef.current = null;
+    setSelectedDomain(null);
+    setShowDetails(false);
+    setDmarcUploading(false);
+    setDmarcUploadError(null);
+  };
+
   // load* handlers when they see a 401 against an authenticated endpoint —
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
@@ -235,6 +251,7 @@ export default function Dashboard() {
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
     resetAdminState();
+    resetDomainState();
     setToken(null);
     setUser(null);
   };
@@ -276,6 +293,7 @@ export default function Dashboard() {
       setResendForm({ api_key: '', from: '' });
       setSettings(null);
       resetAdminState();
+    resetDomainState();
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -322,6 +340,7 @@ export default function Dashboard() {
     setResendForm({ api_key: '', from: '' });
     setSettings(null);
     resetAdminState();
+    resetDomainState();
     setToken(null);
     setUser(null);
   };
@@ -550,8 +569,11 @@ export default function Dashboard() {
       setDomains(data);
       // Only auto-select when nothing is selected yet — a reload must
       // not clobber the user's active selection (or an in-flight upload
-      // refresh for it).
-      setSelectedDomain((cur: any) => cur ?? data[0]);
+      // refresh for it). The shown-domain ref follows the auto-select.
+      if (!selectedDomain && data.length > 0) {
+        domainDetailsIdRef.current = data[0].id;
+        setSelectedDomain(data[0]);
+      }
     } catch (e) {
       console.error('Failed to load domains:', e);
     } finally {
@@ -1060,6 +1082,7 @@ export default function Dashboard() {
   // refresh for an earlier domain can't overwrite the newer selection.
   const viewDomain = async (domain: any) => {
     const gen = sessionGenRef.current;
+    domainDetailsIdRef.current = domain.id;
     const selGen = ++domainDetailsGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
@@ -1097,9 +1120,17 @@ export default function Dashboard() {
         setDmarcUploadError(data.error || 'Upload failed');
         return;
       }
+      // The upload is associated with the domain it was started against:
+      // if the user has switched to another domain meanwhile, its panel
+      // must not be replaced by this refresh.
+      if (domainDetailsIdRef.current !== domainId) {
+        setDmarcUploadError('Report uploaded, but the details panel has switched domains');
+        return;
+      }
       const fresh = await apiFetch(`${API_BASE}/domains/${domainId}`);
       const freshData = await fresh.json();
       if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (domainDetailsIdRef.current !== domainId) return;
       if (!fresh.ok || freshData.error) {
         // the domain may have been deleted mid-upload — keep the current
         // details instead of installing the error object
