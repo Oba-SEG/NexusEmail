@@ -104,7 +104,15 @@ function normalizeDnsResults(scan) {
     if (obj == null) return flat || null;
     // Validation errors beat found:true — an SPF record with +all or a
     // DMARC p=none row is found but failing, and must not render green.
-    if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) return 'ERROR';
+    if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) {
+      // The audit engine logs an absent record as an ENOTFOUND error —
+      // that is NOT_FOUND (matching the object-shape writer), while
+      // other lookup failures and validation errors are ERROR.
+      const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])]
+        .filter(Boolean).join(' ');
+      if (!obj.found && /ENOTFOUND|NXDOMAIN/i.test(msgs)) return 'NOT_FOUND';
+      return 'ERROR';
+    }
     if (obj.found) return 'FOUND';
     return 'NOT_FOUND';
   };
@@ -119,7 +127,11 @@ function normalizeDnsResults(scan) {
     .join(', ');
   return {
     spf: present(spf, 'spf_status', 'spf_record')
-      ? { status: deriveStatus(spf, scan.spf_status), record: spf?.record || spf?.error || (spf?.errors || [])[0] }
+      ? {
+        status: deriveStatus(spf, scan.spf_status),
+        record: spf?.record || spf?.error || (spf?.errors || [])[0],
+        policy: spf?.policy ?? null
+      }
       : null,
     dkim: present(dkim, 'dkim_status', 'dkim_selectors')
       ? {
@@ -139,6 +151,20 @@ function normalizeDnsResults(scan) {
 
 function passClass(status) {
   return status === 'pass' || status === 'FOUND' ? 'pass' : 'fail';
+}
+
+// A present record with a weak policy (+all / p=none / missing policy)
+// is not a passing configuration even when the lookup succeeded.
+// Vocabularies agree across both writers: SPF uses hardfail/softfail,
+// DMARC uses reject/quarantine.
+function spfPassClass(spf) {
+  if (!spf || passClass(spf.status) !== 'pass') return 'fail';
+  return spf.policy === 'hardfail' || spf.policy === 'softfail' ? 'pass' : 'fail';
+}
+
+function dmarcPassClass(dmarc) {
+  if (!dmarc || passClass(dmarc.status) !== 'pass') return 'fail';
+  return dmarc.policy === 'reject' || dmarc.policy === 'quarantine' ? 'pass' : 'fail';
 }
 
 function generateReportHtml(domain, scans, issues) {
@@ -189,9 +215,9 @@ function generateReportHtml(domain, scans, issues) {
     <h3>DNS Records</h3>
     <table>
       <tr><th>Record</th><th>Status</th><th>Details</th></tr>
-      <tr><td>SPF</td><td class="${passClass(results.spf?.status)}">${escapeHtml(results.spf?.status || 'Not checked')}</td><td>${escapeHtml(results.spf?.record || 'No record')}</td></tr>
+      <tr><td>SPF</td><td class="${spfPassClass(results.spf)}">${escapeHtml(results.spf?.status || 'Not checked')}</td><td>${escapeHtml(results.spf?.record || 'No record')}</td></tr>
       <tr><td>DKIM</td><td class="${passClass(results.dkim?.status)}">${escapeHtml(results.dkim?.status || 'Not checked')}</td><td>${escapeHtml(results.dkim?.selector || 'No record')}</td></tr>
-      <tr><td>DMARC</td><td class="${passClass(results.dmarc?.status)}">${escapeHtml(results.dmarc?.status || 'Not checked')}</td><td>${escapeHtml(results.dmarc?.policy || 'No policy')}</td></tr>
+      <tr><td>DMARC</td><td class="${dmarcPassClass(results.dmarc)}">${escapeHtml(results.dmarc?.status || 'Not checked')}</td><td>${escapeHtml(results.dmarc?.policy || 'No policy')}</td></tr>
       <tr><td>MTA-STS</td><td class="${passClass(results.mta_sts?.status)}">${escapeHtml(results.mta_sts?.status || 'Not checked')}</td><td>${escapeHtml(results.mta_sts?.mode || 'N/A')}</td></tr>
       <tr><td>TLS-RPT</td><td class="${passClass(results.tls_rpt?.status)}">${escapeHtml(results.tls_rpt?.status || 'Not checked')}</td><td>${escapeHtml(results.tls_rpt?.reportUri || 'No reporting')}</td></tr>
     </table>
@@ -208,3 +234,8 @@ function generateReportHtml(domain, scans, issues) {
 }
 
 module.exports = router;
+// Exported for regression tests (backend/test/reports-normalize.test.js)
+module.exports.normalizeDnsResults = normalizeDnsResults;
+module.exports.passClass = passClass;
+module.exports.spfPassClass = spfPassClass;
+module.exports.dmarcPassClass = dmarcPassClass;
