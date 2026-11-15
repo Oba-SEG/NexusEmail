@@ -3,11 +3,17 @@ const router = express.Router();
 const db = require('../db/database');
 const { EmailSecurityAuditor } = require('../services/auditEngine');
 const { DomainVerificationService } = require('../services/domainVerification');
+const { DmarcReportIngestor } = require('../services/dmarcReportParser');
 const { captureException } = require('../capture');
 const { normalizeDomain } = require('../utils/domain');
 
 const auditor = new EmailSecurityAuditor();
 const verificationService = new DomainVerificationService();
+const dmarcIngestor = new DmarcReportIngestor();
+
+// Aggregate XML uploads are large; this route opts into a bigger body
+// limit (the global json parser is 10kb) with its own 2MB cap.
+const DMARC_UPLOAD_LIMIT = 2 * 1024 * 1024;
 
 // Active domains per organization (per-plan limits later). Env-tunable so
 // deployments can tighten it without a code change.
@@ -263,8 +269,60 @@ router.get('/:id', async (req, res) => {
 
   const latestScan = await db.getLatestScan(domain.id, req.orgId);
   const history = await db.getScans(domain.id, 30, req.orgId);
+  const dmarcReports = await db.getDmarcReports(domain.id, req.orgId, 20);
 
-  res.json({ ...domain, latest_scan: latestScan, history, issues: db.parseField(latestScan?.issues, []) });
+  res.json({ ...domain, latest_scan: latestScan, history, issues: db.parseField(latestScan?.issues, []), dmarc_reports: dmarcReports });
+});
+
+// ===== DMARC aggregate report ingestion (issue #64) =====
+
+// Upload an RFC 7489 aggregate XML report for a verified domain.
+// The global express.json parser is 10kb and runs earlier in the chain,
+// so large uploads must use a text content type (text/xml, application/xml
+// or text/plain) which the global parser ignores; this route parses the
+// raw body itself with its own 2MB cap. Small JSON bodies ({ xml }) also
+// work for convenience/testing.
+router.post('/:id/dmarc-reports',
+  express.text({ type: ['text/*', 'application/xml'], limit: '2mb' }),
+  express.json({ limit: '10kb' }),
+  async (req, res) => {
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
+  if (!domain) return res.status(404).json({ error: 'Domain not found' });
+
+  // Ownership check: aggregate data is sensitive, only verified domains.
+  if (!domain.verified) {
+    return res.status(403).json({ error: 'Domain not verified' });
+  }
+
+  const xml = typeof req.body === 'string' ? req.body : req.body && req.body.xml;
+  if (typeof xml !== 'string' || xml.trim().length === 0) {
+    return res.status(400).json({ error: 'Aggregate report XML is required (send { xml } or a text body)' });
+  }
+  if (Buffer.byteLength(xml, 'utf8') > DMARC_UPLOAD_LIMIT) {
+    return res.status(413).json({ error: `Aggregate report too large (max ${DMARC_UPLOAD_LIMIT} bytes)` });
+  }
+
+  try {
+    const { report, insights } = await dmarcIngestor.ingest(xml, domain.name);
+    const stored = await db.addDmarcReport({
+      domain_id: domain.id,
+      report_id: report.reportId,
+      date_begin: report.begin,
+      report,
+      insights,
+    }, req.orgId);
+    res.status(201).json({ success: true, report_id: stored.id, report, insights });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// List ingested aggregate reports (newest first) for a domain.
+router.get('/:id/dmarc-reports', async (req, res) => {
+  const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
+  if (!domain) return res.status(404).json({ error: 'Domain not found' });
+  const reports = await db.getDmarcReports(domain.id, req.orgId, 20);
+  res.json(reports);
 });
 
 // Scan single domain

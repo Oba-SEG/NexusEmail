@@ -20,7 +20,7 @@ import {
   FileText, BarChart3, Bell, Plug, Clock, Wrench,
   TrendingUp, TrendingDown, Minus, Download, Trash2,
   CheckSquare, Square, MoreHorizontal, Save, MailPlus,
-  MessageSquare, Send,
+  MessageSquare, Send, Upload,
   X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -182,6 +182,10 @@ export default function Dashboard() {
   const [brandAlerts, setBrandAlerts] = useState<any[]>([]);
   const [bulkScanning, setBulkScanning] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
+  // DMARC aggregate report ingestion (issue #64)
+  const [dmarcUploading, setDmarcUploading] = useState(false);
+  const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
+  const dmarcFileRef = useRef<HTMLInputElement>(null);
 
   const apiFetch = (url: string, options: any = {}) => fetch(url, {
     ...options,
@@ -1054,6 +1058,32 @@ export default function Dashboard() {
     }
   };
 
+  // DMARC aggregate report ingestion (issue #64): upload RFC 7489 XML,
+  // then refresh the domain detail so the new insights show up.
+  const uploadDmarcReport = async (domainId: number, file: File) => {
+    setDmarcUploadError(null);
+    setDmarcUploading(true);
+    try {
+      const xml = await file.text();
+      const res = await apiFetch(`${API_BASE}/domains/${domainId}/dmarc-reports`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/xml' },
+        body: xml
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setDmarcUploadError(data.error || 'Upload failed');
+        return;
+      }
+      const fresh = await apiFetch(`${API_BASE}/domains/${domainId}`);
+      setSelectedDomain(await fresh.json());
+    } catch (e) {
+      setDmarcUploadError('Upload failed: ' + (e as Error).message);
+    } finally {
+      setDmarcUploading(false);
+    }
+  };
+
   const fixDomain = async (domainId: number) => {
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domainId}/analyze-fix`, { method: 'POST' });
@@ -1651,6 +1681,63 @@ export default function Dashboard() {
                     </div>
                   );
                 })()}
+
+                {/* DMARC Aggregate Reports (issue #64): upload RFC 7489 XML */}
+                <div className="mb-4 p-4 rounded-lg border bg-background">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-medium text-sm">DMARC Aggregate Reports</p>
+                    <div>
+                      <input
+                        ref={dmarcFileRef}
+                        type="file"
+                        accept=".xml,text/xml,application/xml"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files && e.target.files[0];
+                          if (f && selectedDomain) uploadDmarcReport(selectedDomain.id, f);
+                          e.target.value = '';
+                        }}
+                      />
+                      <Button variant="outline" size="sm" disabled={dmarcUploading} onClick={() => dmarcFileRef.current && dmarcFileRef.current.click()}>
+                        <Upload className="w-4 h-4 mr-1" /> {dmarcUploading ? 'Uploading...' : 'Upload XML'}
+                      </Button>
+                    </div>
+                  </div>
+                  {dmarcUploadError && (
+                    <p className="text-xs text-red-500 mb-2">{dmarcUploadError}</p>
+                  )}
+                  {selectedDomain.dmarc_reports?.length > 0 ? (
+                    <div className="space-y-2">
+                      {selectedDomain.dmarc_reports.map((r: any, i: number) => {
+                        const ins = r.insights || {};
+                        const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
+                        return (
+                          <div key={r.id || i} className="p-2 rounded border text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">{r.report?.orgName || 'Unknown reporter'}</span>
+                              <span className="text-muted-foreground">
+                                {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''} · {r.report?.reportId || ''}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-muted-foreground">
+                              {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
+                              {(ins.failingSources || []).length > 0 && (
+                                <span> · top fail source: {ins.failingSources[0].ip} ({ins.failingSources[0].count})</span>
+                              )}
+                            </div>
+                            {unauthorized.length > 0 && (
+                              <div className="mt-1 text-amber-500">
+                                External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
+                  )}
+                </div>
 
                 {/* Issues with Tooltips */}
                 {selectedDomain.issues?.length > 0 && (
