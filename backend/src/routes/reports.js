@@ -86,7 +86,9 @@ router.get('/export/json', async (req, res) => {
 });
 
 function generateReportHtml(domain, scans, issues) {
-  const latestScan = scans[0];
+  // getScans returns oldest-first (DESC query then .reverse()), so the
+  // newest scan is the last element.
+  const latestScan = scans[scans.length - 1];
   const results = latestScan?.results ? JSON.parse(latestScan.results) : {};
   
   return `<!DOCTYPE html>
