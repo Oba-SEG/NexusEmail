@@ -1,5 +1,6 @@
 const dns = require('dns').promises;
 const { createHash, publicEncrypt } = require('crypto');
+const { SpfValidator } = require('./spfValidator');
 
 class EmailSecurityAuditor {
   constructor() {
@@ -61,69 +62,23 @@ class EmailSecurityAuditor {
   }
 
   // ===== SPF CHECK =====
+  // Delegated to SpfValidator (recursive include chains, RFC 7208 lookup
+  // counting, permerror detection). Score policy unchanged:
+  // hardfail 35 / softfail 25 / anything else 10.
   async checkSPF(domain) {
-    const result = {
-      found: false,
-      record: null,
-      valid: false,
-      policy: null,
-      mechanisms: [],
-      warnings: [],
-      errors: [],
-      score: 0
+    const v = await new SpfValidator().validate(domain);
+    return {
+      found: v.found,
+      record: v.record,
+      valid: v.valid,
+      policy: v.policy,
+      mechanisms: v.mechanisms,
+      warnings: v.warnings,
+      errors: v.errors,
+      lookupCount: v.lookupCount,
+      includes: v.includes,
+      score: v.found ? (v.policy === 'hardfail' ? 35 : v.policy === 'softfail' ? 25 : 10) : 0
     };
-
-    try {
-      const records = await dns.resolveTxt(`_spf.${domain}`);
-      const spfRecord = records.find(r => r.join('').includes('v=spf1'));
-
-      if (!spfRecord) {
-        result.errors.push('No SPF record found');
-        return result;
-      }
-
-      result.found = true;
-      result.record = spfRecord.join('');
-      result.valid = this.validateSPF(result.record);
-
-      // Parse mechanisms
-      const parts = result.record.split(' ');
-      for (const part of parts) {
-        if (part.startsWith('include:')) {
-          result.mechanisms.push({ type: 'include', value: part.replace('include:', '') });
-        } else if (part.startsWith('a:')) {
-          result.mechanisms.push({ type: 'a', value: part.replace('a:', '') });
-        } else if (part.startsWith('mx:')) {
-          result.mechanisms.push({ type: 'mx', value: part.replace('mx:', '') });
-        } else if (part.startsWith('redirect=')) {
-          result.mechanisms.push({ type: 'redirect', value: part.replace('redirect=', '') });
-        } else if (part === '-all') {
-          result.policy = 'hardfail';
-        } else if (part === '~all') {
-          result.policy = 'softfail';
-        } else if (part === '+all') {
-          result.errors.push('CRITICAL: +all allows any server to send email');
-        } else if (part === '?all') {
-          result.warnings.push('Neutral policy provides no protection');
-        }
-      }
-
-      // Check lookup limit
-      const lookupCount = this.countLookups(result.record);
-      if (lookupCount > 10) {
-        result.errors.push(`SPF exceeds 10 DNS lookup limit (found ${lookupCount})`);
-      }
-
-      // Score
-      if (result.policy === 'hardfail') result.score = 35;
-      else if (result.policy === 'softfail') result.score = 25;
-      else result.score = 10;
-
-    } catch (error) {
-      result.errors.push(error.message);
-    }
-
-    return result;
   }
 
   // ===== DKIM CHECK =====
@@ -362,10 +317,11 @@ class EmailSecurityAuditor {
     }
 
     // Check 2: SPF all allowing all
+    // SPF is published at the domain apex (RFC 7208 §3), not _spf.<domain>.
     try {
-      const spfRecords = await dns.resolveTxt(`_spf.${domain}`);
+      const spfRecords = await dns.resolveTxt(domain);
       const spf = spfRecords.find(r => r.join('').includes('v=spf1'));
-      if (spf && spf.join('').includes('+all')) {
+      if (spf && /(^|\s)\+all(\s|$)/.test(spf.join(''))) {
         result.threats.push({
           severity: 'high',
           type: 'SPF Open Relay',
@@ -417,20 +373,6 @@ class EmailSecurityAuditor {
   }
 
   // ===== HELPER METHODS =====
-
-  validateSPF(record) {
-    if (!record.includes('v=spf1')) return false;
-    return true;
-  }
-
-  countLookups(record) {
-    let count = 0;
-    const mechanisms = ['include:', 'a:', 'mx:', 'redirect:', 'exp=', 'exists:'];
-    for (const mech of mechanisms) {
-      count += (record.match(new RegExp(mech, 'g')) || []).length;
-    }
-    return count;
-  }
 
   parseDMARCTags(record) {
     const tags = {};
