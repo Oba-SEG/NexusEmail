@@ -105,6 +105,9 @@ export default function Dashboard() {
   // refresh the panel it was started against, not whichever domain a
   // concurrent selection race installed.
   const domainDetailsIdRef = useRef<number | null>(null);
+  // domain a detail request is currently fetching — invalidate it if
+  // its target is deleted while the request is in flight
+  const domainDetailsPendingRef = useRef<number | null>(null);
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
@@ -578,14 +581,21 @@ export default function Dashboard() {
       // load racing an Inspect; a selection whose domain is gone
       // (deleted) is replaced by the auto-selected first domain, or
       // cleared (closing the panel) when the list is empty.
-      const stillThere = domainDetailsIdRef.current !== null &&
-        next.domains.some((d: any) => d.id === domainDetailsIdRef.current);
-      if (!stillThere) {
-        // The shown domain is gone (deleted while its details were
-        // open): invalidate pending detail requests for it BEFORE
-        // re-selecting, so a late viewDomain success for the removed
-        // domain cannot select the deleted domain again.
+      const presentIds = next.domains.map((d: any) => d.id);
+      const shownGone = domainDetailsIdRef.current !== null &&
+        !presentIds.includes(domainDetailsIdRef.current);
+      const pendingGone = domainDetailsPendingRef.current !== null &&
+        !presentIds.includes(domainDetailsPendingRef.current);
+      if (shownGone || pendingGone) {
+        // A detail request targets a deleted domain (the pending
+        // Inspect target, and/or the shown domain was deleted while
+        // its details were open): invalidate the pending request
+        // BEFORE re-selecting, so a late viewDomain success for the
+        // removed domain cannot select the deleted domain again.
         domainDetailsGenRef.current += 1;
+      }
+      if (shownGone) {
+        domainDetailsPendingRef.current = null;
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
         setSelectedDomain(next.selected);
         setShowDetails(next.selected ? true : false);
@@ -1053,6 +1063,21 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ domain_ids: selectedIds })
       });
+      // If the delete removed the shown domain or the target of an
+      // in-flight Inspect, invalidate that request now — before the
+      // reload (which may itself fail) gets the chance.
+      const deletedShown = domainDetailsIdRef.current !== null && selectedIds.includes(domainDetailsIdRef.current);
+      const deletedPending = domainDetailsPendingRef.current !== null && selectedIds.includes(domainDetailsPendingRef.current);
+      if (deletedShown || deletedPending) {
+        domainDetailsGenRef.current += 1;
+        if (deletedPending) domainDetailsPendingRef.current = null;
+        if (deletedShown) {
+          domainDetailsPendingRef.current = null;
+          domainDetailsIdRef.current = null;
+          setSelectedDomain(null);
+          setShowDetails(false);
+        }
+      }
       await loadDomains(gen);
       setSelectedIds([]);
     } catch (e) {
@@ -1099,6 +1124,7 @@ export default function Dashboard() {
   const viewDomain = async (domain: any) => {
     const gen = sessionGenRef.current;
     const selGen = ++domainDetailsGenRef.current;
+    domainDetailsPendingRef.current = domain.id;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
@@ -1113,6 +1139,10 @@ export default function Dashboard() {
       setShowDetails(true);
     } catch (e) {
       console.error('Failed to load domain details:', e);
+    } finally {
+      if (domainDetailsPendingRef.current === domain.id) {
+        domainDetailsPendingRef.current = null;
+      }
     }
   };
 

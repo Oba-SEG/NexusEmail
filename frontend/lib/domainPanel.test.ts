@@ -138,6 +138,55 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     const guardPasses = selGen === gen; // selGen !== domainDetailsGenRef.current -> return
     expect(guardPasses).toBe(false); // dropped: deleted domain is not re-selected
   });
+
+  test('dashboard race: a pending Inspect for a deleted domain is invalidated while another domain stays shown', async () => {
+    // sequence from review: domain 1 shown, viewDomain(2) in flight,
+    // domain 2 deleted, reload returns only domain 1
+    let gen = 0;
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 1, name: 'a.test' }, true); // domain 1 shown
+
+    const selGen = ++gen; // viewDomain(2) starts (pending target = 2)
+    const pendingId = 2;
+
+    // domain 2 deleted; the reload returns only domain 1
+    const r = await runDomainListLoad(
+      async () => res(true, 200, [{ id: 1, name: 'a.test' }]),
+      panel,
+      pendingId
+    );
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.invalidateDetails).toBe(true); // pending target gone -> loadDomains bumps the gen
+    if (r.invalidateDetails) gen += 1;
+    expect(r.state.selected?.id).toBe(1); // shown domain 1 stays selected
+    expect(r.state.shownId).toBe(1);
+
+    // the delayed viewDomain(2) success arrives with the old selGen
+    const guardPasses = selGen === gen; // selGen !== domainDetailsGenRef.current -> return
+    expect(guardPasses).toBe(false); // dropped: deleted domain 2 is not selected
+  });
+
+  test('dashboard race: the delete itself invalidates even when the reload fails', async () => {
+    // deleteDomains bumps the generation right after a successful
+    // DELETE POST, before loadDomains — so a failed reload cannot
+    // leave the pending Inspect armed
+    let gen = 0;
+    let panel = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+    panel = applyDomainSelection(panel, { id: 1, name: 'a.test' }, true);
+
+    const selGen = ++gen; // viewDomain(2) in flight
+    // DELETE succeeds (modeled): 2 was deleted -> bump before reloading
+    const deletedPending = true; // selectedIds contains the pending target
+    if (deletedPending) gen += 1;
+
+    // the reload then fails — nothing reconciles, panel untouched
+    const r = await runDomainListLoad(async () => { throw new Error('ECONNRESET'); }, panel, 2);
+    expect(r.kind).toBe('fail');
+
+    // the delayed viewDomain(2) success still arrives with a stale gen
+    const guardPasses = selGen === gen;
+    expect(guardPasses).toBe(false); // dropped: deleted domain 2 is not selected
+  });
 });
 
 describe('selection and upload refresh association', () => {

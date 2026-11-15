@@ -62,7 +62,8 @@ export type DomainListResult =
  * load from session A can never sign user B out. */
 export async function runDomainListLoad(
   fetchDomains: () => Promise<DomainListResponse>,
-  state: DomainPanelState
+  state: DomainPanelState,
+  pendingDetailsId: number | null = null
 ): Promise<DomainListResult> {
   let res: DomainListResponse;
   try {
@@ -81,10 +82,14 @@ export async function runDomainListLoad(
   if (!Array.isArray(data)) return { kind: 'fail' };
   const before = state.shownId;
   const next = applyDomainList(state, data);
-  // The previously shown domain vanished from the list (deleted while
-  // its details were open). The caller must invalidate pending detail
-  // requests for it BEFORE re-selecting — a late viewDomain success
-  // for the removed domain must not select it again.
-  const invalidateDetails = before !== null && !data.some((d: any) => d.id === before);
-  return { kind: 'ok', state: next, invalidateDetails };
+  // A detail request targets a deleted domain: either the previously
+  // SHOWN domain vanished from the list (deleted while its details
+  // were open), or the target of the in-flight Inspect vanished (its
+  // target was deleted while another domain is shown). The caller
+  // must invalidate pending detail requests BEFORE re-selecting — a
+  // late viewDomain success for a removed domain must not select it
+  // again.
+  const shownGone = before !== null && !data.some((d: any) => d.id === before);
+  const pendingGone = pendingDetailsId !== null && !data.some((d: any) => d.id === pendingDetailsId);
+  return { kind: 'ok', state: next, invalidateDetails: shownGone || pendingGone };
 }
