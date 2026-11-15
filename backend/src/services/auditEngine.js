@@ -48,7 +48,7 @@ class EmailSecurityAuditor {
       results.issues = this.collectIssues(spf, dkim, dmarc, mta_sts, tls_rpt, impersonation);
 
       // Generate recommendations
-      results.recommendations = this.generateRecommendations(spf, dkim, dmarc, mta_sts, tls_rpt, impersonation);
+      results.recommendations = this.generateRecommendations(domain, spf, dkim, dmarc, mta_sts, tls_rpt, impersonation);
 
     } catch (error) {
       results.error = error.message;
@@ -361,23 +361,34 @@ class EmailSecurityAuditor {
     return issues;
   }
 
-  generateRecommendations(spf, dkim, dmarc, mta_sts, tls_rpt, impersonation) {
+  generateRecommendations(domain, spf, dkim, dmarc, mta_sts, tls_rpt, impersonation) {
     const recommendations = [];
 
     if (!spf?.found) {
       recommendations.push({
         priority: 'high',
         action: 'Create SPF record',
-        command: `v=spf1 include:_spf.yourmailprovider.com ~all`,
+        command: "v=spf1 include:<provider-include-target> ~all — use your mail provider's documented include (e.g. _spf.google.com) or authorized sending IP addresses",
         target: 'SPF'
       });
-    } else if (spf.policy !== 'hardfail') {
-      recommendations.push({
-        priority: 'medium',
-        action: 'Strengthen SPF policy to hardfail',
-        command: 'Update to v=spf1 ... -all',
-        target: 'SPF'
-      });
+    } else {
+      if (spf.policy !== 'hardfail') {
+        recommendations.push({
+          priority: 'medium',
+          action: 'Strengthen SPF policy to hardfail',
+          command: 'Update to v=spf1 ... -all',
+          target: 'SPF'
+        });
+      }
+      const lookups = spf.lookupCount || 0;
+      if (lookups > 10) {
+        recommendations.push({
+          priority: 'high',
+          action: `Flatten SPF record — ${lookups} DNS lookups exceeds the RFC 7208 limit of 10`,
+          command: 'Replace include: mechanisms with verified ip4:/ip6: ranges from your mail providers — the flattened record must stay within the 10-DNS-lookup limit',
+          target: 'SPF'
+        });
+      }
     }
 
     if (!dkim?.found) {
@@ -393,14 +404,21 @@ class EmailSecurityAuditor {
       recommendations.push({
         priority: 'high',
         action: 'Create DMARC record',
-        command: 'v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
+        command: `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}`,
         target: 'DMARC'
       });
     } else if (dmarc.policy === 'none') {
       recommendations.push({
         priority: 'high',
         action: 'Upgrade DMARC to quarantine',
-        command: 'v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com',
+        command: `v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@${domain}`,
+        target: 'DMARC'
+      });
+    } else if (!dmarc.reporting?.aggregate) {
+      recommendations.push({
+        priority: 'low',
+        action: 'Add DMARC aggregate reporting (rua) so failure reports reach you',
+        command: `Add rua=mailto:dmarc-reports@${domain} to the DMARC record`,
         target: 'DMARC'
       });
     }
@@ -411,6 +429,25 @@ class EmailSecurityAuditor {
         action: 'Enable MTA-STS',
         command: 'Create _mta-sts TXT record with v=STSv1; mode=enforce; max-age=86400',
         target: 'MTA-STS'
+      });
+    }
+
+    if (!tls_rpt?.found) {
+      recommendations.push({
+        priority: 'low',
+        action: 'Publish TLS-RPT record so MTA-STS failure reports reach you',
+        command: `v=TLSRPTv1; rua=mailto:tls-reports@${domain}`,
+        target: 'TLS-RPT'
+      });
+    }
+
+    if (impersonation?.threats?.length > 0) {
+      const high = impersonation.threats.filter(t => t.severity === 'high').length;
+      recommendations.push({
+        priority: high > 0 ? 'high' : 'medium',
+        action: `Address ${impersonation.threats.length} impersonation threat(s) — ${impersonation.summary}`,
+        command: 'Tighten SPF to -all, enforce DMARC p=reject, and monitor lookalike domains for registration',
+        target: 'Impersonation'
       });
     }
 
