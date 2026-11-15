@@ -154,6 +154,13 @@ export default function Dashboard() {
   const [scanning, setScanning] = useState(false);
   const [domains, setDomains] = useState<any[]>([]);
   const [selectedDomain, setSelectedDomain] = useState<any>(null);
+  // live mirrors of the panel state: handlers with stale closures
+  // (e.g. a delete started before the panel changed) must read the
+  // CURRENT values when invalidating or restarting detail fetches
+  const selectedDomainRef = useRef<any>(null);
+  const showDetailsRef = useRef(false);
+  const setSelectedDomainSync = (d: any) => { selectedDomainRef.current = d; setSelectedDomain(d); };
+  const setShowDetailsSync = (v: boolean) => { showDetailsRef.current = v; setShowDetails(v); };
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -254,8 +261,8 @@ export default function Dashboard() {
     setDomains(panel.domains);
     domainDetailsIdRef.current = panel.shownId;
     shownIsFullRef.current = false;
-    setSelectedDomain(panel.selected);
-    setShowDetails(panel.showDetails);
+    setSelectedDomainSync(panel.selected);
+    setShowDetailsSync(panel.showDetails);
     setDmarcUploading(false);
     setDmarcUploadError(null);
   };
@@ -626,10 +633,10 @@ export default function Dashboard() {
         // panel.
         domainDetailsIdRef.current = next.selected ? next.selected.id : null;
         shownIsFullRef.current = false; // a list row lacks dmarc_reports
-        setSelectedDomain(next.selected);
+        setSelectedDomainSync(next.selected);
         // applyDomainList semantics: an open details panel carries over
         // to the reconciled selection; an empty list closes the panel
-        setShowDetails(next.selected ? showDetails : false);
+        setShowDetailsSync(next.selected ? showDetails : false);
         if (next.selected && showDetails) {
           // The reconciled selection came from the list (a row without
           // dmarc_reports): fetch its detail record so the report panel
@@ -1121,8 +1128,8 @@ export default function Dashboard() {
         // domain and starts no replacement, so otherwise the report
         // panel would show a false "no reports" state for a row
         // without dmarc_reports.
-        if (domainDetailsIdRef.current !== null && !shownIsFullRef.current && showDetails && selectedDomain) {
-          viewDomain(selectedDomain);
+        if (domainDetailsIdRef.current !== null && !shownIsFullRef.current && showDetailsRef.current && selectedDomainRef.current) {
+          viewDomain(selectedDomainRef.current);
         }
         // If the SHOWN domain was deleted, clear the panel right away:
         // a failed reload must not leave a deleted domain's details
@@ -1133,8 +1140,8 @@ export default function Dashboard() {
           selectedIds.includes(domainDetailsIdRef.current);
         if (deletedShown) {
           domainDetailsIdRef.current = null;
-          setSelectedDomain(null);
-          setShowDetails(false);
+          setSelectedDomainSync(null);
+          setShowDetailsSync(false);
         }
       }
       await loadDomains(gen);
@@ -1201,8 +1208,8 @@ export default function Dashboard() {
       // unit-tested in lib/domainPanel).
       domainDetailsIdRef.current = domain.id;
       shownIsFullRef.current = true;
-      setSelectedDomain(data);
-      setShowDetails(true);
+      setSelectedDomainSync(data);
+      setShowDetailsSync(true);
       setDetailRefreshing(false);
     } catch (e) {
       console.error('Failed to load domain details:', e);
@@ -1261,7 +1268,7 @@ export default function Dashboard() {
         setDmarcUploadError(freshData.error || 'Domain details refresh failed');
         return;
       }
-      setSelectedDomain(freshData);
+      setSelectedDomainSync(freshData);
     } catch (e) {
       if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
         setDmarcUploadError('Upload failed: ' + (e as Error).message);
@@ -1285,7 +1292,7 @@ export default function Dashboard() {
       }
 
       setFixRecommendations(data);
-      setShowDetails(true);
+      setShowDetailsSync(true);
     } catch (e) {
       alert('Failed to analyze domain: ' + e.message);
     }
@@ -1842,7 +1849,7 @@ export default function Dashboard() {
                   <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
                     <Wrench className="w-4 h-4 mr-1" /> Get Fix Records
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowDetails(false)}>Close</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setShowDetailsSync(false)}>Close</Button>
                 </div>
               </CardHeader>
               <CardContent>

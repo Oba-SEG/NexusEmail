@@ -242,6 +242,45 @@ describe('Dashboard (real component) — delete/list races', () => {
     expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull();
   });
 
+  test('overlapping deletes: the older delete still restarts the killed detail fetch via live panel state', async () => {
+    const d1 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => d1.promise });
+    render(<Dashboard />);
+    d1.resolve(resp(200, [DOM_A, DOM_B, DOM_C]));
+    await screen.findByText('a.test');
+
+    // C's delete starts while the panel is CLOSED (its handler captures
+    // the stale closed state)
+    const dC = deferred();
+    oneShot.push({ key: 'POST /settings/bulk-delete', fn: () => dC.promise });
+    fireEvent.click(screen.getAllByLabelText('Select')[2]); // c.test
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+
+    // before C's delete returns: inspect B, then delete B
+    await inspectB();
+    const dDetA1 = deferred();
+    oneShot.push({ key: 'GET /domains/1', fn: () => dDetA1.promise });
+    await deleteBThenRespond(resp(200, [DOM_A]));
+    await screen.findByText('Loading aggregate reports…'); // B's reconcile fetch for A is pending
+
+    // C's delete resolves NOW: it invalidates A's pending fetch; its
+    // stale closure says the panel is closed, so it must use the live
+    // state (panel open on A's row) to restart the fetch
+    const dReloadC = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => dReloadC.promise });
+    const aCalls = () =>
+      (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains/1').length;
+    const beforeA = aCalls(); // 1: B's reconcile fetch
+    await act(async () => {
+      dC.resolve(resp(200, {}));
+    });
+    await waitFor(() => expect(aCalls()).toBe(beforeA + 1)); // the restart fired
+    await waitFor(() => expect(listCallCount()).toBeGreaterThanOrEqual(3)); // C's reload applied
+    dReloadC.resolve(resp(200, [DOM_A]));
+    await screen.findByText('5 messages · 4 aligned · 1 failed'); // full record, no false empty state
+    expect(screen.queryByText(/No aggregate reports ingested yet/)).toBeNull();
+  });
+
   test('a failed reconciled detail fetch shows an error state', async () => {
     await renderDashboardWithList();
     await inspectB();
