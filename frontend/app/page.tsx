@@ -23,6 +23,7 @@ import {
   MessageSquare, Send, Upload,
   X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
+import { applyDomainList, clearedDomainPanel } from "@/lib/domainPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -230,10 +231,11 @@ export default function Dashboard() {
   // previous identity's open panel.
   const resetDomainState = () => {
     domainDetailsGenRef.current += 1;
-    domainDetailsIdRef.current = null;
-    setDomains([]);
-    setSelectedDomain(null);
-    setShowDetails(false);
+    const panel = clearedDomainPanel();
+    setDomains(panel.domains);
+    domainDetailsIdRef.current = panel.shownId;
+    setSelectedDomain(panel.selected);
+    setShowDetails(panel.showDetails);
     setDmarcUploading(false);
     setDmarcUploadError(null);
   };
@@ -567,14 +569,14 @@ export default function Dashboard() {
         console.error('Failed to load domains: API returned non-array', data);
         return;
       }
-      setDomains(data);
       // Only auto-select when nothing is selected yet — a reload must
       // not clobber the user's active selection (or an in-flight upload
-      // refresh for it). The shown-domain ref follows the auto-select.
-      if (!selectedDomain && data.length > 0) {
-        domainDetailsIdRef.current = data[0].id;
-        setSelectedDomain(data[0]);
-      }
+      // refresh for it). Failures leave the panel untouched (the
+      // transition helpers are unit-tested in lib/domainPanel).
+      const panel = applyDomainList({ domains, selected: selectedDomain, showDetails, shownId: domainDetailsIdRef.current }, data);
+      setDomains(panel.domains);
+      domainDetailsIdRef.current = panel.shownId;
+      if (panel.selected !== selectedDomain) setSelectedDomain(panel.selected);
     } catch (e) {
       console.error('Failed to load domains:', e);
     } finally {
@@ -1091,7 +1093,8 @@ export default function Dashboard() {
       if (!res.ok || data.error) return;
       // The shown-domain ref follows the successful selection only — a
       // failed Inspect leaves the panel (and the ref) on the previous
-      // domain, so uploads for it keep refreshing.
+      // domain, so uploads for it keep refreshing (transition semantics
+      // unit-tested in lib/domainPanel).
       domainDetailsIdRef.current = domain.id;
       setSelectedDomain(data);
       setShowDetails(true);

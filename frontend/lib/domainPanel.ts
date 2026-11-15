@@ -1,0 +1,40 @@
+// Domain-panel transitions (issue #64 review): pure functions modeling
+// exactly how the dashboard's domain list, details selection and
+// shown-domain ref move across loads, failures and identity switches.
+// Kept framework-free so the identity-boundary behavior is unit-testable
+// (a new identity must never inherit the previous one's domains).
+
+export interface DomainPanelState {
+  domains: any[];
+  selected: any | null;
+  showDetails: boolean;
+  shownId: number | null;
+}
+
+/** Identity switch / logout: nothing of the previous identity survives. */
+export function clearedDomainPanel(): DomainPanelState {
+  return { domains: [], selected: null, showDetails: false, shownId: null };
+}
+
+/** A domain-list load result. `null` data means the load FAILED — the
+ * panel must not be touched (a cleared panel stays cleared; the current
+ * identity's list stays). A successful load keeps an existing selection
+ * and only auto-selects the first domain when nothing is selected. */
+export function applyDomainList(panel: DomainPanelState, data: any[] | null): DomainPanelState {
+  if (data === null) return panel;
+  const selected = panel.selected ?? data[0] ?? null;
+  return {
+    ...panel,
+    domains: data,
+    selected,
+    shownId: panel.selected ? panel.shownId : selected ? selected.id : null,
+  };
+}
+
+/** A domain-details (Inspect) result. A failed load leaves the panel —
+ * and the shown-domain ref — on the previous domain, so uploads for it
+ * keep refreshing. A success moves both selection and shownId. */
+export function applyDomainSelection(panel: DomainPanelState, domain: any, ok: boolean): DomainPanelState {
+  if (!ok) return panel;
+  return { ...panel, selected: domain, showDetails: true, shownId: domain.id };
+}

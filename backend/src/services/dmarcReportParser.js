@@ -242,10 +242,13 @@ class DmarcReportIngestor {
 
   /**
    * Resolve the domain's published reporting destinations from live
-   * DNS. RFC 7489 §6.3: a subdomain without its own record inherits
-   * the organizational domain's policy, so `_dmarc.<target>` NXDOMAIN
-   * falls back to `_dmarc.<org domain>`. Returns the rua targets plus
-   * the domain that publishes the policy (used for §7.1 queries).
+   * DNS. RFC 7489 §6.6.3: when a domain publishes no DMARC record —
+   * whether the name does not exist or it only carries unrelated TXT
+   * records — the organizational domain's policy is inherited. A
+   * transient lookup failure at the target does NOT trigger the
+   * fallback (policy resolution must stay deterministic). Returns the
+   * rua targets plus the domain that publishes the policy (used for
+   * §7.1 queries).
    */
   async resolvePolicyRua(domain) {
     const target = String(domain).toLowerCase();
@@ -255,27 +258,21 @@ class DmarcReportIngestor {
         resolve({ err: null, records: recs || [] });
       });
     });
+    const findDmarc = (records) => records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1'));
 
-    const own = await lookup(`_dmarc.${target}`);
-    if (!own.err) {
-      const rua = ruaTargetsFromRecord(own.records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1')));
-      return { rua, policyDomain: target };
-    }
-
-    // inherit: only fall back when the own lookup was a genuine
-    // not-found/no-data (not a transient failure), and the org domain
-    // actually differs from the target
-    if (!['ENOTFOUND', 'ENODATA'].includes(own.err.code || '')) {
-      return { rua: [], policyDomain: target };
-    }
+    // try the target, then the organizational domain
     const org = psl.get(target);
-    if (!org || org === target) {
-      return { rua: [], policyDomain: target };
-    }
-    const inherited = await lookup(`_dmarc.${org}`);
-    if (!inherited.err) {
-      const rua = ruaTargetsFromRecord(inherited.records.find((c) => c.join('').trim().toLowerCase().startsWith('v=dmarc1')));
-      return { rua, policyDomain: org };
+    const candidates = org && org !== target ? [target, org] : [target];
+    for (const cand of candidates) {
+      const { err, records } = await lookup(`_dmarc.${cand}`);
+      if (err) {
+        if (cand === target && !['ENOTFOUND', 'ENODATA'].includes(err.code || '')) {
+          return { rua: [], policyDomain: target };
+        }
+        continue;
+      }
+      const dmarc = findDmarc(records);
+      if (dmarc) return { rua: ruaTargetsFromRecord(dmarc), policyDomain: cand };
     }
     return { rua: [], policyDomain: target };
   }

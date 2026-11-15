@@ -301,6 +301,32 @@ describe('DmarcReportIngestor', () => {
     assert.deepEqual(insights.extRecChecks, [{ destination: 'thirdparty.example', status: 'authorized' }]);
   });
 
+  test('fallback also runs when the target has TXT records but no DMARC record', async () => {
+    // RFC 7489 §6.6.3: inheritance applies when no DMARC record remains
+    // after filtering — an unrelated TXT at the target is not a policy
+    const ing = fakeResolver({
+      '_dmarc.news.example.com': [['some unrelated txt record']],
+      '_dmarc.example.com': [['v=DMARC1; rua=mailto:agg@thirdparty.example']],
+      'example.com._report._dmarc.thirdparty.example': [['v=DMARC1']],
+    });
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.example.com</header_from></identifiers></record>`;
+    const xml = `<?xml version="1.0"?><feedback><report_metadata><org_name>r</org_name><report_id>x</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published>${subRecord}</feedback>`;
+    const { insights } = await ing.ingest(xml, 'news.example.com');
+    assert.equal(insights.ruaPolicyDomain, 'example.com');
+    assert.deepEqual(insights.extRecChecks, [{ destination: 'thirdparty.example', status: 'authorized' }]);
+  });
+
+  test('org domain without a DMARC record yields no destinations', async () => {
+    const ing = fakeResolver({
+      '_dmarc.news.example.com': [['unrelated txt']],
+    });
+    const subRecord = `<record><row><source_ip>198.51.100.9</source_ip><count>3</count><policy_evaluated><disposition>none</disposition><dkim>pass</dkim><spf>pass</spf></policy_evaluated></row><identifiers><header_from>news.example.com</header_from></identifiers></record>`;
+    const xml = `<?xml version="1.0"?><feedback><report_metadata><org_name>r</org_name><report_id>x</report_id><date_range><begin>1</begin><end>2</end></date_range></report_metadata><policy_published><domain>example.com</domain><p>none</p></policy_published>${subRecord}</feedback>`;
+    const { insights } = await ing.ingest(xml, 'news.example.com');
+    assert.equal(insights.ruaPolicyDomain, 'news.example.com');
+    assert.deepEqual(insights.extRecChecks, []);
+  });
+
   test('ingest without a published DMARC record skips ext-rec checks', async () => {
     const ing = fakeResolver({});
     const { insights } = await ing.ingest(SAMPLE_XML, 'acme.test');
