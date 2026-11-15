@@ -203,6 +203,12 @@ export default function Dashboard() {
   const [showAlertsModal, setShowAlertsModal] = useState(false);
   // DMARC aggregate report ingestion (issue #64)
   const [dmarcUploading, setDmarcUploading] = useState(false);
+  // a detail-record fetch is in flight (Inspect click, or the loadDomains
+  // reconcile for a domain installed from a list row): the report panel
+  // shows a loading state until the full record (with dmarc_reports)
+  // arrives, and an error state if the fetch fails
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  const [detailRefreshError, setDetailRefreshError] = useState<string | null>(null);
   const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
   const dmarcFileRef = useRef<HTMLInputElement>(null);
 
@@ -1161,11 +1167,16 @@ export default function Dashboard() {
     const selGen = ++domainDetailsGenRef.current;
     const seq = ++domainDetailsReqSeq.current;
     domainDetailsPendingRef.current = { id: domain.id, seq };
+    setDetailRefreshError(null);
+    setDetailRefreshing(true);
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
       if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
-      if (!res.ok || data.error) return;
+      if (!res.ok || data.error) {
+        setDetailRefreshError('Failed to load domain details');
+        return;
+      }
       // The shown-domain ref follows the successful selection only — a
       // failed Inspect leaves the panel (and the ref) on the previous
       // domain, so uploads for it keep refreshing (transition semantics
@@ -1173,14 +1184,19 @@ export default function Dashboard() {
       domainDetailsIdRef.current = domain.id;
       setSelectedDomain(data);
       setShowDetails(true);
+      setDetailRefreshing(false);
     } catch (e) {
       console.error('Failed to load domain details:', e);
+      if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
+        setDetailRefreshError('Failed to load domain details');
+      }
     } finally {
       // only the settling request may clear its own pending entry —
       // an older Inspect to the same domain must not clear the
       // newer request's entry
       if (domainDetailsPendingRef.current?.seq === seq) {
         domainDetailsPendingRef.current = null;
+        setDetailRefreshing(false);
       }
     }
   };
@@ -1861,7 +1877,13 @@ export default function Dashboard() {
                   {dmarcUploadError && (
                     <p className="text-xs text-red-500 mb-2">{dmarcUploadError}</p>
                   )}
-                  {selectedDomain.dmarc_reports?.length > 0 ? (
+                  {detailRefreshError ? (
+                    <p className="text-xs text-red-500 mb-2">{detailRefreshError} — the report list below may be incomplete.</p>
+                  ) : null}
+                  {detailRefreshing && !detailRefreshError ? (
+                    <p className="text-xs text-muted-foreground mb-2">Loading aggregate reports…</p>
+                  ) : null}
+                  {!detailRefreshing && selectedDomain.dmarc_reports?.length > 0 ? (
                     <div className="space-y-2">
                       {selectedDomain.dmarc_reports.map((r: any, i: number) => {
                         const ins = r.insights || {};
@@ -1889,9 +1911,9 @@ export default function Dashboard() {
                         );
                       })}
                     </div>
-                  ) : (
+                  ) : !detailRefreshing ? (
                     <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Issues with Tooltips */}

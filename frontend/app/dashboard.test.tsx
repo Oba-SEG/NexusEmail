@@ -21,6 +21,7 @@ const deferred = (): Deferred => {
 };
 
 const DOM_A = { id: 1, name: 'a.test', verified: true, last_score: 90, last_scan: null, latest_scan: null };
+const DOM_A_FULL = { ...DOM_A, dmarc_reports: [{ id: 9, report: { orgName: 'r', reportId: 'x', begin: 1700000000 }, insights: { totalMessages: 5, passingMessages: 4, failingMessages: 1, failingSources: [] } }] };
 const DOM_B = { id: 2, name: 'b.test', verified: true, last_score: 40, last_scan: null, latest_scan: null };
 
 // one-shot responders are consumed FIFO per key before the defaults
@@ -33,7 +34,7 @@ const defaults: Record<string, () => Res> = {
   'GET /settings/config': () => resp(200, {}),
   'POST /domains/2/scan': () => resp(200, {}),
   'GET /domains/2': () => resp(200, DOM_B),
-  'GET /domains/1': () => resp(200, DOM_A),
+  'GET /domains/1': () => resp(200, DOM_A_FULL),
   'POST /settings/bulk-delete': () => resp(200, {}),
 };
 
@@ -156,5 +157,37 @@ describe('Dashboard (real component) — delete/list races', () => {
       expect(screen.getAllByText('a.test').length).toBe(2);
       expect(screen.getByText('DMARC Aggregate Reports')).toBeTruthy();
     });
+    // the detail-record fetch resolved: the stored report shows
+    await screen.findByText('5 messages · 4 aligned · 1 failed');
+  });
+
+  test('the reconciled detail fetch shows a loading state until it settles', async () => {
+    await renderDashboardWithList();
+    await inspectB();
+
+    // the reconciled detail fetch (GET /domains/1) is held in flight
+    const dDet = deferred();
+    oneShot.push({ key: 'GET /domains/1', fn: () => dDet.promise });
+    await deleteBThenRespond(resp(200, [DOM_A]));
+    await screen.findByText('Loading aggregate reports…'); // pending, not a false "no reports"
+    expect(screen.queryByText('No aggregate reports ingested yet')).toBeNull();
+
+    dDet.resolve(resp(200, DOM_A_FULL));
+    await screen.findByText('5 messages · 4 aligned · 1 failed'); // the full record arrived
+    expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
+  });
+
+  test('a failed reconciled detail fetch shows an error state', async () => {
+    await renderDashboardWithList();
+    await inspectB();
+
+    const dDet = deferred();
+    oneShot.push({ key: 'GET /domains/1', fn: () => dDet.promise });
+    await deleteBThenRespond(resp(200, [DOM_A]));
+    await screen.findByText('Loading aggregate reports…');
+
+    dDet.resolve(resp(500, { error: 'boom' }));
+    await screen.findByText(/Failed to load domain details/); // error state, not a false empty state
+    expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
   });
 });

@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/node-20.19+-blue.svg" alt="Node.js">
+  <img src="https://img.shields.io/badge/node-20.19%20%7C%7C%2022.13%2B%20%7C%7C%2024%2B-blue.svg" alt="Node.js">
   <img src="https://img.shields.io/badge/nextjs-14-black.svg" alt="Next.js">
 </p>
 
@@ -29,7 +29,7 @@
 
 ### Prerequisites
 
-- Node.js 20.19+
+- Node.js 20.19, 22.13+, or 24+ (the test toolchain — vitest 3/vite 7/jsdom 29 — requires `^20.19.0 || ^22.13.0 || >=24.0.0`)
 
 ### Installation
 
