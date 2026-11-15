@@ -60,9 +60,9 @@ router.get('/export/csv', async (req, res) => {
 
     for (const d of domains) {
       const scan = await db.getLatestScan(d.id, req.orgId);
-      const results = scan?.results ? JSON.parse(scan.results) : {};
+      const dns = normalizeDnsResults(scan);
       // ?? not ||: a real score of 0 must survive (|| would coerce it to '')
-      csv += `${csvField(d.name)},${csvField(d.provider || 'Manual')},${csvField(scan?.score ?? '')},${csvField(scan?.scanned_at ?? '')},${csvField(d.verified ? 'Yes' : 'No')},${csvField(results.spf?.status || 'N/A')},${csvField(results.dkim?.status || 'N/A')},${csvField(results.dmarc?.status || 'N/A')}\n`;
+      csv += `${csvField(d.name)},${csvField(d.provider || 'Manual')},${csvField(scan?.score ?? '')},${csvField(scan?.scanned_at ?? '')},${csvField(d.verified ? 'Yes' : 'No')},${csvField(dns.spf?.status || 'N/A')},${csvField(dns.dkim?.status || 'N/A')},${csvField(dns.dmarc?.status || 'N/A')}\n`;
     }
 
     res.setHeader('Content-Type', 'text/csv');
