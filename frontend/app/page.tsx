@@ -618,6 +618,11 @@ export default function Dashboard() {
       const stillThere = domainDetailsIdRef.current !== null &&
         presentIds.includes(domainDetailsIdRef.current);
       const shownGone = domainDetailsIdRef.current !== null && !stillThere;
+      // a successful apply consumes any pending reopen intent, even
+      // when the current selection is retained — otherwise a later
+      // reconcile could open the panel without user action
+      const pendingReopen = panelReopenRef.current;
+      panelReopenRef.current = false;
       const pendingId = domainDetailsPendingRef.current ? domainDetailsPendingRef.current.id : null;
       const pendingGone = pendingId !== null && !presentIds.includes(pendingId);
       if (shownGone || pendingGone) {
@@ -644,8 +649,7 @@ export default function Dashboard() {
         // The LIVE visibility (refs, not the render snapshot) decides —
         // a user Close during the flight must not re-open the panel,
         // while a delete's system close may carry over.
-        const liveOpen = panelReopenRef.current || showDetailsRef.current;
-        panelReopenRef.current = false;
+        const liveOpen = pendingReopen || showDetailsRef.current;
         setShowDetailsSync(next.selected ? liveOpen : false);
         if (next.selected && liveOpen) {
           // The reconciled selection came from the list (a row without
@@ -1862,7 +1866,7 @@ export default function Dashboard() {
                   <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
                     <Wrench className="w-4 h-4 mr-1" /> Get Fix Records
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setShowDetailsSync(false)}>Close</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { panelReopenRef.current = false; setShowDetailsSync(false); }}>Close</Button>
                 </div>
               </CardHeader>
               <CardContent>

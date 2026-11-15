@@ -339,6 +339,44 @@ describe('Dashboard (real component) — delete/list races', () => {
     expect(aCalls()).toBe(0); // no unrequested detail fetch
   });
 
+  test('reopen intent expires when the deletion reload retains a newer selection', async () => {
+    await renderDashboardWithList();
+
+    // B open, then delete B: the delete records reopen intent and
+    // clears the panel; the reload is held in flight
+    await inspectB();
+    const dReload = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => dReload.promise });
+    fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
+    fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await waitFor(() => expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull());
+
+    // the deletion reload FAILS: the intent survives (no apply)
+    await act(async () => {
+      dReload.reject(new Error('network'));
+    });
+
+    // the user inspects A manually, then closes the panel — the
+    // explicit Close must clear the stale intent
+    await inspectA();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+
+    // a later reload removes A (returns C): with the intent expired
+    // the reconcile must NOT open C or fetch its details
+    const dReload2 = deferred();
+    oneShot.push({ key: 'GET /domains', fn: () => dReload2.promise });
+    fireEvent.click(screen.getAllByTitle('Re-scan')[0]); // scan a.test
+    await act(async () => {
+      dReload2.resolve(resp(200, [DOM_C]));
+    });
+    await screen.findByText('c.test');
+    expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
+    const cCalls = () =>
+      (global.fetch as any).mock.calls.filter((c: any[]) => keyOf(c[0], c[1]) === 'GET /domains/3').length;
+    expect(cCalls()).toBe(0); // no unrequested detail fetch
+  });
+
   test('a failed reconciled detail fetch shows an error state', async () => {
     await renderDashboardWithList();
     await inspectB();
