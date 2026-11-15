@@ -2,9 +2,12 @@ const dns = require('dns').promises;
 const crypto = require('crypto');
 
 class DomainVerificationService {
-  constructor() {
+  // Resolvers are injectable so tests can run without network access.
+  constructor(options = {}) {
     this.verificationPrefix = '_nexusemail-verification';
     this.verificationTimeout = 5000;
+    this.txtResolver = options.txtResolver || ((name) => dns.resolveTxt(name));
+    this.cnameResolver = options.cnameResolver || ((name) => dns.resolveCname(name));
   }
 
   generateVerificationToken() {
@@ -33,25 +36,39 @@ class DomainVerificationService {
   }
 
   async verifyTXTRecord(domain, token) {
-    try {
-      const txtRecords = await dns.resolveTxt(domain);
-      
+    // The instructions (and the UI) point users at
+    // _nexusemail-verification.<domain> — check that name first, then
+    // fall back to the apex for records placed there directly. Both
+    // value forms pass: the full "<prefix>=<token>" string and the
+    // bare token.
+    let lastError = null;
+    let lookedUp = false;
+    for (const name of [`${this.verificationPrefix}.${domain}`, domain]) {
+      let txtRecords;
+      try {
+        txtRecords = await this.txtResolver(name);
+      } catch (e) {
+        lastError = e;
+        continue;
+      }
+      lookedUp = true;
       for (const record of txtRecords) {
         const combined = record.join('');
         if (combined === `${this.verificationPrefix}=${token}` || combined.includes(token)) {
           return { verified: true, method: 'TXT' };
         }
       }
-      
-      return { verified: false, method: 'TXT', reason: 'TXT record not found' };
-    } catch (e) {
-      return { verified: false, method: 'TXT', reason: e.message };
     }
+
+    if (!lookedUp && lastError) {
+      return { verified: false, method: 'TXT', reason: lastError.message };
+    }
+    return { verified: false, method: 'TXT', reason: 'TXT record not found' };
   }
 
   async verifyCNAMERecord(subdomain, token) {
     try {
-      const cnameRecords = await dns.resolveCname(subdomain);
+      const cnameRecords = await this.cnameResolver(subdomain);
       
       for (const record of cnameRecords) {
         if (record.includes(token)) {
