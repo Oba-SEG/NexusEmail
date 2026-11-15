@@ -38,11 +38,24 @@ function isPrivateIp(ip) {
   }
   const low = ip.toLowerCase();
   if (low === '::' || low === '::1') return true;           // unspecified, loopback
-  if (low.startsWith('fe80:')) return true;                 // link-local
-  if (/^f[cd][0-9a-f]{2}:/.test(low)) return true;          // fc00::/7 unique local
-  // Fail closed: anything that is not a plausible public IPv6 literal
-  // (and was not valid IPv4 above) is treated as blocked.
-  return !/^[0-9a-f:]+$/.test(low) || !low.includes(':');
+  // IPv4-mapped IPv6, dotted (::ffff:10.0.0.1) and hex (::ffff:a00:1)
+  if (low.startsWith('::ffff:')) {
+    const rest = low.slice(7);
+    const hex2 = rest.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (hex2) {
+      const hi = parseInt(hex2[1], 16);
+      const lo = parseInt(hex2[2], 16);
+      return isPrivateIp(`${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`);
+    }
+    return isPrivateIp(rest);
+  }
+  // First hextet range checks: fe80::/10 link-local (plus the deprecated
+  // fec0::/10 site-local), fc00::/7 unique local.
+  const first = parseInt(low.split(':')[0], 16);
+  if (Number.isNaN(first)) return true;                     // fail closed
+  if (first >= 0xfe80 && first <= 0xfeff) return true;      // link/site-local
+  if (first >= 0xfc00 && first <= 0xfdff) return true;      // unique local
+  return false;
 }
 
 /** Fetch the policy file over HTTPS with a size cap, socket timeout,
@@ -155,7 +168,9 @@ class MtaStsAnalyzer {
       return result;
     }
     const candidates = (records || []).map((chunks) => (chunks || []).map(String).join(''));
-    const matching = candidates.filter((r) => /(?:^|\s|;)v\s*=\s*STSv1(?:\s|;|$)/i.test(r));
+    // RFC 8461 §3.1: the record must START with v=STSv1.
+    const STS_RE = /^v\s*=\s*STSv1(?:\s|;|$)/i;
+    const matching = candidates.filter((r) => STS_RE.test(r));
     if (matching.length === 0) {
       result.errors.push('No MTA-STS record found - email not secured with TLS enforcement');
       return result;
@@ -172,7 +187,12 @@ class MtaStsAnalyzer {
     result.found = true;
     result.record = record;
     const tags = parseRecordTags(record);
-    if (!tags.id) result.warnings.push('MTA-STS DNS record is missing the required id= tag (RFC 8461 §3.1)');
+    // RFC 8461 §3.1: id is mandatory; senders must stop discovery for a
+    // syntactically invalid record.
+    if (!tags.id) {
+      result.errors.push('MTA-STS DNS record is missing the required id= tag (RFC 8461 §3.1) — senders must stop discovery for an invalid record');
+      return result;
+    }
     result.policy = tags.id || null;
     // RFC 8461 §3.1: the DNS record only carries v=STSv1 and id= —
     // mode/max_age live in the policy file. Keep DNS-side values as a

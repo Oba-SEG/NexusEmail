@@ -40,15 +40,18 @@ describe('isPrivateIp — SSRF address blocklist', () => {
     for (const ip of [
       '10.0.0.1', '172.16.0.1', '172.31.255.255', '192.168.1.1',
       '127.0.0.1', '169.254.169.254', '0.0.0.0', '100.64.0.1',
-      '::1', '::', 'fe80::1', 'fc00::1', 'fd12:3456::1',
-      '::ffff:169.254.169.254', '::ffff:10.0.0.5', 'not-an-ip',
+      '::1', '::', 'fe80::1', 'fe90::1', 'febf::1', 'fec0::1',
+      'fc00::1', 'fd12:3456::1',
+      '::ffff:169.254.169.254', '::ffff:10.0.0.5',
+      '::ffff:a00:1', '::ffff:0a00:0001',
+      'not-an-ip', '::ffff:zz:zz',
     ]) {
       assert.equal(isPrivateIp(ip), true, `expected ${ip} to be blocked`);
     }
   });
 
   test('allows public addresses', () => {
-    for (const ip of ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111']) {
+    for (const ip of ['1.1.1.1', '8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111', 'fe7f::1']) {
       assert.equal(isPrivateIp(ip), false, `expected ${ip} to be allowed`);
     }
   });
@@ -179,10 +182,20 @@ describe('MtaStsAnalyzer — DNS + policy fetch', () => {
     assert.match(r.errors.join(' '), /no mx: lines/);
   });
 
-  test('DNS record without id warns', async () => {
+  test('DNS record without id is an error and stops discovery', async () => {
     const zone = { '_mta-sts.acme.test': [['v=STSv1; mode=enforce; max_age=86400']] };
     const r = await analyzer(zone, POLICY).analyze('acme.test');
-    assert.match(r.warnings.join(' '), /missing the required id=/);
+    assert.equal(r.found, true);
+    assert.match(r.errors.join(' '), /missing the required id=/);
+    assert.equal(r.policyFetch.status, 'skipped');
+    assert.equal(r.score, 0);
+  });
+
+  test('v=STSv1 must start the record: mid-record versions are discarded', async () => {
+    const zone = { '_mta-sts.acme.test': [['note=example; v=STSv1; id=b;']] };
+    const r = await analyzer(zone, POLICY).analyze('acme.test');
+    assert.equal(r.found, false);
+    assert.match(r.errors.join(' '), /No MTA-STS record found/);
   });
 
   test('multi-chunk TXT records concatenate', async () => {
