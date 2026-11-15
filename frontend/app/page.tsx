@@ -111,6 +111,9 @@ export default function Dashboard() {
   // deleted while the request is in flight)
   const domainDetailsPendingRef = useRef<{ id: number; seq: number } | null>(null);
   const domainDetailsReqSeq = useRef(0);
+  // list-generation: bumped on a successful delete so pre-delete list
+  // responses cannot resurrect deleted domains into the list
+  const domainListGenRef = useRef(0);
   // Brand currently shown in the details modal — responses for any other
   // brand are dropped (session gen can't catch same-session switches).
   const brandDetailsRef = useRef<number | null>(null);
@@ -558,6 +561,7 @@ export default function Dashboard() {
   };
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
+    const listGen = domainListGenRef.current;
     try {
       const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
         domains,
@@ -565,6 +569,9 @@ export default function Dashboard() {
         showDetails,
         shownId: domainDetailsIdRef.current,
       });
+      // A list response that predates a successful delete is stale:
+      // drop it instead of restoring deleted domains into the list.
+      if (listGen !== domainListGenRef.current) return;
       // Generation is re-checked BEFORE any identity reset: a stale load
       // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
@@ -1077,8 +1084,10 @@ export default function Dashboard() {
         // A successful delete may have removed the target of an
         // in-flight Inspect (or the shown domain): invalidate pending
         // detail requests now — before the reload (which may itself
-        // fail) reconciles the panel.
+        // fail) reconciles the panel. Also bump the list generation
+        // so pre-delete list responses are dropped.
         domainDetailsGenRef.current += 1;
+        domainListGenRef.current += 1;
         domainDetailsPendingRef.current = null;
         // If the SHOWN domain was deleted, clear the panel right away:
         // a failed reload must not leave a deleted domain's details

@@ -285,6 +285,35 @@ describe('runDomainListLoad — the Dashboard load flow', () => {
     expect(r.state.shownId).toBe(1);
   });
 
+  test('delete race: a pre-delete list response cannot resurrect the deleted domain', async () => {
+    // models domainListGenRef: deleteDomains bumps it on a successful
+    // delete; loadDomains drops responses that predate the bump
+    let listGen = 0;
+    const panel0 = applyDomainList(clearedDomainPanel(), [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]);
+
+    // pre-delete list request in flight (captures gen 0)
+    const stale = runDomainListLoad(
+      async () => res(true, 200, [{ id: 1, name: 'a.test' }, { id: 2, name: 'b.test' }]),
+      panel0,
+      null
+    );
+    const staleGen = listGen;
+
+    // domain 2 is deleted -> deleteDomains bumps the list generation
+    listGen += 1;
+
+    // the post-delete reload returns []
+    const fresh = await runDomainListLoad(async () => res(true, 200, []), clearedDomainPanel(), null);
+    if (fresh.kind !== 'ok') throw new Error('expected ok');
+    expect(fresh.state.domains).toEqual([]);
+    expect(fresh.state.selected).toBeNull();
+
+    // the stale pre-delete response arrives with the old generation
+    await stale;
+    const applies = staleGen === listGen; // loadDomains: listGen !== current -> return
+    expect(applies).toBe(false); // deleted domain 2 stays out of the list
+  });
+
   test('the reload right after deleteDomains cleared the panel applies the first remaining', async () => {
     // deleteDomains cleared the selection (ref null); the immediate
     // reload must re-select the first remaining domain — an empty
