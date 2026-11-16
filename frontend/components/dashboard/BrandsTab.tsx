@@ -10,6 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify, describeApiError } from "@/components/ui/status";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -47,6 +51,8 @@ export default function BrandsTab({
   const [brandScanResult, setBrandScanResult] = useState<any>(null);
   const [brandScanning, setBrandScanning] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const [brandToDelete, setBrandToDelete] = useState<any>(null);
+  const brandDeleteOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     loadAlerts();
@@ -210,6 +216,26 @@ export default function BrandsTab({
     setBrandTakedowns([]);
     loadBrandThreats(brand.id);
     loadBrandTakedowns(brand.id);
+  };
+
+  const deleteBrand = () => {
+    const brand = brandToDelete;
+    setBrandToDelete(null);
+    const gen = sessionGenRef.current;
+    apiFetch(`${API_BASE}/brands/${brand.id}`, { method: 'DELETE' })
+      .then((res: Response) => {
+        if (gen !== sessionGenRef.current) return;
+        if (!res.ok) {
+          notify('Couldn\'t remove the brand.', 'error', `HTTP ${res.status}`);
+          return;
+        }
+        notify('Brand removed.', 'success');
+        loadBrands(gen);
+      })
+      .catch((e: unknown) => {
+        console.error('Failed to delete brand:', e);
+        if (gen === sessionGenRef.current) notify('Couldn\'t remove the brand.', 'error', 'The request failed.');
+      });
   };
 
   return (
@@ -385,10 +411,7 @@ export default function BrandsTab({
               <Button variant="outline" size="sm" onClick={() => openBrandDetails(brand)}>
                 <Eye className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => {
-                const gen = sessionGenRef.current;
-                apiFetch(`${API_BASE}/brands/${brand.id}`, { method: 'DELETE' }).then(() => loadBrands(gen));
-              }}>
+              <Button variant="ghost" size="sm" aria-label={`Delete brand ${brand.domain}`} onClick={(e) => { brandDeleteOpenerRef.current = e.currentTarget; setBrandToDelete(brand); }}>
                 <Trash2 className="w-4 h-4 text-rose-500" />
               </Button>
             </div>
@@ -765,6 +788,32 @@ export default function BrandsTab({
     </div>
   </div>
 )}
+      <AlertDialog open={!!brandToDelete} onOpenChange={(o) => { if (!o) setBrandToDelete(null); }}>
+        <AlertDialogContent
+          onCloseAutoFocus={(e) => {
+            if (brandDeleteOpenerRef.current) {
+              e.preventDefault();
+              brandDeleteOpenerRef.current.focus();
+            }
+          }}
+        >
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove brand {brandToDelete?.domain}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Monitoring stops and the brand's threat history is deleted. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={(e) => { e.preventDefault(); deleteBrand(); }}
+            >
+              Remove brand
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
