@@ -75,6 +75,11 @@ const openAdminOrg = async (orgId: string) => {
   setAdminLoading(true);
   setAdminDetail(null);
   try {
+    // Session generation is captured before the requests and re-checked
+    // before any follow-up work: an in-flight 401 must never clear the
+    // session of an identity that signed in later (adminGenRef alone only
+    // guards against concurrent detail loads, not identity switches).
+    const sgen = sessionGenRef.current;
     const base = `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}`;
     const [orgR, domR, usrR, scnR, ntR] = await Promise.all([
       apiFetch(base),
@@ -83,6 +88,7 @@ const openAdminOrg = async (orgId: string) => {
       apiFetch(`${base}/scans`),
       apiFetch(`${base}/notifications`),
     ]);
+    if (sgen !== sessionGenRef.current) return;
     if (gen !== adminGenRef.current) return;
     const responses = [orgR, domR, usrR, scnR, ntR];
     if (responses.some((r) => r.status === 401)) {
@@ -95,21 +101,23 @@ const openAdminOrg = async (orgId: string) => {
     }
     // Every section response is checked individually: a failed section is
     // reported as unavailable instead of masquerading as an empty one.
-    const failed = {
-      domains: !domR.ok,
-      users: !usrR.ok,
-      scans: !scnR.ok,
-      notifications: !ntR.ok,
-    };
-    for (const [section, isFailed] of Object.entries(failed)) {
-      if (isFailed) console.error(`Failed to load admin ${section}: response not ok`);
-    }
+    // A 200 whose body fails to parse counts as unavailable too —
+    // "No users" must never stand in for "couldn't read users".
     const safeJson = async (r: any) => {
-      try { return r.ok ? await r.json() : null; } catch { return null; }
+      try { return await r.json(); } catch { return null; }
     };
     const [org, domains, users, scans, notifications] = await Promise.all([
       orgR.json(), safeJson(domR), safeJson(usrR), safeJson(scnR), safeJson(ntR)
     ]);
+    const failed = {
+      domains: !domR.ok || domains === null,
+      users: !usrR.ok || users === null,
+      scans: !scnR.ok || scans === null,
+      notifications: !ntR.ok || notifications === null,
+    };
+    for (const [section, isFailed] of Object.entries(failed)) {
+      if (isFailed) console.error(`Failed to load admin ${section}: response not ok or body unreadable`);
+    }
     if (gen !== adminGenRef.current) return;
     setAdminDetail({
       org,

@@ -14,12 +14,13 @@ interface NotificationsTabProps {
   settings: any;
   onSavePref: (key: string, value: boolean) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
+  loadSettings: () => void;
 }
 
 /** Notifications tab: event preferences + Slack / Resend delivery. Forms
  * live here and unmount with the tab (no webhook URL or API key survives
  * identity change). */
-export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch }: NotificationsTabProps) {
+export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings }: NotificationsTabProps) {
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
   const [testEmailTo, setTestEmailTo] = useState('');
@@ -58,6 +59,7 @@ try {
     return;
   }
   notify('Slack webhook saved.', 'success');
+  loadSettings();
 } catch (e) {
   notify('Slack webhook couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
 } finally {
@@ -92,6 +94,7 @@ try {
     return;
   }
   notify('Resend settings saved.', 'success');
+  loadSettings();
 } catch (e) {
   notify('Resend settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
 } finally {

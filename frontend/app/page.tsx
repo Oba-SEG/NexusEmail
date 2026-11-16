@@ -200,6 +200,9 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    // Tab ownership is Dashboard-level and survives AdminPanel unmount:
+    // a non-admin signing in after an admin must not land on the admin tab.
+    if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
   };
@@ -238,6 +241,7 @@ export default function Dashboard() {
       clearStatusQueue();
       setSettings(null);
       resetDomainState();
+      if (activeTab === 'admin') setActiveTab('domains');
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -282,6 +286,9 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    // Tab ownership is Dashboard-level and survives AdminPanel unmount:
+    // a non-admin signing in after an admin must not land on the admin tab.
+    if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
   };
@@ -1327,6 +1334,7 @@ export default function Dashboard() {
                 settings={settings}
                 onSavePref={saveNotifications}
                 apiFetch={apiFetch}
+                loadSettings={loadSettings}
               />
             </TabsContent>
 
@@ -1339,6 +1347,7 @@ export default function Dashboard() {
                 settings={settings}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
+                loadSettings={loadSettings}
               />
             </TabsContent>
 

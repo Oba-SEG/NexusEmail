@@ -22,6 +22,7 @@ const generateReport = async (domainId: number) => {
   setGeneratingReport(true);
   try {
     const response = await apiFetch(`${API_BASE}/reports/domains/${domainId}/report`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const html = await response.text();
     
     const blob = new Blob([html], { type: 'text/html' });
@@ -41,6 +42,7 @@ const generateReport = async (domainId: number) => {
 const exportCSV = async () => {
   try {
     const response = await apiFetch(`${API_BASE}/reports/export/csv`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -56,6 +58,7 @@ const exportCSV = async () => {
 const exportJSON = async () => {
   try {
     const response = await apiFetch(`${API_BASE}/reports/export/json`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

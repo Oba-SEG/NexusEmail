@@ -12,14 +12,15 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 interface SettingsTabProps {
   settings: any;
-  onSettingsChange: (settings: any) => void;
+  onSettingsChange: (updater: any) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
+  loadSettings: () => void;
 }
 
 /** Settings tab: scanning cadence, auto-remediation, SMTP / Slack / Resend
  * delivery configuration. Delivery forms live here (they unmount with the
  * tab, so no secret survives identity change). */
-export default function SettingsTab({ settings, onSettingsChange, apiFetch }: SettingsTabProps) {
+export default function SettingsTab({ settings, onSettingsChange, apiFetch, loadSettings }: SettingsTabProps) {
   const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [testingSmtp, setTestingSmtp] = useState(false);
 
@@ -39,12 +40,18 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch }: Se
 
 const saveSmtp = async () => {
   try {
-    await apiFetch(`${API_BASE}/settings/smtp`, {
+    const res = await apiFetch(`${API_BASE}/settings/smtp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(smtpForm)
     });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      notify('SMTP settings couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
+      return;
+    }
     notify('SMTP settings saved.', 'success');
+    loadSettings();
   } catch (e) {
     notify('SMTP settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
   }
@@ -65,12 +72,15 @@ const testSmtp = async () => {
 
 const toggleSchedule = async (enabled: boolean) => {
   try {
-    await apiFetch(`${API_BASE}/settings/schedule`, {
+    const res = await apiFetch(`${API_BASE}/settings/schedule`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
     });
-    onSettingsChange({ ...settings, scan_schedule: { ...settings.scan_schedule, enabled } });
+    if (!res.ok) return;
+    // Functional update: two rapid toggles must not resurrect each other's
+    // stale snapshot.
+    onSettingsChange((cur: any) => ({ ...cur, scan_schedule: { ...(cur?.scan_schedule || {}), enabled } }));
   } catch (e) {
     console.error('Failed to toggle schedule:', e);
   }
@@ -78,12 +88,13 @@ const toggleSchedule = async (enabled: boolean) => {
 
 const toggleAutoRemediation = async (enabled: boolean) => {
   try {
-    await apiFetch(`${API_BASE}/settings/auto-remediation`, {
+    const res = await apiFetch(`${API_BASE}/settings/auto-remediation`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled })
     });
-    onSettingsChange({ ...settings, auto_remediation: enabled });
+    if (!res.ok) return;
+    onSettingsChange((cur: any) => ({ ...cur, auto_remediation: enabled }));
   } catch (e) {
     console.error('Failed to toggle auto-remediation:', e);
   }

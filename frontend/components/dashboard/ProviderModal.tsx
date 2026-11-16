@@ -61,13 +61,14 @@ export default function ProviderModal({
           {(PROVIDER_METADATA[selectedProvider.name]?.fields || []).map((field: ProviderField) => (
             <div key={field.key}>
               <div className="flex items-baseline justify-between mb-1.5">
-                <label className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                <label htmlFor={`provider-field-${field.key}`} className="text-xs font-semibold uppercase tracking-wider text-foreground">
                   {field.label}
                   {field.required && <span className="ml-1.5 text-orange-400 normal-case" title="Required">*</span>}
                 </label>
                 {!field.required && <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
               </div>
               <Input
+                id={`provider-field-${field.key}`}
                 type={field.type}
                 value={providerCreds[field.key] || ''}
                 onChange={(e) => onCredsChange({...providerCreds, [field.key]: e.target.value})}

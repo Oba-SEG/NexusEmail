@@ -39,7 +39,7 @@ const saveProviderCredentials = async () => {
   const gen = sessionGenRef.current;
   setSavingProvider(true);
   try {
-    await apiFetch(`${API_BASE}/settings/providers/credentials`, {
+    const res = await apiFetch(`${API_BASE}/settings/providers/credentials`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -48,6 +48,11 @@ const saveProviderCredentials = async () => {
       })
     });
     if (gen === sessionGenRef.current) {
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        notify('Credentials couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
+        return;
+      }
       notify(`${selectedProvider.name} connected.`, 'success');
       setShowProviderModal(false);
       loadSettings();
@@ -60,14 +65,24 @@ const saveProviderCredentials = async () => {
 };
 
 const disconnectProvider = async (providerName: string) => {
+  // Session generation is captured before the request and re-checked after:
+  // follow-up work (toast + settings reload) belongs to the identity that
+  // started it, never to a session signed in later.
+  const gen = sessionGenRef.current;
   try {
-    await apiFetch(`${API_BASE}/settings/providers/credentials/${providerName}`, {
+    const res = await apiFetch(`${API_BASE}/settings/providers/credentials/${providerName}`, {
       method: 'DELETE'
     });
+    if (gen !== sessionGenRef.current) return;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      notify('Couldn\'t disconnect the provider.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
+      return;
+    }
     notify(`${providerName} disconnected.`, 'success');
     loadSettings();
   } catch (e) {
-    notify('Couldn\'t disconnect the provider.', 'error', describeError(e, 'The request failed.'));
+    if (gen === sessionGenRef.current) notify('Couldn\'t disconnect the provider.', 'error', describeError(e, 'The request failed.'));
   }
 };
 
