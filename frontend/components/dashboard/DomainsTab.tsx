@@ -9,6 +9,10 @@ import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/scores";
 import { recordState } from "@/lib/domainPanel";
@@ -58,11 +62,17 @@ export default function DomainsTab({
   const [addDomainError, setAddDomainError] = useState<string | null>(null);
   const [addDomainSuccess, setAddDomainSuccess] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyDomain, setVerifyDomain] = useState<any>(null);
   const [verifyToken, setVerifyToken] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const selectedNames = domains
+    .filter((d: any) => selectedIds.includes(d.id))
+    .map((d: any) => d.name);
+  const shownNames = selectedNames.slice(0, 5);
+  const hiddenCount = selectedNames.length - shownNames.length;
 
   const addDomain = async () => {
     const gen = sessionGenRef.current;
@@ -160,7 +170,6 @@ export default function DomainsTab({
 
   return (
     <>
-
 {/* Hero Search */}
 <div className="mb-6">
   <div className="text-center mb-6 max-w-2xl mx-auto">
@@ -238,7 +247,7 @@ export default function DomainsTab({
         <Button size="sm" className="btn-premium-primary border-0 h-8" onClick={bulkScan} disabled={scanning}>
           <Zap className="w-3.5 h-3.5 mr-1.5" /> Scan {selectedIds.length === 1 ? 'this' : 'these'}
         </Button>
-        <Button size="sm" variant="outline" className="h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={deleteDomains}>
+        <Button size="sm" variant="outline" className="h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={() => setConfirmDelete(true)}>
           <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
         </Button>
         <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={() => setSelectedIds([])}>
@@ -487,6 +496,42 @@ export default function DomainsTab({
     </div>
   </div>
 )}
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length === 1 ? '1 domain' : `${selectedIds.length} domains`}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p className="text-sm text-muted-foreground">
+                  This removes the domains and their scans. It cannot be undone.
+                </p>
+                <ul className="mt-2 space-y-0.5 text-sm text-foreground/90">
+                  {shownNames.map((n: string) => (
+                    <li key={n} className="font-mono">{n}</li>
+                  ))}
+                  {hiddenCount > 0 && <li>+ {hiddenCount} more…</li>}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 text-white"
+              onClick={(e) => {
+                e.preventDefault();
+                setConfirmDelete(false);
+                deleteDomains();
+              }}
+            >
+              Delete {selectedIds.length === 1 ? '1 domain' : `${selectedIds.length} domains`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

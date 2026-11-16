@@ -105,12 +105,19 @@ async function inspectB() {
   await screen.findByText('DMARC Aggregate Reports'); // the details panel is open on b.test
 }
 
+async function confirmDeleteDialog() {
+  // the confirm dialog names the domains; the action button reads
+  // "Delete N domains" / "Delete 1 domain"
+  fireEvent.click(await screen.findByRole('button', { name: /Delete \d+ domain/ }));
+}
+
 async function deleteBThenRespond(reloadResponse: Res) {
   const before = listCallCount();
   const d3 = deferred();
   oneShot.push({ key: 'GET /domains', fn: () => d3.promise });
   fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
   fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+  await confirmDeleteDialog();
   await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the post-delete reload fired
   // resolve AND flush the reload inside act, so loadDomains has fully
   // processed the response (success or failure) before assertions run
@@ -236,6 +243,7 @@ describe('Dashboard (real component) — delete/list races', () => {
     oneShot.push({ key: 'GET /domains', fn: () => d4.promise });
     fireEvent.click(screen.getAllByLabelText('Select')[1]); // c.test
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await confirmDeleteDialog();
     await waitFor(() => expect(listCallCount()).toBe(before + 1)); // the reload fired
     d4.resolve(resp(200, [DOM_A]));
     await waitFor(() => expect(aDetailCalls()).toBe(beforeA + 1)); // the RESTART fired
@@ -256,6 +264,7 @@ describe('Dashboard (real component) — delete/list races', () => {
     oneShot.push({ key: 'POST /settings/bulk-delete', fn: () => dC.promise });
     fireEvent.click(screen.getAllByLabelText('Select')[2]); // c.test
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await confirmDeleteDialog();
 
     // before C's delete returns: inspect B, then delete B
     await inspectB();
@@ -331,6 +340,7 @@ describe('Dashboard (real component) — delete/list races', () => {
     oneShot.push({ key: 'GET /domains', fn: () => dDetA.promise });
     fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await confirmDeleteDialog();
     dDetA.resolve(resp(200, [DOM_A]));
     await new Promise((r) => setTimeout(r, 150));
     expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull();
@@ -349,6 +359,7 @@ describe('Dashboard (real component) — delete/list races', () => {
     oneShot.push({ key: 'GET /domains', fn: () => dReload.promise });
     fireEvent.click(screen.getAllByLabelText('Select')[1]); // b.test
     fireEvent.click(screen.getByRole('button', { name: /Delete/ }));
+    await confirmDeleteDialog();
     await waitFor(() => expect(screen.queryByText('DMARC Aggregate Reports')).toBeNull());
 
     // the deletion reload FAILS: the intent survives (no apply)
