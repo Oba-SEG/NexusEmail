@@ -1,11 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import CopyButton from "@/components/dashboard/CopyButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { recordState, recordToneClass } from "@/lib/domainPanel";
+
+/** Dedupe key: report IDs are only unique per reporter, so the key is
+ * reporter-scoped; fallback keys live in a separate namespace. */
+function reportKey(r: any): string {
+  const org = r.report?.orgName || '?';
+  if (r.report?.reportId) return JSON.stringify(['id', org, r.report.reportId]);
+  return JSON.stringify(['fb', org, r.report?.begin || 0]);
+}
+
+/** Complete failing-source aggregation for one report — the stored
+ * records carry every source, unlike the capped insights list. */
+function failingSources(r: any): { ip: string; count: number }[] {
+  const records = r.report?.records;
+  if (Array.isArray(records)) {
+    const byIp = new Map<string, number>();
+    for (const rec of records) {
+      if (rec.dkimAligned === true || rec.spfAligned === true) continue;
+      const ip = rec.sourceIp || 'unknown';
+      byIp.set(ip, (byIp.get(ip) || 0) + (rec.count || 0));
+    }
+    return Array.from(byIp.entries()).map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count);
+  }
+  return r.insights?.failingSources || [];
+}
 
 interface DomainDetailPanelProps {
   selectedDomain: any;
@@ -37,6 +61,8 @@ export default function DomainDetailPanel({
   onClose,
 }: DomainDetailPanelProps) {
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
+  const [openReports, setOpenReports] = useState<Set<string>>(new Set());
+  const [showAllReports, setShowAllReports] = useState(false);
   const toggleIssue = (key: string) => {
     setOpenIssues((prev) => {
       const next = new Set(prev);
@@ -117,33 +143,110 @@ export default function DomainDetailPanel({
           <p className="text-xs text-muted-foreground mb-2">Loading aggregate reports…</p>
         ) : null}
         {!detailRefreshing && selectedDomain.dmarc_reports?.length > 0 ? (
-          <div className="space-y-2">
-            {selectedDomain.dmarc_reports.map((r: any, i: number) => {
-              const ins = r.insights || {};
-              const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
-              return (
-                <div key={r.id || i} className="p-2 rounded border text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{r.report?.orgName || 'Unknown reporter'}</span>
-                    <span className="text-muted-foreground">
-                      {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''} · {r.report?.reportId || ''}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-muted-foreground">
-                    {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
-                    {(ins.failingSources || []).length > 0 && (
-                      <span> · top fail source: {ins.failingSources[0].ip} ({ins.failingSources[0].count})</span>
-                    )}
-                  </div>
-                  {unauthorized.length > 0 && (
-                    <div className="mt-1 text-amber-500">
-                      External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
-                    </div>
+          (() => {
+            // duplicate ingests of the same report collapse into one row —
+            // the freshest copy wins (insights may differ if DNS changed
+            // between ingests)
+            const groups = new Map<string, any>();
+            for (const r of selectedDomain.dmarc_reports) {
+              const key = reportKey(r);
+              const prev = groups.get(key);
+              if (!prev || (r.id ?? 0) > (prev.id ?? 0)) groups.set(key, r);
+            }
+            const reports = Array.from(groups.values()).sort((a: any, b: any) => (b.report?.begin || 0) - (a.report?.begin || 0));
+            const sourceCount = new Set(
+              reports.flatMap((r: any) => failingSources(r).map((s: any) => s.ip))
+            ).size;
+            const visible = showAllReports ? reports : reports.slice(0, 10);
+            return (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">
+                  {reports.length} report{reports.length === 1 ? '' : 's'} · {sourceCount} unique failing source{sourceCount === 1 ? '' : 's'}
+                  {selectedDomain.dmarc_reports.length > reports.length && (
+                    <> · {selectedDomain.dmarc_reports.length - reports.length} duplicate ingest{selectedDomain.dmarc_reports.length - reports.length === 1 ? '' : 's'} collapsed</>
                   )}
-                </div>
-              );
-            })}
-          </div>
+                </p>
+                {visible.map((r: any) => {
+                  const ins = r.insights || {};
+                  const sources = failingSources(r);
+                  const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
+                  const unresolved = (ins.extRecChecks || []).filter((c: any) => c.status === 'unknown');
+                  const key = reportKey(r);
+                  const open = openReports.has(key);
+                  return (
+                    <div key={key} className="rounded border text-xs overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenReports((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            return next;
+                          });
+                        }}
+                        aria-expanded={open}
+                        className="w-full p-2 text-left cursor-pointer hover:bg-muted/30 transition-colors"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium truncate">{r.report?.orgName || 'Unknown reporter'}</span>
+                          <span className="text-muted-foreground flex-shrink-0">
+                            {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
+                          {sources.length > 0 && (
+                            <> · top fail source: {sources[0].ip} ({sources[0].count})</>
+                          )}
+                        </div>
+                      </button>
+                      {open && (
+                        <div className="px-2 pb-2 space-y-2 border-t pt-2">
+                          <p className="text-muted-foreground">Report ID: {r.report?.reportId || '—'}</p>
+                          {ins.reportedPolicyDomain && (
+                            <p className="text-muted-foreground">Policy domain: {ins.reportedPolicyDomain}</p>
+                          )}
+                          {sources.length > 0 && (
+                            <div>
+                              <p className="font-medium mb-1">Failing sources</p>
+                              <ul className="space-y-0.5 text-muted-foreground">
+                                {sources.map((s: any, si: number) => (
+                                  <li key={si}>{s.ip} — {s.count} message{s.count === 1 ? '' : 's'}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {unauthorized.length > 0 && (
+                            <div className="text-amber-500">
+                              External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
+                            </div>
+                          )}
+                          {unresolved.length > 0 && (
+                            <div className="text-muted-foreground">
+                              Reporting-destination authorization could not be verified (DNS lookup failed) for: {unresolved.map((c: any) => c.destination).join(', ')}
+                            </div>
+                          )}
+                          {sources.length === 0 && unauthorized.length === 0 && unresolved.length === 0 && (
+                            (ins.extRecChecks || []).length > 0 ? (
+                              <p className="text-muted-foreground">No failing sources; all reporting destinations verified authorized.</p>
+                            ) : (
+                              <p className="text-muted-foreground">No failing sources in this report.</p>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {reports.length > 10 && (
+                  <Button variant="ghost" size="sm" onClick={() => setShowAllReports(true)} disabled={showAllReports}>
+                    {showAllReports ? `Showing all ${reports.length}` : `Show all ${reports.length} reports`}
+                  </Button>
+                )}
+              </div>
+            );
+          })()
         ) : !detailRefreshing && !detailRefreshError ? (
           <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
         ) : null}
