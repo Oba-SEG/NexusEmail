@@ -7,6 +7,30 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { recordState, recordToneClass } from "@/lib/domainPanel";
 
+/** Dedupe key: report IDs are only unique per reporter, so the key is
+ * reporter-scoped; fallback keys live in a separate namespace. */
+function reportKey(r: any): string {
+  const org = r.report?.orgName || '?';
+  if (r.report?.reportId) return `id:${org}:${r.report.reportId}`;
+  return `fb:${org}@${r.report?.begin || 0}`;
+}
+
+/** Complete failing-source aggregation for one report — the stored
+ * records carry every source, unlike the capped insights list. */
+function failingSources(r: any): { ip: string; count: number }[] {
+  const records = r.report?.records;
+  if (Array.isArray(records)) {
+    const byIp = new Map<string, number>();
+    for (const rec of records) {
+      if (rec.dkimAligned === true || rec.spfAligned === true) continue;
+      const ip = rec.sourceIp || 'unknown';
+      byIp.set(ip, (byIp.get(ip) || 0) + (rec.count || 0));
+    }
+    return [...byIp.entries()].map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count);
+  }
+  return r.insights?.failingSources || [];
+}
+
 interface DomainDetailPanelProps {
   selectedDomain: any;
   fixRecommendations: any;
@@ -125,13 +149,13 @@ export default function DomainDetailPanel({
             // between ingests)
             const groups = new Map<string, any>();
             for (const r of selectedDomain.dmarc_reports) {
-              const key = r.report?.reportId || `${r.report?.orgName || '?'}@${r.report?.begin || 0}`;
+              const key = reportKey(r);
               const prev = groups.get(key);
               if (!prev || (r.id ?? 0) > (prev.id ?? 0)) groups.set(key, r);
             }
             const reports = Array.from(groups.values()).sort((a: any, b: any) => (b.report?.begin || 0) - (a.report?.begin || 0));
             const sourceCount = new Set(
-              reports.flatMap((r: any) => (r.insights?.failingSources || []).map((s: any) => s.ip))
+              reports.flatMap((r: any) => failingSources(r).map((s: any) => s.ip))
             ).size;
             const visible = showAllReports ? reports : reports.slice(0, 10);
             return (
@@ -144,8 +168,10 @@ export default function DomainDetailPanel({
                 </p>
                 {visible.map((r: any) => {
                   const ins = r.insights || {};
+                  const sources = failingSources(r);
                   const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
-                  const key = r.report?.reportId || `${r.report?.orgName || '?'}@${r.report?.begin || 0}`;
+                  const unresolved = (ins.extRecChecks || []).filter((c: any) => c.status === 'unknown');
+                  const key = reportKey(r);
                   const open = openReports.has(key);
                   return (
                     <div key={key} className="rounded border text-xs overflow-hidden">
@@ -170,8 +196,8 @@ export default function DomainDetailPanel({
                         </div>
                         <div className="mt-1 text-muted-foreground">
                           {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
-                          {(ins.failingSources || []).length > 0 && (
-                            <> · top fail source: {ins.failingSources[0].ip} ({ins.failingSources[0].count})</>
+                          {sources.length > 0 && (
+                            <> · top fail source: {sources[0].ip} ({sources[0].count})</>
                           )}
                         </div>
                       </button>
@@ -181,11 +207,11 @@ export default function DomainDetailPanel({
                           {ins.reportedPolicyDomain && (
                             <p className="text-muted-foreground">Policy domain: {ins.reportedPolicyDomain}</p>
                           )}
-                          {(ins.failingSources || []).length > 0 && (
+                          {sources.length > 0 && (
                             <div>
                               <p className="font-medium mb-1">Failing sources</p>
                               <ul className="space-y-0.5 text-muted-foreground">
-                                {(ins.failingSources || []).map((s: any, si: number) => (
+                                {sources.map((s: any, si: number) => (
                                   <li key={si}>{s.ip} — {s.count} message{s.count === 1 ? '' : 's'}</li>
                                 ))}
                               </ul>
@@ -196,8 +222,17 @@ export default function DomainDetailPanel({
                               External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
                             </div>
                           )}
-                          {(ins.failingSources || []).length === 0 && unauthorized.length === 0 && (
-                            <p className="text-muted-foreground">No failing sources and no reporting-destination issues in this report.</p>
+                          {unresolved.length > 0 && (
+                            <div className="text-muted-foreground">
+                              Reporting-destination authorization could not be verified (DNS lookup failed) for: {unresolved.map((c: any) => c.destination).join(', ')}
+                            </div>
+                          )}
+                          {sources.length === 0 && unauthorized.length === 0 && unresolved.length === 0 && (
+                            (ins.extRecChecks || []).length > 0 ? (
+                              <p className="text-muted-foreground">No failing sources; all reporting destinations verified authorized.</p>
+                            ) : (
+                              <p className="text-muted-foreground">No failing sources in this report.</p>
+                            )
                           )}
                         </div>
                       )}
