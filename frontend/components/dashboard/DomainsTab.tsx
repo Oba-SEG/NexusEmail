@@ -64,6 +64,7 @@ export default function DomainsTab({
   const [addBusy, setAddBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const heroHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyDomain, setVerifyDomain] = useState<any>(null);
@@ -174,7 +175,7 @@ export default function DomainsTab({
 {/* Hero Search */}
 <div className="mb-6">
   <div className="text-center mb-6 max-w-2xl mx-auto">
-    <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight mb-2">
+    <h2 ref={heroHeadingRef} className="font-display text-2xl sm:text-3xl font-bold tracking-tight mb-2">
       Add a domain. Watch its posture.
     </h2>
     <p className="text-sm text-muted-foreground">
@@ -501,9 +502,17 @@ export default function DomainsTab({
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent
           onCloseAutoFocus={(e) => {
-            if (deleteOpenerRef.current) {
+            // Confirming clears the selection, so the bulk-actions bar
+            // (and the opener) can unmount before focus restores. Fall
+            // back to a stable heading when the opener is detached.
+            const opener = deleteOpenerRef.current;
+            if (opener && opener.isConnected) {
               e.preventDefault();
-              deleteOpenerRef.current.focus();
+              opener.focus();
+            } else if (heroHeadingRef.current) {
+              e.preventDefault();
+              heroHeadingRef.current.tabIndex = -1;
+              heroHeadingRef.current.focus();
             }
           }}
         >
