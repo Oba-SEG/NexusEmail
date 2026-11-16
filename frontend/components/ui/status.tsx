@@ -41,6 +41,14 @@ export function notify(title: string, tone: Tone = "info", detail?: string) {
   emit()
 }
 
+// Identity change: a signed-out user's pending statuses must never reach
+// the next user. Called from every session-reset path (logout, auth
+// failure, fresh login).
+export function clearStatusQueue() {
+  items = []
+  emit()
+}
+
 // DNS and network failure strings arrive from the backend or the browser
 // as raw error codes. Operators should never read them unexplained.
 const DNS_HINTS: Array<[RegExp, string]> = [
@@ -123,12 +131,15 @@ export function StatusViewport() {
   const [current, setCurrent] = React.useState<StatusItem[]>([])
   React.useEffect(() => {
     listeners.add(setCurrent)
+    // An item queued before the viewport mounted (e.g. a failed login
+    // fetch resolving during hydration) must still surface.
+    if (items.length) setCurrent([...items])
     return () => { listeners.delete(setCurrent) }
   }, [])
   return (
     <ToastPrimitive.Provider swipeDirection="right">
       {current.map((item) => <StatusCard key={item.id} item={item} />)}
-      <ToastPrimitive.Viewport className="fixed bottom-4 right-4 z-50 flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2 outline-none" />
+      <ToastPrimitive.Viewport className="fixed bottom-4 right-4 z-[60] flex w-[360px] max-w-[calc(100vw-2rem)] flex-col gap-2 outline-none" />
     </ToastPrimitive.Provider>
   )
 }

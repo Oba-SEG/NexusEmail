@@ -29,7 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StatusViewport, notify, describeError, describeApiError } from "@/components/ui/status";
+import { StatusViewport, notify, describeError, describeApiError, clearStatusQueue } from "@/components/ui/status";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -282,6 +282,7 @@ export default function Dashboard() {
     localStorage.removeItem('nexusemail_user');
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
+    clearStatusQueue();
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
@@ -324,6 +325,7 @@ export default function Dashboard() {
       const data = await res.json();
       // New identity: invalidate any in-flight settings responses.
       sessionGenRef.current += 1;
+      clearStatusQueue();
       setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
       setSlackForm({ webhook_url: '' });
       setResendForm({ api_key: '', from: '' });
@@ -371,6 +373,7 @@ export default function Dashboard() {
     localStorage.removeItem('nexusemail_user');
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
+    clearStatusQueue();
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
@@ -384,6 +387,7 @@ export default function Dashboard() {
   if (!token) {
     return (
       <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+        <StatusViewport />
         <Card className="w-full max-w-md bg-slate-900 border-slate-800 text-white">
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Nexus Brand Protection</CardTitle>
@@ -1741,6 +1745,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
+        <StatusViewport />
         <div className="text-center">
           <div className="nbp-mark w-16 h-16 mx-auto mb-5 text-[20px] animate-pulse">NBP</div>
           <p className="font-display text-base font-semibold tracking-tight">Nexus Brand Protection</p>
