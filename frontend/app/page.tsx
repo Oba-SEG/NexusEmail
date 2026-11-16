@@ -1991,16 +1991,16 @@ export default function Dashboard() {
                         <AlertTriangle className="w-4 h-4 text-amber-500" />
                         <span className="text-sm">{issue.message || issue.type || issue}</span>
                         {issue.type === 'SPF' && (
-                          <span className="text-xs text-muted ml-auto" title="Add a TXT record with 'v=spf1 include:_spf.yourdomain.com ~all'">Fix: Add SPF record</span>
+                          <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=spf1 include:_spf.yourdomain.com ~all'">Fix: Add SPF record</span>
                         )}
                         {issue.type === 'DMARC' && (
-                          <span className="text-xs text-muted ml-auto" title="Add a TXT record with 'v=DMARC1; p=quarantine; rua=mailto:reports@yourdomain.com'">Fix: Add DMARC record</span>
+                          <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=DMARC1; p=quarantine; rua=mailto:reports@yourdomain.com'">Fix: Add DMARC record</span>
                         )}
                         {issue.type === 'MTA-STS' && (
-                          <span className="text-xs text-muted ml-auto" title="Add _mta-sts TXT record for SMTP TLS enforcement">Fix: Add MTA-STS record</span>
+                          <span className="text-xs text-muted-foreground ml-auto" title="Add _mta-sts TXT record for SMTP TLS enforcement">Fix: Add MTA-STS record</span>
                         )}
                         {issue.type === 'TLS-RPT' && (
-                          <span className="text-xs text-muted ml-auto" title="Add _smtp._tls TXT record for TLS reporting">Fix: Add TLS-RPT record</span>
+                          <span className="text-xs text-muted-foreground ml-auto" title="Add _smtp._tls TXT record for TLS reporting">Fix: Add TLS-RPT record</span>
                         )}
                       </div>
                     ))}
@@ -2014,26 +2014,26 @@ export default function Dashboard() {
                     <div className="grid gap-2 text-xs font-mono">
                       {fixRecommendations.recommended_records?.spf && (
                         <div className="p-2 bg-background rounded border">
-                          <span className="text-muted">SPF:</span> {fixRecommendations.recommended_records.spf.recommended}
+                          <span className="text-muted-foreground">SPF:</span> {fixRecommendations.recommended_records.spf.recommended}
                         </div>
                       )}
                       {fixRecommendations.recommended_records?.dmarc && (
                         <div className="p-2 bg-background rounded border">
-                          <span className="text-muted">DMARC:</span> {fixRecommendations.recommended_records.dmarc.recommended}
+                          <span className="text-muted-foreground">DMARC:</span> {fixRecommendations.recommended_records.dmarc.recommended}
                         </div>
                       )}
                       {fixRecommendations.recommended_records?.mta_sts && (
                         <div className="p-2 bg-background rounded border">
-                          <span className="text-muted">MTA-STS:</span> {fixRecommendations.recommended_records.mta_sts.recommended}
+                          <span className="text-muted-foreground">MTA-STS:</span> {fixRecommendations.recommended_records.mta_sts.recommended}
                         </div>
                       )}
                       {fixRecommendations.recommended_records?.tls_rpt && (
                         <div className="p-2 bg-background rounded border">
-                          <span className="text-muted">TLS-RPT:</span> {fixRecommendations.recommended_records.tls_rpt.recommended}
+                          <span className="text-muted-foreground">TLS-RPT:</span> {fixRecommendations.recommended_records.tls_rpt.recommended}
                         </div>
                       )}
                     </div>
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                       Provider: {fixRecommendations.email_provider?.provider} | Auto-fix: {fixRecommendations.auto_fix_supported ? 'Supported' : 'Manual only'}
                     </p>
                   </div>
@@ -3122,7 +3122,7 @@ export default function Dashboard() {
                                   {brandScanResult.typosquatting.slice(0, 10).map((t: any, i: number) => (
                                     <div key={i} className="p-1 bg-background rounded truncate">{t.domain}</div>
                                   ))}
-                                  {brandScanResult.typosquatting.length > 10 && <p className="text-muted">+{brandScanResult.typosquatting.length - 10} more</p>}
+                                  {brandScanResult.typosquatting.length > 10 && <p className="text-muted-foreground">+{brandScanResult.typosquatting.length - 10} more</p>}
                                 </div>
                               )}
                             </div>
@@ -3155,7 +3155,7 @@ export default function Dashboard() {
                                   {brandScanResult.impersonation.slice(0, 10).map((imp: any, i: number) => (
                                     <div key={i} className="p-1 bg-background rounded truncate">{imp.domain}</div>
                                   ))}
-                                  {brandScanResult.impersonation.length > 10 && <p className="text-muted">+{brandScanResult.impersonation.length - 10} more</p>}
+                                  {brandScanResult.impersonation.length > 10 && <p className="text-muted-foreground">+{brandScanResult.impersonation.length - 10} more</p>}
                                 </div>
                               )}
                             </div>
