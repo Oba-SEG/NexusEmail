@@ -99,6 +99,7 @@ function StatusCard({ item }: { item: StatusItem }) {
     <ToastPrimitive.Root
       open
       duration={DURATION_MS[item.tone]}
+      role="status"
       onOpenChange={(open) => { if (!open) dismissStatus(item.id) }}
       className={cn(
         "group pointer-events-auto relative flex items-start gap-3 rounded-lg border p-4 shadow-lg",
