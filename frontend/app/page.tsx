@@ -33,6 +33,26 @@ import { StatusViewport, notify, describeError, describeApiError, clearStatusQue
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+// Score bands — one definition used by every surface (KPI strip, filter
+// pills, score rings, admin badges). The same score must mean the same
+// thing everywhere. Unscored domains are 'unknown', never 'failed'
+// (unknown is a state, not an error).
+const PASSING_SCORE = 80;
+const WARNING_SCORE = 50;
+type ScoreBand = 'passing' | 'warnings' | 'failed' | 'unknown';
+function scoreBand(score: unknown): ScoreBand {
+  if (typeof score !== 'number') return 'unknown';
+  if (score >= PASSING_SCORE) return 'passing';
+  if (score >= WARNING_SCORE) return 'warnings';
+  return 'failed';
+}
+function filterByBand(list: any[], band: string | null): any[] {
+  if (band === 'passing' || band === 'warnings' || band === 'failed') {
+    return list.filter((d: any) => scoreBand(d.last_score) === band);
+  }
+  return list;
+}
+
 // Scan rows exist in two storage shapes: object fields (spf/dkim/dmarc,
 // scheduler + /scans/run) and flat *_status fields plus *_record JSON
 // strings (audit routes; their *_status is always 'UNKNOWN' because
@@ -1199,25 +1219,6 @@ export default function Dashboard() {
     }
   };
 
-  const getScoreColor = (score) => {
-    if (score >= 70) return "text-emerald-400";
-    if (score >= 40) return "text-amber-400";
-    return "text-rose-400";
-  };
-
-  const getScoreRing = (score) => {
-    if (score >= 70) return "stroke-emerald-500";
-    if (score >= 40) return "stroke-amber-500";
-    return "stroke-rose-500";
-  };
-
-  const stats = {
-    total: domains.length,
-    passing: domains.filter(d => (d.last_score || 0) >= 70).length,
-    warnings: domains.filter(d => (d.last_score || 0) >= 40 && (d.last_score || 0) < 70).length,
-    failed: domains.filter(d => (d.last_score || 0) < 40).length
-  };
-
   // Selection generation for domain details — same pattern as the brand
   // details: every open bumps it so an overlapping load or a slow upload
   // refresh for an earlier domain can't overwrite the newer selection.
@@ -2041,28 +2042,6 @@ export default function Dashboard() {
             </Card>
           )}
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-            {[
-              { label: "Total Domains", value: stats.total, icon: Globe, color: "indigo", filter: null },
-              { label: "Passing", value: stats.passing, icon: CheckCircle, color: "emerald", filter: "passing" },
-              { label: "Warnings", value: stats.warnings, icon: AlertTriangle, color: "amber", filter: "warnings" },
-              { label: "Failed", value: stats.failed, icon: XCircle, color: "rose", filter: "failed" },
-            ].map((stat, i) => (
-              <Card key={i} className="border-border/40 cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => { setActiveTab("domains"); setDomainFilter(stat.filter); }}>
-                <CardContent className="p-4 flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-xl bg-${stat.color}-500/10 flex items-center justify-center`}>
-                    <stat.icon className={`w-6 h-6 text-${stat.color}-500`} />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold">{stat.value}</p>
-                    <p className="text-sm text-muted-foreground">{stat.label}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
           {/* Main Content */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
             <TabsList className="bg-white/[0.03] border border-white/5 p-1 h-auto flex-wrap rounded-xl">
@@ -2120,13 +2099,13 @@ export default function Dashboard() {
                 const avgScore = scoredDomains.length > 0
                   ? Math.round(scoredDomains.reduce((s: number, d: any) => s + (d.last_score || 0), 0) / scoredDomains.length)
                   : null;
-                const atRisk = domains.filter((d: any) => typeof d.last_score === 'number' && d.last_score < 80).length;
-                const avgScoreColor = avgScore == null ? 'text-muted-foreground' : avgScore >= 80 ? 'text-emerald-400' : avgScore >= 50 ? 'text-amber-400' : 'text-red-400';
+                const atRisk = scoredDomains.filter((d: any) => scoreBand(d.last_score) !== 'passing').length;
+                const avgScoreColor = avgScore == null ? 'text-muted-foreground' : avgScore >= PASSING_SCORE ? 'text-emerald-400' : avgScore >= WARNING_SCORE ? 'text-amber-400' : 'text-red-400';
                 const stats = [
                   { label: 'Total domains', value: total, hint: `${total === 1 ? 'domain' : 'domains'} on file`, icon: Globe, accent: 'text-foreground' },
                   { label: 'Verified', value: verified, hint: `${total - verified} pending verification`, icon: CheckCircle, accent: verified === total ? 'text-emerald-400' : 'text-foreground' },
-                  { label: 'Avg health', value: avgScore == null ? '—' : `${avgScore}`, hint: avgScore == null ? 'No scans yet' : avgScore >= 80 ? 'Strong posture' : avgScore >= 50 ? 'Fixes recommended' : 'Action required', icon: Activity, accent: avgScoreColor },
-                  { label: 'At risk', value: atRisk, hint: atRisk === 0 ? 'No domains below 80' : `${atRisk} below threshold`, icon: AlertTriangle, accent: atRisk > 0 ? 'text-amber-400' : 'text-emerald-400' },
+                  { label: 'Avg health', value: avgScore == null ? '—' : `${avgScore}`, hint: avgScore == null ? 'No scans yet' : avgScore >= PASSING_SCORE ? 'Strong posture' : avgScore >= WARNING_SCORE ? 'Fixes recommended' : 'Action required', icon: Activity, accent: avgScoreColor },
+                  { label: 'At risk', value: atRisk, hint: atRisk === 0 ? `No domains below ${PASSING_SCORE}` : `${atRisk} below threshold`, icon: AlertTriangle, accent: atRisk > 0 ? 'text-amber-400' : 'text-emerald-400' },
                 ];
                 return (
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -2150,9 +2129,9 @@ export default function Dashboard() {
                   <p className="text-xs text-muted-foreground mr-1">Filter:</p>
                   {[
                     { key: null, label: 'All', count: domains.length },
-                    { key: 'passing', label: 'Passing', count: domains.filter((d: any) => (d.last_score || 0) >= 80).length },
-                    { key: 'warnings', label: 'Warnings', count: domains.filter((d: any) => (d.last_score || 0) >= 50 && (d.last_score || 0) < 80).length },
-                    { key: 'failed', label: 'Failed', count: domains.filter((d: any) => (d.last_score || 0) < 50 && d.last_score != null).length },
+                    { key: 'passing', label: 'Passing', count: filterByBand(domains, 'passing').length },
+                    { key: 'warnings', label: 'Warnings', count: filterByBand(domains, 'warnings').length },
+                    { key: 'failed', label: 'Failed', count: filterByBand(domains, 'failed').length },
                   ].map((f) => {
                     const active = domainFilter === f.key;
                     return (
@@ -2193,19 +2172,13 @@ export default function Dashboard() {
                       <span>Select all</span>
                     </button>
                     <div className="hairline flex-1" />
-                    <span>{((domainFilter === 'passing' ? domains.filter((d: any) => (d.last_score || 0) >= 80) :
-                            domainFilter === 'warnings' ? domains.filter((d: any) => (d.last_score || 0) >= 50 && (d.last_score || 0) < 80) :
-                            domainFilter === 'failed' ? domains.filter((d: any) => (d.last_score || 0) < 50 && d.last_score != null) :
-                            domains).length)} shown</span>
+                    <span>{filterByBand(domains, domainFilter).length} shown</span>
                   </div>
 
-                  {((domainFilter === 'passing' ? domains.filter((d: any) => (d.last_score || 0) >= 80) :
-                    domainFilter === 'warnings' ? domains.filter((d: any) => (d.last_score || 0) >= 50 && (d.last_score || 0) < 80) :
-                    domainFilter === 'failed' ? domains.filter((d: any) => (d.last_score || 0) < 50 && d.last_score != null) :
-                    domains)).map((domain: any) => {
+                  {filterByBand(domains, domainFilter).map((domain: any) => {
                     const score = domain.last_score;
                     const hasScore = typeof score === 'number';
-                    const scoreColor = !hasScore ? '#94a3b8' : score >= 80 ? '#86efac' : score >= 50 ? '#fbbf24' : '#fca5a5';
+                    const scoreColor = !hasScore ? '#94a3b8' : scoreBand(score) === 'passing' ? '#86efac' : scoreBand(score) === 'warnings' ? '#fbbf24' : '#fca5a5';
                     const scoreRing = !hasScore ? 0 : Math.max(0, Math.min(100, score));
                     const isSelected = selectedIds.includes(domain.id);
                     const lastScanAgo = (() => {
@@ -3282,7 +3255,7 @@ export default function Dashboard() {
                             <span className="truncate font-medium">{d.name}</span>
                             <span className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
                               {d.verified ? 'verified' : 'unverified'}
-                              <Badge variant="outline" className={typeof d.last_score === 'number' ? (d.last_score >= 80 ? 'text-emerald-400 border-emerald-400/30' : d.last_score >= 50 ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
+                              <Badge variant="outline" className={typeof d.last_score === 'number' ? (scoreBand(d.last_score) === 'passing' ? 'text-emerald-400 border-emerald-400/30' : scoreBand(d.last_score) === 'warnings' ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
                             </span>
                           </div>
                         ))}
