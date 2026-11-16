@@ -1418,6 +1418,7 @@ export default function Dashboard() {
 
   const saveProviderCredentials = async () => {
     if (!selectedProvider) return;
+    const gen = sessionGenRef.current;
     setSavingProvider(true);
     try {
       await apiFetch(`${API_BASE}/settings/providers/credentials`, {
@@ -1428,13 +1429,15 @@ export default function Dashboard() {
           credentials: providerCreds
         })
       });
-      notify(`${selectedProvider.name} connected.`, 'success');
-      setShowProviderModal(false);
-      loadSettings();
+      if (gen === sessionGenRef.current) {
+        notify(`${selectedProvider.name} connected.`, 'success');
+        setShowProviderModal(false);
+        loadSettings();
+      }
     } catch (e) {
-      notify('Credentials couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
+      if (gen === sessionGenRef.current) notify('Credentials couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
     } finally {
-      setSavingProvider(false);
+      if (gen === sessionGenRef.current) setSavingProvider(false);
     }
   };
 
