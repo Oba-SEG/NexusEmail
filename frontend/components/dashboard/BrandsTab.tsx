@@ -412,7 +412,7 @@ export default function BrandsTab({
                 } finally {
                   setBrandScanning(false);
                 }
-              }}>
+              }} disabled={brandScanning}>
                 <Search className="w-4 h-4 mr-1" /> Scan
               </Button>
               <Button variant="outline" size="sm" onClick={(e) => { brandDetailsOpenerRef.current = e.currentTarget; openBrandDetails(brand); }}>
@@ -429,40 +429,17 @@ export default function BrandsTab({
 
     {/* Scan Results Display */}
     {brandScanning && (
-      <div className="mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30 space-y-3">
+      <div className="mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
         <div className="flex items-center gap-3">
           <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-medium">Scanning brand protection...</span>
+          <span className="text-sm font-medium">Scanning brand surface…</span>
         </div>
-
-        {/* Progress Hints */}
-        <div className="space-y-2 text-xs">
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[0]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[0]?.complete ? '✓' : '○'} Detecting DNS provider
-          </div>
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[1]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[1]?.complete ? '✓' : '○'} Checking typosquatting variations
-          </div>
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[2]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[2]?.complete ? '✓' : '○'} Checking lookalike domains
-          </div>
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[3]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[3]?.complete ? '✓' : '○'} Checking subdomain abuse
-          </div>
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[4]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[4]?.complete ? '✓' : '○'} Checking social media variants
-          </div>
-          <div className={`flex items-center gap-2 ${brandScanResult?.progress?.[5]?.complete ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-            {brandScanResult?.progress?.[5]?.complete ? '✓' : '○'} Checking homograph attacks
-          </div>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="h-2 bg-muted rounded-full overflow-hidden">
-          <div className="h-full bg-orange-500 transition-all duration-300" style={{ 
-            width: `${(brandScanResult?.progress?.filter((p: any) => p.complete).length || 0) * 16.67}%` 
-          }} />
-        </div>
+        {/* Honest status: the backend reports progress only when the scan
+            completes, so a stepwise checklist here would be a lie. An
+            indeterminate state with a real duration expectation isn't. */}
+        <p className="text-xs text-muted-foreground mt-2">
+          DNS lookups across typosquatting, lookalike, subdomain and homograph checks — usually takes 10–30 seconds. The result replaces this note when it lands.
+        </p>
       </div>
     )}
 
