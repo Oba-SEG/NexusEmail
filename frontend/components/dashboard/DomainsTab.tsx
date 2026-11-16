@@ -14,7 +14,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  Dialog, DialogContent, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
 } from "@/components/ui/dialog";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/scores";
@@ -67,6 +67,7 @@ export default function DomainsTab({
   const [addBusy, setAddBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const verifyOpenerRef = useRef<HTMLButtonElement | null>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -415,7 +416,7 @@ export default function DomainsTab({
                       </span>
                     ) : (
                       <button
-                        onClick={() => openVerifyModal(domain)}
+                        onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
                         className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex-shrink-0 transition-colors"
                       >
                         <AlertTriangle className="w-2.5 h-2.5" /> Verify
@@ -457,7 +458,7 @@ export default function DomainsTab({
 
 {showVerifyModal && verifyDomain && (
   <Dialog open onOpenChange={(o) => { if (!o) setShowVerifyModal(false); }}>
-    <DialogContent className="bg-background rounded-lg w-full max-w-lg">
+    <DialogContent className="bg-background rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(verifyOpenerRef)}>
       <div className="mb-4">
         <DialogTitle className="text-lg font-bold">Verify Domain Ownership</DialogTitle>
         <DialogDescription className="text-sm text-muted-foreground mt-1">

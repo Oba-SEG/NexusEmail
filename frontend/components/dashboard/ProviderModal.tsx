@@ -2,7 +2,7 @@
 
 import { Key, CheckCircle, RefreshCw } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ interface ProviderModalProps {
   savingProvider: boolean;
   onSave: () => void;
   onClose: () => void;
+  openerRef?: React.RefObject<HTMLButtonElement | null>;
 }
 
 /** Configure-provider modal. Presentational: all state and persistence live
@@ -27,10 +28,14 @@ export default function ProviderModal({
   savingProvider,
   onSave,
   onClose,
+  openerRef,
 }: ProviderModalProps) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0">
+      <DialogContent
+        className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0"
+        onCloseAutoFocus={openerRef ? dialogFocusReturn(openerRef) : undefined}
+      >
       {/* Hero — provider brand strip */}
       {(() => {
         const brand = providerBrand(selectedProvider.name);

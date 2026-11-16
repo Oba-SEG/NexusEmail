@@ -87,6 +87,28 @@ const DialogDescription = React.forwardRef<
 ))
 DialogDescription.displayName = DialogPrimitive.Description.displayName
 
+/** Focus-return handler for controlled dialogs (no DialogTrigger):
+ * restores focus to the recorded opener, falling back to a stable
+ * element when the opener unmounted during the dialog's lifetime. */
+export function dialogFocusReturn(
+  openerRef: React.RefObject<HTMLElement | null>,
+  fallbackRef?: React.RefObject<HTMLElement | null>,
+) {
+  return (e: Event) => {
+    const opener = openerRef.current;
+    if (opener && opener.isConnected) {
+      e.preventDefault();
+      opener.focus();
+      return;
+    }
+    if (fallbackRef && fallbackRef.current) {
+      e.preventDefault();
+      fallbackRef.current.tabIndex = -1;
+      fallbackRef.current.focus();
+    }
+  };
+}
+
 export {
   Dialog,
   DialogPortal,
