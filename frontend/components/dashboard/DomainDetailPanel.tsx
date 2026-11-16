@@ -26,7 +26,7 @@ function failingSources(r: any): { ip: string; count: number }[] {
       const ip = rec.sourceIp || 'unknown';
       byIp.set(ip, (byIp.get(ip) || 0) + (rec.count || 0));
     }
-    return [...byIp.entries()].map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count);
+    return Array.from(byIp.entries()).map(([ip, count]) => ({ ip, count })).sort((a, b) => b.count - a.count);
   }
   return r.insights?.failingSources || [];
 }
