@@ -11,8 +11,8 @@ import { recordState, recordToneClass } from "@/lib/domainPanel";
  * reporter-scoped; fallback keys live in a separate namespace. */
 function reportKey(r: any): string {
   const org = r.report?.orgName || '?';
-  if (r.report?.reportId) return `id:${org}:${r.report.reportId}`;
-  return `fb:${org}@${r.report?.begin || 0}`;
+  if (r.report?.reportId) return JSON.stringify(['id', org, r.report.reportId]);
+  return JSON.stringify(['fb', org, r.report?.begin || 0]);
 }
 
 /** Complete failing-source aggregation for one report — the stored
