@@ -13,6 +13,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
+} from "@/components/ui/dialog";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/scores";
 import { recordState } from "@/lib/domainPanel";
@@ -64,6 +67,7 @@ export default function DomainsTab({
   const [addBusy, setAddBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const verifyOpenerRef = useRef<HTMLButtonElement | null>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
@@ -412,7 +416,7 @@ export default function DomainsTab({
                       </span>
                     ) : (
                       <button
-                        onClick={() => openVerifyModal(domain)}
+                        onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
                         className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex-shrink-0 transition-colors"
                       >
                         <AlertTriangle className="w-2.5 h-2.5" /> Verify
@@ -453,13 +457,13 @@ export default function DomainsTab({
     )}
 
 {showVerifyModal && verifyDomain && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowVerifyModal(false)}>
-    <div className="bg-background border rounded-lg w-full max-w-lg p-6" onClick={(e) => e.stopPropagation()}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold">Verify Domain Ownership</h3>
-        <Button variant="ghost" size="sm" onClick={() => setShowVerifyModal(false)}>
-          <XCircle className="w-5 h-5" />
-        </Button>
+  <Dialog open onOpenChange={(o) => { if (!o) setShowVerifyModal(false); }}>
+    <DialogContent className="bg-background rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(verifyOpenerRef)}>
+      <div className="mb-4">
+        <DialogTitle className="text-lg font-bold">Verify Domain Ownership</DialogTitle>
+        <DialogDescription className="text-sm text-muted-foreground mt-1">
+          Prove ownership of {verifyDomain.name} with a DNS record to unlock email security features.
+        </DialogDescription>
       </div>
 
       <p className="text-sm text-muted-foreground mb-4">
@@ -495,8 +499,8 @@ export default function DomainsTab({
           <Button variant="ghost" onClick={() => setShowVerifyModal(false)}>Cancel</Button>
         </div>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 )}
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>

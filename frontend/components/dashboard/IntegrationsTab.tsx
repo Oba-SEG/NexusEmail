@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Settings, X, Zap, Plug, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ProviderModal from "@/components/dashboard/ProviderModal";
+import { dialogFocusReturn } from "@/components/ui/dialog";
 import { DNS_PROVIDERS, providerBrand, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 
@@ -23,6 +24,10 @@ interface IntegrationsTabProps {
  * busy flags survive). */
 export default function IntegrationsTab({ settings, loadSettings, sessionGenRef, apiFetch }: IntegrationsTabProps) {
   const [showProviderModal, setShowProviderModal] = useState(false);
+  const providerOpenerRef = useRef<HTMLButtonElement | null>(null);
+  // a save flips Configure -> Reconfigure (the opener unmounts), so the
+  // dialog's focus return needs a stable fallback
+  const integrationsHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerCreds, setProviderCreds] = useState<any>({});
   const [savingProvider, setSavingProvider] = useState(false);
@@ -113,7 +118,7 @@ const testProviderConnection = async (provider: any) => {
     <>
             <div>
               <p className="eyebrow mb-2">Integrations</p>
-              <h2 className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
+              <h2 ref={integrationsHeadingRef} className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
               <p className="text-sm text-muted-foreground">
                 Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
               </p>
@@ -230,7 +235,7 @@ const testProviderConnection = async (provider: any) => {
                                   size="sm"
                                   variant="outline"
                                   className="text-[11px] h-8 px-2 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
-                                  onClick={() => openProviderModal(provider)}
+                                  onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
                                   title="Reconfigure"
                                 >
                                   <Settings className="w-3 h-3" />
@@ -250,7 +255,7 @@ const testProviderConnection = async (provider: any) => {
                                 size="sm"
                                 variant="outline"
                                 className="w-full text-[11px] h-8 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
-                                onClick={() => openProviderModal(provider)}
+                                onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
                               >
                                 <Plug className="w-3 h-3 mr-1.5" /> Configure
                               </Button>
@@ -271,6 +276,8 @@ const testProviderConnection = async (provider: any) => {
         savingProvider={savingProvider}
         onSave={saveProviderCredentials}
         onClose={() => setShowProviderModal(false)}
+        openerRef={providerOpenerRef}
+        fallbackRef={integrationsHeadingRef}
       />
     )}
     </>

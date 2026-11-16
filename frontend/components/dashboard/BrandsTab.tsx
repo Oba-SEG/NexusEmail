@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify, describeApiError } from "@/components/ui/status";
 import {
+  Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
+} from "@/components/ui/dialog";
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -52,6 +55,10 @@ export default function BrandsTab({
   const [brandScanning, setBrandScanning] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
+  const brandDetailsOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const takedownOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const threatOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const alertsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const brandDeleteOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -256,7 +263,7 @@ export default function BrandsTab({
     </div>
     <div className="flex gap-2 flex-shrink-0">
       {brandAlerts.length > 0 && (
-        <Button variant="outline" size="sm" className="border-red-500/30 bg-red-500/5 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={() => setShowAlertsModal(true)}>
+        <Button variant="outline" size="sm" className="border-red-500/30 bg-red-500/5 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
           <Bell className="w-4 h-4 mr-1.5" /> Alerts
           <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[10px] font-bold leading-none">{brandAlerts.length}</span>
         </Button>
@@ -408,7 +415,7 @@ export default function BrandsTab({
               }}>
                 <Search className="w-4 h-4 mr-1" /> Scan
               </Button>
-              <Button variant="outline" size="sm" onClick={() => openBrandDetails(brand)}>
+              <Button variant="outline" size="sm" onClick={(e) => { brandDetailsOpenerRef.current = e.currentTarget; openBrandDetails(brand); }}>
                 <Eye className="w-4 h-4" />
               </Button>
               <Button variant="ghost" size="sm" aria-label={`Delete brand ${brand.domain}`} onClick={(e) => { brandDeleteOpenerRef.current = e.currentTarget; setBrandToDelete(brand); }}>
@@ -576,24 +583,21 @@ export default function BrandsTab({
 
 {/* Brand Details Modal */}
 {selectedBrand && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedBrand(null)}>
-    <div className="bg-background border rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+  <Dialog open onOpenChange={(o) => { if (!o) setSelectedBrand(null); }}>
+    <DialogContent className="bg-background rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(brandDetailsOpenerRef)}>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-bold">{selectedBrand.domain}</h3>
-          <p className="text-sm text-muted-foreground">{selectedBrand.brand_name}</p>
+          <DialogTitle className="text-lg font-bold">{selectedBrand.domain}</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">{selectedBrand.brand_name}</DialogDescription>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setSelectedBrand(null)}>
-          <XCircle className="w-5 h-5" />
-        </Button>
       </div>
 
       <div className="space-y-6">
         <div className="flex gap-2">
-          <Button size="sm" onClick={() => setShowTakedownModal(true)}>
+          <Button size="sm" onClick={(e) => { takedownOpenerRef.current = e.currentTarget; setShowTakedownModal(true); }}>
             <Zap className="w-4 h-4 mr-1" /> Submit Takedown
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setShowThreatModal(true)}>
+          <Button variant="outline" size="sm" onClick={(e) => { threatOpenerRef.current = e.currentTarget; setShowThreatModal(true); }}>
             <AlertTriangle className="w-4 h-4 mr-1" /> Add Threat
           </Button>
         </div>
@@ -678,14 +682,14 @@ export default function BrandsTab({
           </div>
         )}
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 )}
 
 {showTakedownModal && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowTakedownModal(false)}>
-    <div className="bg-background border rounded-lg w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-      <h3 className="text-lg font-bold mb-4">Submit Takedown Request</h3>
+  <Dialog open onOpenChange={(o) => { if (!o) setShowTakedownModal(false); }}>
+    <DialogContent className="bg-background rounded-lg w-full max-w-md max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(takedownOpenerRef)}>
+      <DialogTitle className="text-lg font-bold mb-4">Submit Takedown Request</DialogTitle>
       <div className="space-y-4">
         <div>
           <label className="text-sm">Domain</label>
@@ -713,14 +717,14 @@ export default function BrandsTab({
           <Button variant="ghost" onClick={() => setShowTakedownModal(false)}>Cancel</Button>
         </div>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 )}
 
 {showThreatModal && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowThreatModal(false)}>
-    <div className="bg-background border rounded-lg w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-      <h3 className="text-lg font-bold mb-4">Add Manual Threat</h3>
+  <Dialog open onOpenChange={(o) => { if (!o) setShowThreatModal(false); }}>
+    <DialogContent className="bg-background rounded-lg w-full max-w-md max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(threatOpenerRef)}>
+      <DialogTitle className="text-lg font-bold mb-4">Add Manual Threat</DialogTitle>
       <div className="space-y-4">
         <div>
           <label className="text-sm">Domain</label>
@@ -752,18 +756,15 @@ export default function BrandsTab({
           <Button variant="ghost" onClick={() => setShowThreatModal(false)}>Cancel</Button>
         </div>
       </div>
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 )}
 
 {showAlertsModal && (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAlertsModal(false)}>
-    <div className="bg-background border rounded-lg w-full max-w-lg max-h-[80vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+  <Dialog open onOpenChange={(o) => { if (!o) setShowAlertsModal(false); }}>
+    <DialogContent className="bg-background rounded-lg w-full max-w-lg max-h-[80vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(alertsOpenerRef)}>
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold">Threat Alerts ({brandAlerts.length})</h3>
-        <Button variant="ghost" size="sm" onClick={() => setShowAlertsModal(false)}>
-          <XCircle className="w-5 h-5" />
-        </Button>
+        <DialogTitle className="text-lg font-bold">Threat Alerts ({brandAlerts.length})</DialogTitle>
       </div>
       {brandAlerts.length === 0 ? (
         <p className="text-muted-foreground text-center py-8">No alerts</p>
@@ -785,8 +786,8 @@ export default function BrandsTab({
           ))}
         </div>
       )}
-    </div>
-  </div>
+    </DialogContent>
+  </Dialog>
 )}
       <AlertDialog open={!!brandToDelete} onOpenChange={(o) => { if (!o) setBrandToDelete(null); }}>
         <AlertDialogContent
