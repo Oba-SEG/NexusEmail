@@ -283,6 +283,7 @@ export default function Dashboard() {
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
+    setSavingProvider(false);
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
@@ -326,6 +327,7 @@ export default function Dashboard() {
       // New identity: invalidate any in-flight settings responses.
       sessionGenRef.current += 1;
       clearStatusQueue();
+      setSavingProvider(false);
       setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
       setSlackForm({ webhook_url: '' });
       setResendForm({ api_key: '', from: '' });
@@ -374,6 +376,7 @@ export default function Dashboard() {
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
+    setSavingProvider(false);
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
