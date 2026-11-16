@@ -53,6 +53,10 @@ export default function Dashboard() {
   const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
   const dmarcFileRef = useRef<HTMLInputElement>(null);
   const [fixRecommendations, setFixRecommendations] = useState<any>(null);
+  // analysis results kept per requested domain — a row-level "Get fix
+  // records" for a domain that isn't shown still lands, and is applied
+  // when that domain is opened in the panel
+  const fixResultsRef = useRef<Map<number, any>>(new Map());
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   // Bumped on every identity change (login, logout, auth failure). Async
@@ -336,6 +340,9 @@ export default function Dashboard() {
       // (deleted) is replaced by the auto-selected first domain, or
       // cleared (closing the panel) when the list is empty.
       const presentIds = next.domains.map((d: any) => d.id);
+      for (const id of Array.from(fixResultsRef.current.keys())) {
+        if (!presentIds.includes(id)) fixResultsRef.current.delete(id);
+      }
       const stillThere = domainDetailsIdRef.current !== null &&
         presentIds.includes(domainDetailsIdRef.current);
       const shownGone = domainDetailsIdRef.current !== null && !stillThere;
@@ -541,7 +548,7 @@ export default function Dashboard() {
       // failed Inspect leaves the panel (and the ref) on the previous
       // domain, so uploads for it keep refreshing (transition semantics
       // unit-tested in lib/domainPanel).
-      if (domainDetailsIdRef.current !== domain.id) setFixRecommendations(null);
+      setFixRecommendations(fixResultsRef.current.get(domain.id) ?? null);
       domainDetailsIdRef.current = domain.id;
       shownIsFullRef.current = true;
       setSelectedDomainSync(data);
@@ -629,11 +636,13 @@ export default function Dashboard() {
         return;
       }
 
-      // the operator may have switched domains while the analysis ran —
-      // don't pin old records onto the newly selected domain
-      if (domainDetailsIdRef.current !== domainId) return;
-      setFixRecommendations(data);
-      setShowDetailsSync(true);
+      fixResultsRef.current.set(domainId, data);
+      // apply immediately only when this is still the shown domain and
+      // the panel is open — otherwise the records surface when the
+      // operator opens that domain (no surprise panel reopen)
+      if (domainDetailsIdRef.current === domainId && showDetailsRef.current) {
+        setFixRecommendations(data);
+      }
     } catch (e) {
       notify('Couldn\'t analyze this domain.', 'error', describeError(e, 'The analysis request failed.'));
     }

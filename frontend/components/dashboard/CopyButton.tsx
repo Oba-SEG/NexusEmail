@@ -29,6 +29,8 @@ export default function CopyButton({ value, label, className }: CopyButtonProps)
         document.body.appendChild(ta);
         ta.select();
         ok = document.execCommand("copy");
+      } catch {
+        ok = false;
       } finally {
         document.body.removeChild(ta);
       }
