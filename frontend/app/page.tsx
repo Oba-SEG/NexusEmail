@@ -23,94 +23,38 @@ import {
   MessageSquare, Send, Upload,
   X, LogOut, Building2, ArrowLeft
 } from "lucide-react";
-import { clearedDomainPanel, runDomainListLoad } from "@/lib/domainPanel";
+import { clearedDomainPanel, runDomainListLoad, recordState, recordToneClass } from "@/lib/domainPanel";
+import { DNS_PROVIDERS, PROVIDER_BRAND, PROVIDER_METADATA, providerBrand, type ProviderField, type ProviderMeta } from "@/lib/providers";
+import ProviderModal from "@/components/dashboard/ProviderModal";
+import IntegrationsTab from "@/components/dashboard/IntegrationsTab";
+import SettingsTab from "@/components/dashboard/SettingsTab";
+import NotificationsTab from "@/components/dashboard/NotificationsTab";
+import ReportsTab from "@/components/dashboard/ReportsTab";
+import AdminPanel from "@/components/dashboard/AdminPanel";
+import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { StatusViewport, notify, describeError, describeApiError, clearStatusQueue } from "@/components/ui/status";
+import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/scores";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-
-// Score bands — one definition used by every surface (KPI strip, filter
-// pills, score rings, admin badges). The same score must mean the same
-// thing everywhere. Unscored domains are 'unknown', never 'failed'
-// (unknown is a state, not an error).
-const PASSING_SCORE = 80;
-const WARNING_SCORE = 50;
-type ScoreBand = 'passing' | 'warnings' | 'failed' | 'unknown';
-function scoreBand(score: unknown): ScoreBand {
-  if (typeof score !== 'number') return 'unknown';
-  if (score >= PASSING_SCORE) return 'passing';
-  if (score >= WARNING_SCORE) return 'warnings';
-  return 'failed';
-}
-function filterByBand(list: any[], band: string | null): any[] {
-  if (band === 'passing' || band === 'warnings' || band === 'failed') {
-    return list.filter((d: any) => scoreBand(d.last_score) === band);
-  }
-  return list;
-}
 
 // Scan rows exist in two storage shapes: object fields (spf/dkim/dmarc,
 // scheduler + /scans/run) and flat *_status fields plus *_record JSON
 // strings (audit routes; their *_status is always 'UNKNOWN' because
 // auditEngine objects carry no status). Mirror of the backend's
 // normalizeDnsResults: resolve a display row per record.
-function parseMaybeJson(v: any): any {
-  if (v == null) return null;
-  if (typeof v === 'object') return v;
-  try { return JSON.parse(v); } catch { return null; }
-}
-
-function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: string; tone: 'pass' | 'fail' | 'warn' | 'none' } {
-  if (!scan) return { label: 'Unknown', tone: 'none' };
-  const selectorsForDkim = key === 'dkim' ? parseMaybeJson(scan.dkim_selectors) : null;
-  const obj = parseMaybeJson(scan[key])
-    ?? (key === 'dkim' ? null : parseMaybeJson(scan[`${key}_record`]))
-    ?? (Array.isArray(selectorsForDkim) ? { found: selectorsForDkim.length > 0, selectors: selectorsForDkim } : null);
-  const flat = scan[`${key}_status`];
-
-  let status: string | null = null;
-  if (flat && flat !== 'UNKNOWN' && typeof flat === 'string') status = flat;
-  else if (obj?.status) status = String(obj.status);
-  else if (obj == null) status = flat ? String(flat) : null;
-  else if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) {
-    // Validation errors beat found:true (+all, p=none); absent records
-    // (ENOTFOUND / "No X record found") are NOT_FOUND, not ERROR.
-    const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])].filter(Boolean).join(' ');
-    if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found/i.test(msgs)) status = 'NOT_FOUND';
-    else status = 'ERROR';
-  } else if (obj.found) status = 'FOUND';
-  else status = 'NOT_FOUND';
-
-  if (!status) return { label: 'Unknown', tone: 'none' };
-
-  const selectors = Array.isArray(selectorsForDkim) ? selectorsForDkim : (Array.isArray(obj?.selectors) ? obj.selectors : []);
-  const policy = obj?.policy ?? null;
-  const enforcing = key === 'spf' ? (policy === 'hardfail' || policy === 'softfail')
-    : key === 'dmarc' ? (policy === 'reject' || policy === 'quarantine')
-    : selectors.length > 0;
-
-  if (status === 'FOUND' || status === 'pass') {
-    if (key === 'dkim') return { label: selectors.length ? `${selectors.length} selector${selectors.length === 1 ? '' : 's'}` : 'Found', tone: 'pass' };
-    if (policy) return { label: String(policy), tone: enforcing ? 'pass' : 'warn' };
-    return { label: 'Found', tone: 'warn' };
-  }
-  if (status === 'NOT_FOUND') return { label: 'Not found', tone: 'fail' };
-  if (status === 'ERROR') return { label: 'Error', tone: 'fail' };
-  return { label: status, tone: 'warn' };
-}
-
-const recordToneClass: Record<string, string> = {
-  pass: 'border-emerald-500 bg-emerald-500/10',
-  fail: 'border-red-500 bg-red-500/10',
-  warn: 'border-amber-500 bg-amber-500/10',
-  none: 'border-white/10 bg-white/5'
-};
-
 export default function Dashboard() {
+
+  const [dmarcUploading, setDmarcUploading] = useState(false);
+  const [detailRefreshing, setDetailRefreshing] = useState(false);
+  const [detailRefreshError, setDetailRefreshError] = useState<string | null>(null);
+  const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
+  const dmarcFileRef = useRef<HTMLInputElement>(null);
+  const [fixRecommendations, setFixRecommendations] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   // Bumped on every identity change (login, logout, auth failure). Async
@@ -148,24 +92,13 @@ export default function Dashboard() {
   const brandDetailsGenRef = useRef(0);
   // Platform admin (issue #24): org list + drill-down, all read-only.
   const isAdmin = user?.platform_role === 'platform_admin';
-  const [adminOrgs, setAdminOrgs] = useState<any[] | null>(null);
-  const [adminOrgsError, setAdminOrgsError] = useState<string | null>(null);
-  const [adminDetail, setAdminDetail] = useState<any>(null);
-  const [adminLoading, setAdminLoading] = useState(false);
   // Bumped on every org open/close so a slower earlier drill-down
   // response can never overwrite a newer selection (same lesson as
   // brandDetailsGenRef).
-  const adminGenRef = useRef(0);
   // Admin password set (issue #43): inline per-user reset form.
-  const [pwResetFor, setPwResetFor] = useState<string | null>(null);
-  const [pwResetValue, setPwResetValue] = useState('');
-  const [pwResetError, setPwResetError] = useState<string | null>(null);
-  const [pwResetBusy, setPwResetBusy] = useState(false);
-  const [pwResetDone, setPwResetDone] = useState<string | null>(null);
   // Form-operation generation: bumped whenever the open reset form or
   // organization changes; a password response from an earlier form
   // generation must not touch the current one's state.
-  const pwFormGenRef = useRef(0);
   const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
@@ -192,19 +125,9 @@ export default function Dashboard() {
   const [addDomainError, setAddDomainError] = useState<string | null>(null);
   const [addDomainSuccess, setAddDomainSuccess] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
-  const [fixRecommendations, setFixRecommendations] = useState<any>(null);
   const [integrations, setIntegrations] = useState([]);
   const [notifications, setNotifications] = useState<any>({});
   const [settings, setSettings] = useState<any>(null);
-  const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-  const [testingSmtp, setTestingSmtp] = useState(false);
-  const [slackForm, setSlackForm] = useState({ webhook_url: '' });
-  const [savingSlack, setSavingSlack] = useState(false);
-  const [testingSlack, setTestingSlack] = useState(false);
-  const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
-  const [testEmailTo, setTestEmailTo] = useState('');
-  const [savingResend, setSavingResend] = useState(false);
-  const [testingResend, setTestingResend] = useState(false);
   const [activeTab, setActiveTab] = useState("domains");
   const [brands, setBrands] = useState([]);
   const [showAddBrand, setShowAddBrand] = useState(false);
@@ -218,12 +141,6 @@ export default function Dashboard() {
   const [brandScanning, setBrandScanning] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
-  const [reportDomainId, setReportDomainId] = useState<number | null>(null);
-  const [generatingReport, setGeneratingReport] = useState(false);
-  const [showProviderModal, setShowProviderModal] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<any>(null);
-  const [providerCreds, setProviderCreds] = useState<any>({});
-  const [savingProvider, setSavingProvider] = useState(false);
   
   // Brand Protection Advanced
   const [monitoredBrands, setMonitoredBrands] = useState<any[]>([]);
@@ -238,15 +155,10 @@ export default function Dashboard() {
   const [bulkScanning, setBulkScanning] = useState(false);
   const [showAlertsModal, setShowAlertsModal] = useState(false);
   // DMARC aggregate report ingestion (issue #64)
-  const [dmarcUploading, setDmarcUploading] = useState(false);
   // a detail-record fetch is in flight (Inspect click, or the loadDomains
   // reconcile for a domain installed from a list row): the report panel
   // shows a loading state until the full record (with dmarc_reports)
   // arrives, and an error state if the fetch fails
-  const [detailRefreshing, setDetailRefreshing] = useState(false);
-  const [detailRefreshError, setDetailRefreshError] = useState<string | null>(null);
-  const [dmarcUploadError, setDmarcUploadError] = useState<string | null>(null);
-  const dmarcFileRef = useRef<HTMLInputElement>(null);
 
   const apiFetch = (url: string, options: any = {}) => fetch(url, {
     ...options,
@@ -259,23 +171,6 @@ export default function Dashboard() {
   // T163b — explicit, narrow logout on detected stale session. Called only by
   // Identity change: admin drill-down state must not survive into another
   // session, and a non-admin must never land on the admin tab.
-  const resetAdminState = () => {
-    adminGenRef.current += 1;
-    setAdminOrgs(null);
-    setAdminOrgsError(null);
-    setAdminDetail(null);
-    setAdminLoading(false);
-    pwFormGenRef.current += 1;
-    setPwResetFor(null);
-    setPwResetValue('');
-    setPwResetError(null);
-    setPwResetDone(null);
-    // pwResetBusy is intentionally left alone — it belongs to the
-    // in-flight request, which clears it in its own finally (see
-    // closeAdminOrg). The busy guard blocks new submissions meanwhile,
-    // across identity changes included.
-    if (activeTab === 'admin') setActiveTab('domains');
-  };
 
   // Domain details and its private report data must not survive an
   // identity change either: a new sign-in must never inherit the
@@ -303,15 +198,7 @@ export default function Dashboard() {
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
-    setSavingProvider(false);
-    setShowProviderModal(false);
-    setSelectedProvider(null);
-    setProviderCreds({});
-    setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-    setSlackForm({ webhook_url: '' });
-    setResendForm({ api_key: '', from: '' });
     setSettings(null);
-    resetAdminState();
     resetDomainState();
     setToken(null);
     setUser(null);
@@ -333,7 +220,6 @@ export default function Dashboard() {
     loadSettings();
     loadBrands();
     loadAlerts();
-    if (user?.platform_role === 'platform_admin') loadAdminOrgs();
   }, [token]);
 
   const login = async () => {
@@ -350,16 +236,8 @@ export default function Dashboard() {
       // New identity: invalidate any in-flight settings responses.
       sessionGenRef.current += 1;
       clearStatusQueue();
-      setSavingProvider(false);
-      setShowProviderModal(false);
-      setSelectedProvider(null);
-      setProviderCreds({});
-      setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-      setSlackForm({ webhook_url: '' });
-      setResendForm({ api_key: '', from: '' });
       setSettings(null);
-      resetAdminState();
-    resetDomainState();
+      resetDomainState();
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -402,15 +280,7 @@ export default function Dashboard() {
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
-    setSavingProvider(false);
-    setShowProviderModal(false);
-    setSelectedProvider(null);
-    setProviderCreds({});
-    setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-    setSlackForm({ webhook_url: '' });
-    setResendForm({ api_key: '', from: '' });
     setSettings(null);
-    resetAdminState();
     resetDomainState();
     setToken(null);
     setUser(null);
@@ -726,198 +596,17 @@ export default function Dashboard() {
     }
   };
 
-  const loadAdminOrgs = async (gen: number = sessionGenRef.current) => {
-    try {
-      setAdminOrgsError(null);
-      // Back to the loading state for every (re)load — a Retry after an
-      // error must not flash 'No organizations found.' while the request
-      // is still in flight.
-      setAdminOrgs(null);
-      const res = await apiFetch(`${API_BASE}/admin/organizations`);
-      if (gen !== sessionGenRef.current) return;
-      if (res.status === 401) {
-        handleAuthFailure();
-        return;
-      }
-      if (!res.ok) {
-        console.error(`Failed to load admin organizations: HTTP ${res.status}`);
-        setAdminOrgs([]);
-        setAdminOrgsError(`Could not load organizations (HTTP ${res.status}).`);
-        return;
-      }
-      const data = await res.json();
-      if (gen !== sessionGenRef.current) return;
-      setAdminOrgs(Array.isArray(data) ? data : []);
-    } catch (e) {
-      console.error('Failed to load admin organizations:', e);
-      if (gen !== sessionGenRef.current) return;
-      setAdminOrgs([]);
-      setAdminOrgsError('Could not load organizations (network error).');
-    }
-  };
-
-  const openAdminOrg = async (orgId: string) => {
-    adminGenRef.current += 1;
-    const gen = adminGenRef.current;
-    setAdminLoading(true);
-    setAdminDetail(null);
-    try {
-      const base = `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}`;
-      const [orgR, domR, usrR, scnR, ntR] = await Promise.all([
-        apiFetch(base),
-        apiFetch(`${base}/domains`),
-        apiFetch(`${base}/users`),
-        apiFetch(`${base}/scans`),
-        apiFetch(`${base}/notifications`),
-      ]);
-      if (gen !== adminGenRef.current) return;
-      const responses = [orgR, domR, usrR, scnR, ntR];
-      if (responses.some((r) => r.status === 401)) {
-        handleAuthFailure();
-        return;
-      }
-      if (!orgR.ok) {
-        console.error(`Failed to load organization: HTTP ${orgR.status}`);
-        return;
-      }
-      // Every section response is checked individually: a failed section is
-      // reported as unavailable instead of masquerading as an empty one.
-      const failed = {
-        domains: !domR.ok,
-        users: !usrR.ok,
-        scans: !scnR.ok,
-        notifications: !ntR.ok,
-      };
-      for (const [section, isFailed] of Object.entries(failed)) {
-        if (isFailed) console.error(`Failed to load admin ${section}: response not ok`);
-      }
-      const safeJson = async (r: any) => {
-        try { return r.ok ? await r.json() : null; } catch { return null; }
-      };
-      const [org, domains, users, scans, notifications] = await Promise.all([
-        orgR.json(), safeJson(domR), safeJson(usrR), safeJson(scnR), safeJson(ntR)
-      ]);
-      if (gen !== adminGenRef.current) return;
-      setAdminDetail({
-        org,
-        domains: Array.isArray(domains) ? domains : [],
-        users: Array.isArray(users) ? users : [],
-        scans: Array.isArray(scans) ? scans : [],
-        notifications: notifications || {},
-        failed,
-      });
-    } catch (e) {
-      console.error('Failed to load organization detail:', e);
-    } finally {
-      if (gen === adminGenRef.current) setAdminLoading(false);
-    }
-  };
-
-  const closeAdminOrg = () => {
-    adminGenRef.current += 1;
-    pwFormGenRef.current += 1;
-    setAdminDetail(null);
-    setPwResetFor(null);
-    setPwResetValue('');
-    setPwResetError(null);
-    // pwResetBusy deliberately NOT cleared: it is owned by the in-flight
-    // request (the only one the busy guard allows) and cleared solely in
-    // that request's finally — clearing it here would let a reopen start
-    // a second request whose busy state the first one could then clobber.
-  };
-
-  const submitPasswordReset = async (orgId: string, userId: string) => {
-    // Enter and the Set button share this handler: block every submission
-    // path while one is in flight (the Set button is disabled, the input
-    // is not).
-    if (pwResetBusy) return;
-    if (pwResetValue.length < 8) {
-      setPwResetError('At least 8 characters.');
-      return;
-    }
-    // Capture both generations before the request: a response from an
-    // earlier session (logout/login elsewhere) or an earlier form
-    // generation (admin switched to another user's reset form or org)
-    // must not apply its updates to the current state.
-    const sgen = sessionGenRef.current;
-    const fgen = pwFormGenRef.current;
-    setPwResetBusy(true);
-    setPwResetError(null);
-    try {
-      const res = await apiFetch(
-        `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/password`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: pwResetValue })
-        }
-      );
-      if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
-      if (res.status === 401) {
-        handleAuthFailure();
-        return;
-      }
-      if (!res.ok) {
-        let message = `HTTP ${res.status}`;
-        try {
-          const data = await res.json();
-          if (data?.error) message = data.error;
-        } catch { /* keep HTTP status */ }
-        if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
-        setPwResetError(message);
-        return;
-      }
-      if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
-      setPwResetFor(null);
-      setPwResetValue('');
-      setPwResetDone(userId);
-      setTimeout(() => setPwResetDone((cur) => (cur === userId ? null : cur)), 4000);
-    } catch (e) {
-      console.error('Password set failed:', e);
-      if (sgen === sessionGenRef.current && fgen === pwFormGenRef.current) {
-        setPwResetError('Network error.');
-      }
-    } finally {
-      // The busy flag is request-owned: this submission is the only one
-      // the guard ever lets in flight (it is never cleared anywhere else
-      // — form close, org close, and identity change all keep it), so
-      // clearing it here can never stomp a second request's state.
-      setPwResetBusy(false);
-    }
-  };
-
   const loadSettings = async () => {
     // Tag this request with the current session generation; if logout,
     // auth failure, or a new login happens while it is in flight, the
-    // response is stale and must not touch the new identity's forms.
+    // response is stale and must not touch the new identity's state.
     const gen = sessionGenRef.current;
     try {
-      // Reset to a known-empty state first so settings from a previous
-      // session never leak into a new identity's forms.
-      setSlackForm({ webhook_url: '' });
-      setResendForm({ api_key: '', from: '' });
       const res = await apiFetch(`${API_BASE}/settings/config`);
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
       setSettings(data);
       setNotifications(data.notifications || {});
-      if (data.smtp_config) {
-        setSmtpForm({
-          host: data.smtp_config.host || '',
-          port: String(data.smtp_config.port || 587),
-          secure: data.smtp_config.secure || false,
-          user: data.smtp_config.user || '',
-          pass: '',
-          from: data.smtp_config.from || ''
-        });
-      } else {
-        setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
-      }
-      if (data.slack_webhook) setSlackForm({ webhook_url: data.slack_webhook });
-      if (data.resend_config) {
-        setResendForm({ api_key: data.resend_config.api_key || '', from: data.resend_config.from || '' });
-        if (data.resend_config.from) setTestEmailTo(data.resend_config.from);
-      }
     } catch (e) {
       console.error('Failed to load settings:', e);
     }
@@ -934,131 +623,6 @@ export default function Dashboard() {
       setNotifications(current);
     } catch (e) {
       console.error('Failed to save notifications:', e);
-    }
-  };
-
-  const saveSmtp = async () => {
-    try {
-      await apiFetch(`${API_BASE}/settings/smtp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(smtpForm)
-      });
-      notify('SMTP settings saved.', 'success');
-    } catch (e) {
-      notify('SMTP settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-    }
-  };
-
-  const testSmtp = async () => {
-    setTestingSmtp(true);
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/smtp/test`, { method: 'POST' });
-      const data = await res.json();
-      notify(data.success ? 'SMTP connection successful.' : 'SMTP connection failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
-    } catch (e) {
-      notify('SMTP test failed.', 'error', describeError(e, 'The test could not be run.'));
-    } finally {
-      setTestingSmtp(false);
-    }
-  };
-
-  const saveSlack = async () => {
-    setSavingSlack(true);
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/slack`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(slackForm)
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        notify('Slack webhook couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
-        return;
-      }
-      notify('Slack webhook saved.', 'success');
-    } catch (e) {
-      notify('Slack webhook couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-    } finally {
-      setSavingSlack(false);
-    }
-  };
-
-  const testSlack = async () => {
-    setTestingSlack(true);
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/slack/test`, { method: 'POST' });
-      const data = await res.json();
-      notify(data.success ? 'Slack test message sent.' : 'Slack test failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
-    } catch (e) {
-      notify('Slack test failed.', 'error', describeError(e, 'The test could not be run.'));
-    } finally {
-      setTestingSlack(false);
-    }
-  };
-
-  const saveResend = async () => {
-    setSavingResend(true);
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/resend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(resendForm)
-      });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        notify('Resend settings couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
-        return;
-      }
-      notify('Resend settings saved.', 'success');
-    } catch (e) {
-      notify('Resend settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-    } finally {
-      setSavingResend(false);
-    }
-  };
-
-  const testResend = async () => {
-    if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
-    setTestingResend(true);
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/resend/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: testEmailTo })
-      });
-      const data = await res.json();
-      notify(data.success ? 'Test email sent. Check the inbox — and the spam folder.' : 'Test email failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
-    } catch (e) {
-      notify('Test email failed.', 'error', describeError(e, 'The test could not be run.'));
-    } finally {
-      setTestingResend(false);
-    }
-  };
-
-  const toggleSchedule = async (enabled: boolean) => {
-    try {
-      await apiFetch(`${API_BASE}/settings/schedule`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      });
-      setSettings({ ...settings, scan_schedule: { ...settings.scan_schedule, enabled } });
-    } catch (e) {
-      console.error('Failed to toggle schedule:', e);
-    }
-  };
-
-  const toggleAutoRemediation = async (enabled: boolean) => {
-    try {
-      await apiFetch(`${API_BASE}/settings/auto-remediation`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
-      });
-      setSettings({ ...settings, auto_remediation: enabled });
-    } catch (e) {
-      console.error('Failed to toggle auto-remediation:', e);
     }
   };
 
@@ -1371,392 +935,8 @@ export default function Dashboard() {
     }
   };
 
-  const generateReport = async (domainId: number) => {
-    setGeneratingReport(true);
-    try {
-      const response = await apiFetch(`${API_BASE}/reports/domains/${domainId}/report`);
-      const html = await response.text();
-      
-      const blob = new Blob([html], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `report-${domainId}-${Date.now()}.html`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      notify('Couldn\'t generate the report.', 'error', describeError(e, 'The report request failed.'));
-    } finally {
-      setGeneratingReport(false);
-    }
-  };
 
-  const exportCSV = async () => {
-    try {
-      const response = await apiFetch(`${API_BASE}/reports/export/csv`);
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'nexusemail-domains.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      notify('Couldn\'t export the CSV.', 'error', describeError(e, 'The export request failed.'));
-    }
-  };
 
-  const exportJSON = async () => {
-    try {
-      const response = await apiFetch(`${API_BASE}/reports/export/json`);
-      const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'nexusemail-domains.json';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      notify('Couldn\'t export the JSON.', 'error', describeError(e, 'The export request failed.'));
-    }
-  };
-
-  const openProviderModal = (provider: any) => {
-    setSelectedProvider(provider);
-    const creds = settings?.provider_credentials?.[provider.name.toLowerCase()] || {};
-    setProviderCreds(creds);
-    setShowProviderModal(true);
-  };
-
-  const saveProviderCredentials = async () => {
-    if (!selectedProvider) return;
-    const gen = sessionGenRef.current;
-    setSavingProvider(true);
-    try {
-      await apiFetch(`${API_BASE}/settings/providers/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: selectedProvider.name,
-          credentials: providerCreds
-        })
-      });
-      if (gen === sessionGenRef.current) {
-        notify(`${selectedProvider.name} connected.`, 'success');
-        setShowProviderModal(false);
-        loadSettings();
-      }
-    } catch (e) {
-      if (gen === sessionGenRef.current) notify('Credentials couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-    } finally {
-      if (gen === sessionGenRef.current) setSavingProvider(false);
-    }
-  };
-
-  const disconnectProvider = async (providerName: string) => {
-    try {
-      await apiFetch(`${API_BASE}/settings/providers/credentials/${providerName}`, {
-        method: 'DELETE'
-      });
-      notify(`${providerName} disconnected.`, 'success');
-      loadSettings();
-    } catch (e) {
-      notify('Couldn\'t disconnect the provider.', 'error', describeError(e, 'The request failed.'));
-    }
-  };
-
-  const testProviderConnection = async (provider: any) => {
-    const creds = settings?.provider_credentials?.[provider.name.toLowerCase()];
-    if (!creds) {
-      notify('Configure credentials first.', 'info');
-      return;
-    }
-    try {
-      const res = await apiFetch(`${API_BASE}/settings/providers/test`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: provider.name, credentials: creds })
-      });
-      const data = await res.json();
-      if (data.success) {
-        notify(`${provider.name} connection successful.`, 'success', `Responded in ${data.latency}ms.`);
-      } else {
-        notify(`${provider.name} connection failed.`, 'error', describeApiError(data.error));
-      }
-    } catch (e) {
-      notify('Connection test failed.', 'error', describeError(e, 'The test could not be run.'));
-    }
-  };
-
-  const getProviderFields = (providerName: string) => {
-    return (PROVIDER_METADATA[providerName]?.fields || []).map(f => f.key);
-  };
-
-  // T160 — Provider metadata is the single source of truth for the
-  // integrations grid AND the configure-provider modal. Only providers with
-  // real DNS-management API endpoints in backend/src/services/providers/index.js
-  // are listed. Registrar-only / no-API providers (Aliyun SDK-required,
-  // Domains.co.za, WebAfrica, HostAfrica, MWeb, Afrihost, CoolIdeas) used to
-  // be in this list but were rendered as stubs that couldn't actually fix
-  // SPF/DMARC records, which was misleading to customers.
-  type ProviderField = {
-    key: string;
-    label: string;
-    placeholder: string;
-    description: string;
-    type: 'text' | 'password';
-    required: boolean;
-  };
-  type ProviderMeta = {
-    category: 'Global' | 'Cloud' | 'Asia';
-    docsUrl: string;
-    summary: string;
-    fields: ProviderField[];
-  };
-  const PROVIDER_METADATA: Record<string, ProviderMeta> = {
-    'Cloudflare': {
-      category: 'Global',
-      docsUrl: 'https://dash.cloudflare.com/profile/api-tokens',
-      summary: 'Edit DNS records via Cloudflare API tokens. Fastest and most reliable.',
-      fields: [
-        { key: 'api_key', label: 'API Token', placeholder: 'cf-...', type: 'password', required: true,
-          description: 'Create a token with Zone:DNS:Edit permission scoped to the relevant zone(s).' },
-        { key: 'email', label: 'Account Email', placeholder: 'you@example.com', type: 'text', required: false,
-          description: 'Optional. Only needed if the token has not yet superseded API-key authentication on legacy accounts.' },
-      ],
-    },
-    'AWS Route53': {
-      category: 'Cloud',
-      docsUrl: 'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
-      summary: 'Edit Route53 hosted-zone records via an IAM access key with Route53 write permissions.',
-      fields: [
-        { key: 'access_key_id', label: 'Access Key ID', placeholder: 'AKIA...', type: 'text', required: true,
-          description: 'IAM user / role access-key ID.' },
-        { key: 'secret_access_key', label: 'Secret Access Key', placeholder: 'wJalrXUtnFEMI/...', type: 'password', required: true,
-          description: 'Corresponding secret. Grant route53:ChangeResourceRecordSets + ListHostedZones.' },
-        { key: 'region', label: 'Region', placeholder: 'us-east-1', type: 'text', required: false,
-          description: 'Defaults to us-east-1. Route53 is global, but the SDK still requires a region.' },
-      ],
-    },
-    'GoDaddy': {
-      category: 'Global',
-      docsUrl: 'https://developer.godaddy.com/keys',
-      summary: 'PUT TXT records via the GoDaddy v1 API.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'gd...', type: 'password', required: true,
-          description: 'Generate a Production key (Test keys cannot edit live DNS).' },
-        { key: 'secret', label: 'API Secret', placeholder: 'paired secret', type: 'password', required: true,
-          description: 'Paired secret issued alongside the API key.' },
-      ],
-    },
-    'DigitalOcean': {
-      category: 'Cloud',
-      docsUrl: 'https://cloud.digitalocean.com/account/api/tokens',
-      summary: 'Edit DNS records on domains managed by DigitalOcean DNS.',
-      fields: [
-        { key: 'api_token', label: 'Personal Access Token', placeholder: 'dop_v1_...', type: 'password', required: true,
-          description: 'Token must have Write scope on the Domains category.' },
-      ],
-    },
-    'Vercel': {
-      category: 'Cloud',
-      docsUrl: 'https://vercel.com/account/tokens',
-      summary: 'Edit DNS records on domains managed by Vercel.',
-      fields: [
-        { key: 'token', label: 'Access Token', placeholder: 'vercel_...', type: 'password', required: true,
-          description: 'Account token with full access to the team / personal scope owning the domain.' },
-      ],
-    },
-    'Namecheap': {
-      category: 'Global',
-      docsUrl: 'https://ap.www.namecheap.com/settings/tools/apiaccess/',
-      summary: 'Edit DNS via the Namecheap XML API. Requires whitelisting your egress IP.',
-      fields: [
-        { key: 'username', label: 'Namecheap Username', placeholder: 'yourhandle', type: 'text', required: true,
-          description: 'Account username (the one that owns the domain).' },
-        { key: 'api_key', label: 'API Key', placeholder: 'a1b2c3...', type: 'password', required: true,
-          description: 'Enable API access on your account first, then copy the key.' },
-        { key: 'ip', label: 'Whitelisted IP', placeholder: 'auto', type: 'text', required: true,
-          description: 'Public IP of the Brand Protection backend. Must be whitelisted in Namecheap API settings.' },
-      ],
-    },
-    'NameSilo': {
-      category: 'Global',
-      docsUrl: 'https://www.namesilo.com/account/api-manager',
-      summary: 'Edit DNS via the NameSilo XML API.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'ns-...', type: 'password', required: true,
-          description: 'Generate from Account → API Manager.' },
-      ],
-    },
-    'Gandi': {
-      category: 'Global',
-      docsUrl: 'https://account.gandi.net/en/users/_/security',
-      summary: 'Edit LiveDNS records via Apikey authentication.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'gandi-...', type: 'password', required: true,
-          description: 'Generate a personal API key under Account → Security.' },
-      ],
-    },
-    'DNSimple': {
-      category: 'Global',
-      docsUrl: 'https://dnsimple.com/user',
-      summary: 'Edit zone records via DNSimple v2 API.',
-      fields: [
-        { key: 'access_token', label: 'Account Access Token', placeholder: 'dnsimple_...', type: 'password', required: true,
-          description: 'Generate from User Settings → Access Tokens. Use an Account-level token.' },
-        { key: 'account_id', label: 'Account ID', placeholder: '12345', type: 'text', required: true,
-          description: 'Numeric ID of your DNSimple account (visible in the URL when logged in).' },
-      ],
-    },
-    'Linode': {
-      category: 'Cloud',
-      docsUrl: 'https://cloud.linode.com/profile/tokens',
-      summary: 'Edit Linode-managed DNS via personal access token.',
-      fields: [
-        { key: 'access_token', label: 'Personal Access Token', placeholder: 'linode_...', type: 'password', required: true,
-          description: 'Scope must include Domains: Read/Write.' },
-      ],
-    },
-    'Porkbun': {
-      category: 'Global',
-      docsUrl: 'https://porkbun.com/account/api',
-      summary: 'Edit DNS via Porkbun JSON API. Enable API access on the domain first.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'pk1_...', type: 'password', required: true,
-          description: 'Enable API access in your account, then copy the key.' },
-        { key: 'secret', label: 'Secret API Key', placeholder: 'sk1_...', type: 'password', required: true,
-          description: 'Paired secret issued alongside the API key.' },
-      ],
-    },
-    'ClouDNS': {
-      category: 'Global',
-      docsUrl: 'https://www.cloudns.net/api-settings/',
-      summary: 'Edit DNS via the ClouDNS API.',
-      fields: [
-        { key: 'auth_id', label: 'Auth ID', placeholder: 'numeric ID', type: 'text', required: true,
-          description: 'Auth-ID issued by ClouDNS for API access. Sub-auth IDs work too.' },
-        { key: 'auth_password', label: 'Auth Password', placeholder: '••••••••', type: 'password', required: true,
-          description: 'Paired password for the auth-ID.' },
-      ],
-    },
-    'Google Cloud DNS': {
-      category: 'Cloud',
-      docsUrl: 'https://cloud.google.com/dns/docs/reference/v1',
-      summary: 'Edit Cloud DNS managed-zone records via OAuth2 access token.',
-      fields: [
-        { key: 'project_id', label: 'GCP Project ID', placeholder: 'my-project-123', type: 'text', required: true,
-          description: 'Project ID hosting the managed zone.' },
-        { key: 'access_token', label: 'OAuth2 Access Token', placeholder: 'ya29...', type: 'password', required: true,
-          description: 'Short-lived bearer token (use a service account with roles/dns.admin and mint via gcloud auth print-access-token).' },
-      ],
-    },
-    'Azure DNS': {
-      category: 'Cloud',
-      docsUrl: 'https://learn.microsoft.com/en-us/azure/dns/dns-sdk',
-      summary: 'Edit Azure DNS zone records via the Azure REST API.',
-      fields: [
-        { key: 'subscription_id', label: 'Subscription ID', placeholder: '00000000-0000-0000-0000-000000000000', type: 'text', required: true,
-          description: 'Azure subscription that contains the DNS zone.' },
-        { key: 'resource_group', label: 'Resource Group', placeholder: 'my-dns-rg', type: 'text', required: true,
-          description: 'Resource group that owns the dnsZones resource.' },
-        { key: 'access_token', label: 'OAuth2 Access Token', placeholder: 'eyJ...', type: 'password', required: true,
-          description: 'Bearer token for management.azure.com (mint via service principal or az account get-access-token).' },
-      ],
-    },
-    'DNSPod': {
-      category: 'Asia',
-      docsUrl: 'https://www.dnspod.cn/console/user/security',
-      summary: 'Edit DNS via the DNSPod (Tencent Cloud) login_token API.',
-      fields: [
-        { key: 'token', label: 'login_token', placeholder: 'id,token', type: 'password', required: true,
-          description: 'Format: <id>,<token>. Generate under Security → API Token in the DNSPod console.' },
-      ],
-    },
-    'NS1': {
-      category: 'Global',
-      docsUrl: 'https://my.nsone.net/#/account/settings',
-      summary: 'Edit NS1 zones via the X-Nsone-Key API.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'ns1-...', type: 'password', required: true,
-          description: 'Generate under Account Settings → API Keys with at least Manage zones permission.' },
-      ],
-    },
-    'Bunny DNS': {
-      category: 'Global',
-      docsUrl: 'https://dash.bunny.net/account/api-key',
-      summary: 'Edit Bunny DNS records via Bearer-token API.',
-      fields: [
-        { key: 'api_key', label: 'API Key', placeholder: 'bunny_...', type: 'password', required: true,
-          description: 'Account-level API key (DNS zones share the account scope).' },
-      ],
-    },
-    'UltraDNS': {
-      category: 'Global',
-      docsUrl: 'https://docs.ultradns.com/',
-      summary: 'Edit UltraDNS zones via Basic-auth REST API.',
-      fields: [
-        { key: 'username', label: 'Username', placeholder: 'your.username', type: 'text', required: true,
-          description: 'UltraDNS portal username with zone-edit privileges.' },
-        { key: 'password', label: 'Password', placeholder: '••••••••', type: 'password', required: true,
-          description: 'Portal password. Recommend dedicating an API user.' },
-      ],
-    },
-    'EdgeDNS': {
-      category: 'Global',
-      docsUrl: 'https://techdocs.akamai.com/edge-dns/reference',
-      summary: 'Edit Akamai EdgeDNS zones via OAuth2 access token.',
-      fields: [
-        { key: 'access_token', label: 'EdgeGrid Access Token', placeholder: 'akab-...', type: 'password', required: true,
-          description: 'Generated via Akamai Control Center → Identity & Access → API Users.' },
-        { key: 'cp_code', label: 'CP Code', placeholder: '12345', type: 'text', required: true,
-          description: 'Customer Profile Code that owns the EdgeDNS zone.' },
-      ],
-    },
-    'Hetzner DNS': {
-      category: 'Cloud',
-      docsUrl: 'https://dns.hetzner.com/settings/api-token',
-      summary: 'Edit Hetzner DNS records via Bearer-token API.',
-      fields: [
-        { key: 'api_token', label: 'API Token', placeholder: 'hetzner_...', type: 'password', required: true,
-          description: 'Generate from DNS Console → Settings → API Tokens.' },
-      ],
-    },
-  };
-
-  // T164 — Per-provider brand affordance for the integrations grid.
-  // Two-letter monogram + the provider's actual brand colour. Falls back to
-  // a neutral gradient if a provider isn't listed.
-  const PROVIDER_BRAND: Record<string, { mono: string; bg: string; text: string }> = {
-    'Cloudflare':       { mono: 'CF', bg: 'linear-gradient(135deg, #f6821f 0%, #f48120 100%)', text: '#fff' },
-    'AWS Route53':      { mono: 'R5', bg: 'linear-gradient(135deg, #ff9900 0%, #ff6f00 100%)', text: '#1a1208' },
-    'GoDaddy':          { mono: 'GD', bg: 'linear-gradient(135deg, #1bdbdb 0%, #00838f 100%)', text: '#fff' },
-    'DigitalOcean':     { mono: 'DO', bg: 'linear-gradient(135deg, #0080ff 0%, #0069d9 100%)', text: '#fff' },
-    'Vercel':           { mono: 'VC', bg: 'linear-gradient(135deg, #000 0%, #1a1a1a 100%)', text: '#fff' },
-    'Namecheap':        { mono: 'NC', bg: 'linear-gradient(135deg, #de3723 0%, #b81d13 100%)', text: '#fff' },
-    'NameSilo':         { mono: 'NS', bg: 'linear-gradient(135deg, #009688 0%, #00695c 100%)', text: '#fff' },
-    'Gandi':            { mono: 'GA', bg: 'linear-gradient(135deg, #ff6961 0%, #e63946 100%)', text: '#fff' },
-    'DNSimple':         { mono: 'DS', bg: 'linear-gradient(135deg, #2c3e50 0%, #1a2530 100%)', text: '#fff' },
-    'Linode':           { mono: 'LD', bg: 'linear-gradient(135deg, #00a95c 0%, #007c40 100%)', text: '#fff' },
-    'Porkbun':          { mono: 'PB', bg: 'linear-gradient(135deg, #ef9a9a 0%, #e57373 100%)', text: '#fff' },
-    'ClouDNS':          { mono: 'CD', bg: 'linear-gradient(135deg, #5b6df3 0%, #3949ab 100%)', text: '#fff' },
-    'Google Cloud DNS': { mono: 'GC', bg: 'linear-gradient(135deg, #4285f4 0%, #1976d2 100%)', text: '#fff' },
-    'Azure DNS':        { mono: 'AZ', bg: 'linear-gradient(135deg, #0072c6 0%, #004578 100%)', text: '#fff' },
-    'DNSPod':           { mono: 'DP', bg: 'linear-gradient(135deg, #00a4ff 0%, #0077c2 100%)', text: '#fff' },
-    'NS1':              { mono: 'N1', bg: 'linear-gradient(135deg, #25c2a0 0%, #1a8b73 100%)', text: '#fff' },
-    'Bunny DNS':        { mono: 'BN', bg: 'linear-gradient(135deg, #ff8800 0%, #e07000 100%)', text: '#fff' },
-    'UltraDNS':         { mono: 'UD', bg: 'linear-gradient(135deg, #d32f2f 0%, #9a0007 100%)', text: '#fff' },
-    'EdgeDNS':          { mono: 'AK', bg: 'linear-gradient(135deg, #009cde 0%, #0073a8 100%)', text: '#fff' },
-    'Hetzner DNS':      { mono: 'HZ', bg: 'linear-gradient(135deg, #d50c2d 0%, #a30923 100%)', text: '#fff' },
-  };
-
-  const dnsProviders = Object.keys(PROVIDER_METADATA).map(name => ({
-    name,
-    icon: Server,
-    category: PROVIDER_METADATA[name].category,
-    summary: PROVIDER_METADATA[name].summary,
-  }));
 
   if (loading) {
     return (
@@ -1902,169 +1082,19 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Domain Details Panel */}
           {showDetails && selectedDomain && (
-            <Card className="border-orange-500/50 mb-6">
-              <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <div>
-                  <CardTitle className="text-lg">{selectedDomain.name}</CardTitle>
-                  <CardDescription>Scan Results & Recommended Fixes</CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
-                    <Wrench className="w-4 h-4 mr-1" /> Get Fix Records
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => { panelReopenRef.current = false; setShowDetailsSync(false); }}>Close</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {/* DNS Status Cards */}
-                {(() => {
-                  const spfRow = recordState(selectedDomain.latest_scan, 'spf');
-                  const dkimRow = recordState(selectedDomain.latest_scan, 'dkim');
-                  const dmarcRow = recordState(selectedDomain.latest_scan, 'dmarc');
-                  const cards = [
-                    { key: 'SPF', row: spfRow, desc: 'Authorizes senders for your domain', tip: "Sender Policy Framework - Specifies which mail servers can send email for your domain" },
-                    { key: 'DKIM', row: dkimRow, desc: 'Digital signature verification', tip: "DomainKeys Identified Mail - Cryptographic signature to verify email hasn't been tampered" },
-                    { key: 'DMARC', row: dmarcRow, desc: 'Policy for SPF/DKIM failures', tip: 'Domain-based Message Authentication - Policy for handling failed auth' }
-                  ];
-                  return (
-                    <div className="grid md:grid-cols-3 gap-4 mb-4">
-                      {cards.map((c) => (
-                        <div key={c.key} className={`p-4 rounded-lg border ${recordToneClass[c.row.tone]}`}>
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-sm font-medium">{c.key}</p>
-                            <span className="text-xs cursor-help" title={c.tip}>?</span>
-                          </div>
-                          <p className="font-semibold">{c.row.label}</p>
-                          <p className="text-xs text-muted-foreground mt-1">{c.desc}</p>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* DMARC Aggregate Reports (issue #64): upload RFC 7489 XML */}
-                <div className="mb-4 p-4 rounded-lg border bg-background">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-medium text-sm">DMARC Aggregate Reports</p>
-                    <div>
-                      <input
-                        ref={dmarcFileRef}
-                        type="file"
-                        accept=".xml,text/xml,application/xml"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files && e.target.files[0];
-                          if (f && selectedDomain) uploadDmarcReport(selectedDomain.id, f);
-                          e.target.value = '';
-                        }}
-                      />
-                      <Button variant="outline" size="sm" disabled={dmarcUploading} onClick={() => dmarcFileRef.current && dmarcFileRef.current.click()}>
-                        <Upload className="w-4 h-4 mr-1" /> {dmarcUploading ? 'Uploading...' : 'Upload XML'}
-                      </Button>
-                    </div>
-                  </div>
-                  {dmarcUploadError && (
-                    <p className="text-xs text-red-500 mb-2">{dmarcUploadError}</p>
-                  )}
-                  {detailRefreshError ? (
-                    <p className="text-xs text-red-500 mb-2">{detailRefreshError} — the report list below may be incomplete.</p>
-                  ) : null}
-                  {detailRefreshing && !detailRefreshError ? (
-                    <p className="text-xs text-muted-foreground mb-2">Loading aggregate reports…</p>
-                  ) : null}
-                  {!detailRefreshing && selectedDomain.dmarc_reports?.length > 0 ? (
-                    <div className="space-y-2">
-                      {selectedDomain.dmarc_reports.map((r: any, i: number) => {
-                        const ins = r.insights || {};
-                        const unauthorized = (ins.extRecChecks || []).filter((c: any) => c.status === 'not_authorized');
-                        return (
-                          <div key={r.id || i} className="p-2 rounded border text-xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-medium">{r.report?.orgName || 'Unknown reporter'}</span>
-                              <span className="text-muted-foreground">
-                                {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''} · {r.report?.reportId || ''}
-                              </span>
-                            </div>
-                            <div className="mt-1 text-muted-foreground">
-                              {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
-                              {(ins.failingSources || []).length > 0 && (
-                                <span> · top fail source: {ins.failingSources[0].ip} ({ins.failingSources[0].count})</span>
-                              )}
-                            </div>
-                            {unauthorized.length > 0 && (
-                              <div className="mt-1 text-amber-500">
-                                External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : !detailRefreshing && !detailRefreshError ? (
-                    <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
-                  ) : null}
-                </div>
-
-                {/* Issues with Tooltips */}
-                {selectedDomain.issues?.length > 0 && (
-                  <div className="space-y-2 mb-4">
-                    <p className="font-medium text-sm">Issues Found:</p>
-                    {selectedDomain.issues.map((issue: any, i: number) => (
-                      <div key={i} className="flex items-center gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/30">
-                        <AlertTriangle className="w-4 h-4 text-amber-500" />
-                        <span className="text-sm">{issue.message || issue.type || issue}</span>
-                        {issue.type === 'SPF' && (
-                          <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=spf1 include:_spf.yourdomain.com ~all'">Fix: Add SPF record</span>
-                        )}
-                        {issue.type === 'DMARC' && (
-                          <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=DMARC1; p=quarantine; rua=mailto:reports@yourdomain.com'">Fix: Add DMARC record</span>
-                        )}
-                        {issue.type === 'MTA-STS' && (
-                          <span className="text-xs text-muted-foreground ml-auto" title="Add _mta-sts TXT record for SMTP TLS enforcement">Fix: Add MTA-STS record</span>
-                        )}
-                        {issue.type === 'TLS-RPT' && (
-                          <span className="text-xs text-muted-foreground ml-auto" title="Add _smtp._tls TXT record for TLS reporting">Fix: Add TLS-RPT record</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Recommendations Section */}
-                {fixRecommendations && (
-                  <div className="space-y-3 mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
-                    <p className="font-medium text-sm">Recommended DNS Records:</p>
-                    <div className="grid gap-2 text-xs font-mono">
-                      {fixRecommendations.recommended_records?.spf && (
-                        <div className="p-2 bg-background rounded border">
-                          <span className="text-muted-foreground">SPF:</span> {fixRecommendations.recommended_records.spf.recommended}
-                        </div>
-                      )}
-                      {fixRecommendations.recommended_records?.dmarc && (
-                        <div className="p-2 bg-background rounded border">
-                          <span className="text-muted-foreground">DMARC:</span> {fixRecommendations.recommended_records.dmarc.recommended}
-                        </div>
-                      )}
-                      {fixRecommendations.recommended_records?.mta_sts && (
-                        <div className="p-2 bg-background rounded border">
-                          <span className="text-muted-foreground">MTA-STS:</span> {fixRecommendations.recommended_records.mta_sts.recommended}
-                        </div>
-                      )}
-                      {fixRecommendations.recommended_records?.tls_rpt && (
-                        <div className="p-2 bg-background rounded border">
-                          <span className="text-muted-foreground">TLS-RPT:</span> {fixRecommendations.recommended_records.tls_rpt.recommended}
-                        </div>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Provider: {fixRecommendations.email_provider?.provider} | Auto-fix: {fixRecommendations.auto_fix_supported ? 'Supported' : 'Manual only'}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <DomainDetailPanel
+              selectedDomain={selectedDomain}
+              fixRecommendations={fixRecommendations}
+              detailRefreshing={detailRefreshing}
+              detailRefreshError={detailRefreshError}
+              dmarcUploading={dmarcUploading}
+              dmarcUploadError={dmarcUploadError}
+              dmarcFileRef={dmarcFileRef}
+              uploadDmarcReport={uploadDmarcReport}
+              fixDomain={fixDomain}
+              onClose={() => { panelReopenRef.current = false; setShowDetailsSync(false); }}
+            />
           )}
 
               {/* Bulk Actions */}
@@ -2283,584 +1313,33 @@ export default function Dashboard() {
             </TabsContent>
 
             <TabsContent value="integrations" className="space-y-6">
-              <div>
-                <p className="eyebrow mb-2">Integrations</p>
-                <h2 className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
-                <p className="text-sm text-muted-foreground">
-                  Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
-                </p>
-              </div>
-
-              {/* T164 — Connection summary strip: how much of the integration surface is configured */}
-              {(() => {
-                const totalProviders = dnsProviders.length;
-                const connected = dnsProviders.filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
-                const byCat = (cat: string) => dnsProviders.filter((p: any) => p.category === cat);
-                const connectedIn = (cat: string) => byCat(cat).filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
-                return (
-                  <div className="premium-surface premium-card border-0 rounded-xl p-5">
-                    <div className="flex items-center gap-6 flex-wrap">
-                      <div className="flex items-center gap-4">
-                        <div className="relative w-16 h-16 flex-shrink-0">
-                          <svg viewBox="0 0 36 36" className="w-16 h-16 -rotate-90">
-                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
-                            <circle cx="18" cy="18" r="15.9155" fill="none" stroke="#86efac" strokeWidth="3" strokeLinecap="round"
-                              strokeDasharray={`${totalProviders > 0 ? (connected / totalProviders) * 100 : 0} ${100 - (totalProviders > 0 ? (connected / totalProviders) * 100 : 0)}`} />
-                          </svg>
-                          <div className="absolute inset-0 flex flex-col items-center justify-center">
-                            <span className="font-display text-base font-bold tabular-nums leading-none text-emerald-300">{connected}</span>
-                            <span className="text-[9px] uppercase tracking-wider text-muted-foreground leading-none mt-0.5">of {totalProviders}</span>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="font-display text-lg font-bold tracking-tight">
-                            {connected === 0 ? 'No providers connected' : `${connected} provider${connected === 1 ? '' : 's'} ready`}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                            {connected === 0 ? 'Connect a DNS provider below to unlock auto-remediation.' : 'Auto-remediation will run on detected issues.'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="hairline flex-1 hidden sm:block" />
-                      <div className="flex items-center gap-5 text-xs">
-                        {(['Global', 'Cloud', 'Asia'] as const).map((cat) => (
-                          <div key={cat}>
-                            <p className="uppercase tracking-widest text-muted-foreground font-semibold text-[10px]">{cat}</p>
-                            <p className="font-display font-bold text-base mt-0.5 tabular-nums">
-                              <span className={connectedIn(cat) > 0 ? 'text-emerald-300' : 'text-muted-foreground'}>{connectedIn(cat)}</span>
-                              <span className="text-muted-foreground/60 mx-1">/</span>
-                              <span className="text-muted-foreground">{byCat(cat).length}</span>
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {(['Global', 'Cloud', 'Asia'] as const).map((category) => {
-                const providersInCategory = dnsProviders.filter((p: any) => p.category === category);
-                if (providersInCategory.length === 0) return null;
-                return (
-                  <div key={category} className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-xs font-semibold text-muted-foreground tracking-widest uppercase">{category}</h3>
-                      <div className="hairline flex-1" />
-                      <span className="text-xs text-muted-foreground">{providersInCategory.length} providers</span>
-                    </div>
-                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {providersInCategory.map((provider: any) => {
-                        const isConnected = settings?.provider_credentials?.[provider.name.toLowerCase()];
-                        const meta = PROVIDER_METADATA[provider.name];
-                        const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
-                        const brand = PROVIDER_BRAND[provider.name] || { mono: provider.name.slice(0, 2).toUpperCase(), bg: 'linear-gradient(135deg, #475569 0%, #1e293b 100%)', text: '#fff' };
-
-                        return (
-                          <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? 'border-emerald-500/30' : 'border-0'}`}>
-                            <CardContent className="p-5">
-                              <div className="flex items-start justify-between mb-3 gap-3">
-                                <div className="flex items-start gap-3 min-w-0 flex-1">
-                                  <div
-                                    className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 font-display font-bold text-[13px] shadow-lg"
-                                    style={{ background: brand.bg, color: brand.text, letterSpacing: '-0.02em' }}
-                                  >
-                                    {brand.mono}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="font-display font-semibold tracking-tight truncate text-[15px]">{provider.name}</p>
-                                    {isConnected ? (
-                                      <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-0.5 font-medium">
-                                        <span className="relative flex h-1.5 w-1.5">
-                                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
-                                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400"></span>
-                                        </span>
-                                        Connected
-                                      </p>
-                                    ) : (
-                                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                                        {requiredCount} field{requiredCount === 1 ? '' : 's'} required
-                                      </p>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                              <p className="text-[11.5px] text-muted-foreground mb-4 line-clamp-2 leading-relaxed">
-                                {provider.summary}
-                              </p>
-                              {isConnected ? (
-                                <div className="flex gap-1.5">
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="flex-1 text-[11px] h-8 border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 hover:text-emerald-300"
-                                    onClick={() => testProviderConnection(provider)}
-                                  >
-                                    <Zap className="w-3 h-3 mr-1" /> Test
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-[11px] h-8 px-2 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
-                                    onClick={() => openProviderModal(provider)}
-                                    title="Reconfigure"
-                                  >
-                                    <Settings className="w-3 h-3" />
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-[11px] h-8 px-2 border-white/10 text-red-400 hover:bg-red-500/10 hover:border-red-500/40"
-                                    onClick={() => disconnectProvider(provider.name)}
-                                    title="Disconnect"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="w-full text-[11px] h-8 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
-                                  onClick={() => openProviderModal(provider)}
-                                >
-                                  <Plug className="w-3 h-3 mr-1.5" /> Configure
-                                </Button>
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
+              <IntegrationsTab
+                settings={settings}
+                loadSettings={loadSettings}
+                sessionGenRef={sessionGenRef}
+                apiFetch={apiFetch}
+              />
             </TabsContent>
 
-        {showProviderModal && selectedProvider && (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200" onClick={() => setShowProviderModal(false)}>
-            <div className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              {/* Hero — provider brand strip */}
-              {(() => {
-                const brand = PROVIDER_BRAND[selectedProvider.name] || { mono: selectedProvider.name.slice(0, 2).toUpperCase(), bg: 'linear-gradient(135deg, #475569 0%, #1e293b 100%)', text: '#fff' };
-                const meta = PROVIDER_METADATA[selectedProvider.name];
-                return (
-                  <div className="relative px-6 pt-6 pb-5 border-b border-white/5">
-                    <div className="absolute inset-0 opacity-[0.08]" style={{ background: brand.bg }} />
-                    <div className="relative flex items-start gap-4">
-                      <div
-                        className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 font-display font-bold text-base shadow-2xl"
-                        style={{ background: brand.bg, color: brand.text, letterSpacing: '-0.02em' }}
-                      >
-                        {brand.mono}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="eyebrow mb-1">Connect provider · {meta?.category}</p>
-                        <h3 className="font-display text-xl font-bold tracking-tight">{selectedProvider.name}</h3>
-                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{meta?.summary}</p>
-                      </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1" onClick={() => setShowProviderModal(false)}>
-                        <X className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="p-6">
-                {/* Field stack */}
-                <div className="space-y-4">
-                  {(PROVIDER_METADATA[selectedProvider.name]?.fields || []).map((field: ProviderField) => (
-                    <div key={field.key}>
-                      <div className="flex items-baseline justify-between mb-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                          {field.label}
-                          {field.required && <span className="ml-1.5 text-orange-400 normal-case" title="Required">*</span>}
-                        </label>
-                        {!field.required && <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
-                      </div>
-                      <Input
-                        type={field.type}
-                        value={providerCreds[field.key] || ''}
-                        onChange={(e) => setProviderCreds({...providerCreds, [field.key]: e.target.value})}
-                        placeholder={field.placeholder}
-                        className="bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                      <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{field.description}</p>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Docs deep-link + security note */}
-                <div className="mt-5 p-3 rounded-lg bg-white/[0.03] border border-white/5 flex items-start gap-3">
-                  <Key className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 text-[11px] text-muted-foreground leading-relaxed">
-                    <p className="mb-1">
-                      <a
-                        href={PROVIDER_METADATA[selectedProvider.name]?.docsUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-orange-300 hover:text-orange-200 font-medium underline underline-offset-2"
-                      >
-                        Open {selectedProvider.name} API settings ↗
-                      </a>
-                    </p>
-                    <p>Credentials are stored encrypted at rest, scoped to this tenant. We never log or display them after save.</p>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex gap-2 mt-5">
-                  <Button
-                    className="btn-premium-primary border-0 flex-1"
-                    onClick={saveProviderCredentials}
-                    disabled={
-                      savingProvider ||
-                      !!(PROVIDER_METADATA[selectedProvider.name]?.fields || [])
-                        .filter((f: ProviderField) => f.required)
-                        .find((f: ProviderField) => !providerCreds[f.key]?.trim())
-                    }
-                  >
-                    {savingProvider ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : <><CheckCircle className="w-4 h-4 mr-2" /> Save credentials</>}
-                  </Button>
-                  <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={() => setShowProviderModal(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
             <TabsContent value="notifications" className="space-y-6">
-              <div>
-                <p className="eyebrow mb-2">Notifications</p>
-                <h2 className="font-display text-2xl font-bold tracking-tight mb-1">How we reach you</h2>
-                <p className="text-sm text-muted-foreground">
-                  Pick which events trigger an email and where they get delivered. SMTP delivery is configured in Settings.
-                </p>
-              </div>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight">Notification preferences</CardTitle>
-                  <CardDescription>Toggle which events generate an outbound email.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {[
-                    { key: 'scan_completed', label: 'Scan completed', desc: 'Get notified when a domain scan finishes.', icon: CheckCircle },
-                    { key: 'critical_alerts', label: 'Critical alerts', desc: 'Immediate emails for high-severity issues.', icon: AlertTriangle },
-                    { key: 'weekly_report', label: 'Weekly summary', desc: 'A digest of every domain\u2019s posture each week.', icon: BarChart3 },
-                  ].map((pref) => {
-                    const on = !!notifications[pref.key];
-                    return (
-                      <div key={pref.key} className="flex items-center justify-between p-4 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                        <div className="flex items-start gap-3">
-                          <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${on ? 'bg-orange-500/15 text-orange-400' : 'bg-white/5 text-muted-foreground'}`}>
-                            <pref.icon className="w-4 h-4" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{pref.label}</p>
-                            <p className="text-xs text-muted-foreground mt-0.5">{pref.desc}</p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`min-w-[70px] ${on ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 hover:text-orange-200 border border-orange-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
-                          onClick={() => saveNotifications(pref.key, !on)}
-                        >
-                          {on ? 'On' : 'Off'}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-orange-400" /> Slack
-                  </CardTitle>
-                  <CardDescription>Paste a Slack Incoming Webhook URL — alerts land in that channel.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Webhook URL</label>
-                    <Input
-                      value={slackForm.webhook_url}
-                      onChange={(e) => setSlackForm({ ...slackForm, webhook_url: e.target.value })}
-                      placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
-                      className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1.5">
-                      Slack &rarr; your workspace &rarr; Apps &rarr; Incoming Webhooks &rarr; create for a channel. <a href="https://my.slack.com/apps/A0F7XDUAZ-incoming-webhooks" target="_blank" rel="noreferrer" className="text-orange-300 hover:underline">Open Slack Webhooks</a>
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={saveSlack} disabled={savingSlack} className="bg-orange-500 hover:bg-orange-600 text-white border-0">
-                      <Save className="w-4 h-4 mr-2" /> {savingSlack ? 'Saving…' : 'Save Slack'}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={testSlack} disabled={testingSlack} className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5">
-                      <Send className="w-4 h-4 mr-2" /> {testingSlack ? 'Sending…' : 'Send test message'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-orange-400" /> Email delivery (Resend)
-                  </CardTitle>
-                  <CardDescription>
-                    HTTP-based sending that works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">API key</label>
-                      <Input
-                        value={resendForm.api_key}
-                        onChange={(e) => setResendForm({ ...resendForm, api_key: e.target.value })}
-                        placeholder="re_xxxxxxxx"
-                        className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">From address</label>
-                      <Input
-                        value={resendForm.from}
-                        onChange={(e) => setResendForm({ ...resendForm, from: e.target.value })}
-                        placeholder="noreply@segbytes.xyz"
-                        className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Send test email to</label>
-                    <Input
-                      value={testEmailTo}
-                      onChange={(e) => setTestEmailTo(e.target.value)}
-                      placeholder="you@company.com"
-                      className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
-                    />
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={saveResend} disabled={savingResend} className="bg-orange-500 hover:bg-orange-600 text-white border-0">
-                      <Save className="w-4 h-4 mr-2" /> {savingResend ? 'Saving…' : 'Save Resend'}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={testResend} disabled={testingResend} className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5">
-                      <Send className="w-4 h-4 mr-2" /> {testingResend ? 'Sending…' : 'Send test email'}
-                    </Button>
-                  </div>
-                  <div className="text-xs text-muted-foreground p-3 rounded-md bg-white/[0.03] border border-white/5 leading-relaxed">
-                    Until your own domain is verified in Resend, test emails can be sent from <code className="text-orange-300">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-orange-300">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
-                  </div>
-                </CardContent>
-              </Card>
+              <NotificationsTab
+                notifications={notifications}
+                settings={settings}
+                onSavePref={saveNotifications}
+                apiFetch={apiFetch}
+              />
             </TabsContent>
 
             <TabsContent value="reports" className="space-y-6">
-              <div className="flex items-end justify-between gap-4 flex-wrap">
-                <div>
-                  <p className="eyebrow mb-2">Reports</p>
-                  <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Generate &amp; export</h2>
-                  <p className="text-sm text-muted-foreground">Per-domain HTML reports for stakeholders. Bulk CSV / JSON exports for archive.</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportCSV}>
-                    <Download className="w-4 h-4 mr-2" /> Export all (CSV)
-                  </Button>
-                  <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportJSON}>
-                    <Download className="w-4 h-4 mr-2" /> Export all (JSON)
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-5">
-                <Card className="premium-surface premium-card border-0">
-                  <CardHeader>
-                    <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-orange-400" /> Single domain report
-                    </CardTitle>
-                    <CardDescription>Detailed HTML breakdown of one domain&rsquo;s SPF / DKIM / DMARC posture.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <select
-                      className="w-full h-10 px-3 rounded-md border border-white/10 bg-background/50 text-sm focus-visible:outline-none focus-visible:border-orange-500/40"
-                      value={reportDomainId || ''}
-                      onChange={(e) => setReportDomainId(Number(e.target.value))}
-                    >
-                      <option value="">Select a domain&hellip;</option>
-                      {domains.map((d: any) => (
-                        <option key={d.id} value={d.id}>{d.name}</option>
-                      ))}
-                    </select>
-                    <Button
-                      className="w-full btn-premium-primary border-0"
-                      onClick={() => reportDomainId && generateReport(reportDomainId)}
-                      disabled={!reportDomainId || generatingReport}
-                    >
-                      {generatingReport ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Generating&hellip;</> : <><FileText className="w-4 h-4 mr-2" /> Generate report</>}
-                    </Button>
-                  </CardContent>
-                </Card>
-
-                <Card className="premium-surface premium-card border-0">
-                  <CardHeader>
-                    <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                      <Download className="w-4 h-4 text-orange-400" /> Bulk export
-                    </CardTitle>
-                    <CardDescription>Download every domain&rsquo;s latest scan as a single archive.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Button variant="outline" className="w-full border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportCSV}>
-                      <Download className="w-4 h-4 mr-2" /> CSV &mdash; spreadsheet-friendly
-                    </Button>
-                    <Button variant="outline" className="w-full border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportJSON}>
-                      <Download className="w-4 h-4 mr-2" /> JSON &mdash; full structured data
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
+              <ReportsTab domains={domains} apiFetch={apiFetch} />
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-6">
-              <div>
-                <p className="eyebrow mb-2">Settings</p>
-                <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Operational defaults</h2>
-                <p className="text-sm text-muted-foreground">Scanning cadence, auto-remediation policy, outbound SMTP, and connected DNS providers.</p>
-              </div>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-orange-400" /> Scanning
-                  </CardTitle>
-                  <CardDescription>How and when domains get re-scanned.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {[
-                    { key: 'autoOnAdd', label: 'Auto-scan on add', desc: 'Run a scan immediately when a new domain is added.', on: !!settings?.scan_schedule?.enabled, fn: () => toggleSchedule(!settings?.scan_schedule?.enabled) },
-                    { key: 'daily', label: 'Daily scheduled scan', desc: 'Re-scan every domain at 02:00 UTC.', on: !!settings?.scan_schedule?.enabled, fn: () => toggleSchedule(!settings?.scan_schedule?.enabled) },
-                  ].map((s) => (
-                    <div key={s.key} className="flex items-center justify-between p-4 rounded-lg border border-white/5 bg-white/[0.02]">
-                      <div>
-                        <p className="font-medium text-sm">{s.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{s.desc}</p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`min-w-[78px] ${s.on ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
-                        onClick={s.fn}
-                      >
-                        {s.on ? 'Enabled' : 'Disabled'}
-                      </Button>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Wrench className="w-4 h-4 text-orange-400" /> Auto-remediation
-                  </CardTitle>
-                  <CardDescription>When a connected DNS provider can patch SPF / DMARC, do it automatically.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-white/5 bg-white/[0.02]">
-                    <div>
-                      <p className="font-medium text-sm">Auto-fix issues</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Apply recommended record changes via your DNS provider integration.</p>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={`min-w-[78px] ${settings?.auto_remediation ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
-                      onClick={() => toggleAutoRemediation(!settings?.auto_remediation)}
-                    >
-                      {settings?.auto_remediation ? 'Enabled' : 'Disabled'}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-orange-400" /> SMTP configuration
-                  </CardTitle>
-                  <CardDescription>Outbound delivery for scan completion, alerts, weekly digests, and takedown emails.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP host</label>
-                      <Input value={smtpForm.host} onChange={(e) => setSmtpForm({...smtpForm, host: e.target.value})} placeholder="smtp.example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Port</label>
-                      <Input value={smtpForm.port} onChange={(e) => setSmtpForm({...smtpForm, port: e.target.value})} placeholder="587" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Username</label>
-                      <Input value={smtpForm.user} onChange={(e) => setSmtpForm({...smtpForm, user: e.target.value})} placeholder="user@example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Password</label>
-                      <Input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({...smtpForm, pass: e.target.value})} placeholder="••••••••" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">From email</label>
-                      <Input value={smtpForm.from} onChange={(e) => setSmtpForm({...smtpForm, from: e.target.value})} placeholder="noreply@yourdomain.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                        <input type="checkbox" checked={smtpForm.secure} onChange={(e) => setSmtpForm({...smtpForm, secure: e.target.checked})} className="accent-orange-500" />
-                        <span>Use TLS / SSL</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-2">
-                    <Button className="btn-premium-primary border-0" onClick={saveSmtp}>
-                      <Save className="w-4 h-4 mr-2" /> Save SMTP
-                    </Button>
-                    <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={testSmtp} disabled={testingSmtp}>
-                      {testingSmtp ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Testing&hellip;</> : <><Zap className="w-4 h-4 mr-2" /> Test connection</>}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="premium-surface premium-card border-0">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Plug className="w-4 h-4 text-orange-400" /> Connected DNS providers
-                  </CardTitle>
-                  <CardDescription>Snapshot of providers configured under <strong>Integrations</strong>.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                    {dnsProviders.map((p: any) => {
-                      const creds = settings?.provider_credentials?.[p.name.toLowerCase()];
-                      return (
-                        <div key={p.name} className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${creds ? 'border-emerald-500/40 bg-emerald-500/5 text-emerald-200' : 'border-white/5 bg-white/[0.02] text-muted-foreground'}`}>
-                          <Server className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span className="truncate">{p.name}</span>
-                          {creds && <CheckCircle className="w-3 h-3 ml-auto text-emerald-400 flex-shrink-0" />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
+              <SettingsTab
+                settings={settings}
+                onSettingsChange={setSettings}
+                apiFetch={apiFetch}
+              />
             </TabsContent>
 
             <TabsContent value="brands" className="space-y-6">
@@ -3203,229 +1682,15 @@ export default function Dashboard() {
             </TabsContent>
 
             <TabsContent value="admin" className="space-y-4">
-              {!isAdmin ? (
-                <Card className="border-border/40 bg-white/[0.02]">
-                  <CardContent className="pt-6 text-center text-sm text-muted-foreground">
-                    Platform admin access required.
-                  </CardContent>
-                </Card>
-              ) : adminDetail ? (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3">
-                    <Button size="icon" variant="ghost" onClick={closeAdminOrg} title="Back to organizations">
-                      <ArrowLeft className="w-4 h-4" />
-                    </Button>
-                    <div>
-                      <h2 className="font-display font-semibold">{adminDetail.org.name}</h2>
-                      <p className="text-xs text-muted-foreground">{adminDetail.org.slug} · {adminDetail.org.plan || 'no plan'} · {adminDetail.org.id}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length },
-                      { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length },
-                      { label: 'Scans', value: adminDetail.org.counts?.scan_count ?? adminDetail.scans.length },
-                      { label: 'Last activity', value: adminDetail.org.counts?.last_activity ? new Date(adminDetail.org.counts.last_activity).toLocaleString() : '—' },
-                    ].map((s) => (
-                      <Card key={s.label} className="border-border/40 bg-white/[0.02]">
-                        <CardContent className="pt-4 pb-3">
-                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                          <p className="font-display font-semibold text-lg">{s.value}</p>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-
-                  <div className="grid lg:grid-cols-2 gap-4">
-                    <Card className="border-border/40 bg-white/[0.02]">
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">Domains</CardTitle></CardHeader>
-                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                        {adminDetail.failed?.domains ? (
-                          <p className="text-sm text-red-400/70">Domains unavailable — the request failed.</p>
-                        ) : (
-                          <>
-                        {adminDetail.domains.length === 0 && <p className="text-sm text-muted-foreground">No domains.</p>}
-                        {adminDetail.domains.map((d: any) => (
-                          <div key={d.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
-                            <span className="truncate font-medium">{d.name}</span>
-                            <span className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
-                              {d.verified ? 'verified' : 'unverified'}
-                              <Badge variant="outline" className={typeof d.last_score === 'number' ? (scoreBand(d.last_score) === 'passing' ? 'text-emerald-400 border-emerald-400/30' : scoreBand(d.last_score) === 'warnings' ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
-                            </span>
-                          </div>
-                        ))}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-border/40 bg-white/[0.02]">
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">Users</CardTitle></CardHeader>
-                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                        {adminDetail.failed?.users ? (
-                          <p className="text-sm text-red-400/70">Users unavailable — the request failed.</p>
-                        ) : (
-                          <>
-                        {adminDetail.users.length === 0 && <p className="text-sm text-muted-foreground">No users.</p>}
-                        {adminDetail.users.map((u: any) => (
-                          <div key={u.id} className="space-y-1.5 border-b border-border/30 pb-1.5">
-                            <div className="flex items-center justify-between gap-2 text-sm">
-                              <div className="min-w-0">
-                                <p className="truncate font-medium">{u.email}</p>
-                                <p className="text-xs text-muted-foreground truncate">{u.name}</p>
-                              </div>
-                              <span className="flex items-center gap-2 flex-shrink-0">
-                                <button
-                                  className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-                                  onClick={() => {
-                                    pwFormGenRef.current += 1;
-                                    setPwResetFor(pwResetFor === u.id ? null : u.id);
-                                    setPwResetValue('');
-                                    setPwResetError(null);
-                                  }}
-                                >
-                                  Reset
-                                </button>
-                                <Badge variant="outline">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
-                              </span>
-                            </div>
-                            {pwResetFor === u.id && (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Input
-                                  type="password"
-                                  placeholder="New password (min 8)"
-                                  value={pwResetValue}
-                                  onChange={(e) => setPwResetValue(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && submitPasswordReset(adminDetail.org.id, u.id)}
-                                  className="h-8 text-sm flex-1 min-w-[160px]"
-                                />
-                                <Button size="sm" className="h-8" disabled={pwResetBusy} onClick={() => submitPasswordReset(adminDetail.org.id, u.id)}>
-                                  {pwResetBusy ? 'Setting…' : 'Set'}
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-8" onClick={() => { pwFormGenRef.current += 1; setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
-                                  Cancel
-                                </Button>
-                                {pwResetError && <span className="text-xs text-red-400">{pwResetError}</span>}
-                              </div>
-                            )}
-                            {pwResetDone === u.id && (
-                              <p className="text-[11px] text-emerald-400">Password updated — existing sessions were signed out.</p>
-                            )}
-                          </div>
-                        ))}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <div className="grid lg:grid-cols-2 gap-4">
-                    <Card className="border-border/40 bg-white/[0.02]">
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">Scan history</CardTitle></CardHeader>
-                      <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                        {adminDetail.failed?.scans ? (
-                          <p className="text-sm text-red-400/70">Scan history unavailable — the request failed.</p>
-                        ) : (
-                          <>
-                        {adminDetail.scans.length === 0 && <p className="text-sm text-muted-foreground">No scans yet.</p>}
-                        {adminDetail.scans.map((s: any) => {
-                          const scanDomain = adminDetail.domains.find((d: any) => d.id === s.domain_id);
-                          return (
-                            <div key={s.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
-                              <span className="truncate">{scanDomain?.name || s.domain_id}</span>
-                              <span className="text-xs text-muted-foreground flex items-center gap-2 flex-shrink-0">
-                                {typeof s.score === 'number' && <Badge variant="outline">{s.score}</Badge>}
-                                {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : '—'}
-                              </span>
-                            </div>
-                          );
-                        })}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-border/40 bg-white/[0.02]">
-                      <CardHeader className="pb-2"><CardTitle className="text-sm">Channels</CardTitle></CardHeader>
-                      <CardContent className="space-y-2 text-sm">
-                        {adminDetail.failed?.notifications ? (
-                          <p className="text-sm text-red-400/70">Channel status unavailable — the request failed.</p>
-                        ) : (
-                          <>
-                        {[
-                          { label: 'SMTP', on: !!adminDetail.notifications.smtp, detail: adminDetail.notifications.smtp ? `${adminDetail.notifications.smtp.host || '—'}${adminDetail.notifications.smtp.pass_configured ? ' · pass set' : ''}` : 'not configured' },
-                          { label: 'Resend', on: !!adminDetail.notifications.resend, detail: adminDetail.notifications.resend ? (adminDetail.notifications.resend.from || 'configured') : 'not configured' },
-                          { label: 'Slack', on: !!adminDetail.notifications.slack?.configured, detail: adminDetail.notifications.slack?.configured ? 'webhook set' : 'not configured' },
-                        ].map((c) => (
-                          <div key={c.label} className="flex items-center justify-between border-b border-border/30 pb-1.5">
-                            <span className="font-medium">{c.label}</span>
-                            <span className={`text-xs ${c.on ? 'text-emerald-400' : 'text-muted-foreground'}`}>{c.on ? `✓ ${c.detail}` : c.detail}</span>
-                          </div>
-                        ))}
-                          </>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                </div>
-              ) : (
-                <Card className="border-border/40 bg-white/[0.02]">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2"><Building2 className="w-4 h-4" /> Customer organizations</CardTitle>
-                    <CardDescription>All hosted organizations — read-only support access, every view is audited.</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {adminLoading ? (
-                      <p className="text-sm text-muted-foreground">Loading organization…</p>
-                    ) : adminOrgsError ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm text-red-400/80">{adminOrgsError}</p>
-                        <Button size="sm" variant="outline" className="h-7" onClick={() => loadAdminOrgs()}>Retry</Button>
-                      </div>
-                    ) : adminOrgs === null ? (
-                      <p className="text-sm text-muted-foreground">Loading organizations…</p>
-                    ) : adminOrgs.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No organizations found.</p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border/40">
-                              <th className="py-2 pr-4 font-medium">Organization</th>
-                              <th className="py-2 pr-4 font-medium">Plan</th>
-                              <th className="py-2 pr-4 font-medium">Domains</th>
-                              <th className="py-2 pr-4 font-medium">Users</th>
-                              <th className="py-2 pr-4 font-medium">Scans</th>
-                              <th className="py-2 pr-4 font-medium">Last activity</th>
-                              <th className="py-2 font-medium"></th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {adminOrgs.map((o) => (
-                              <tr key={o.id} className="border-b border-border/20 hover:bg-white/[0.02] transition-colors">
-                                <td className="py-2.5 pr-4">
-                                  <p className="font-medium truncate">{o.name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{o.slug}</p>
-                                </td>
-                                <td className="py-2.5 pr-4">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
-                                <td className="py-2.5 pr-4 tabular-nums">{o.domain_count}</td>
-                                <td className="py-2.5 pr-4 tabular-nums">{o.user_count}</td>
-                                <td className="py-2.5 pr-4 tabular-nums">{o.scan_count}</td>
-                                <td className="py-2.5 pr-4 text-xs text-muted-foreground">{o.last_activity ? new Date(o.last_activity).toLocaleString() : '—'}</td>
-                                <td className="py-2.5 text-right">
-                                  <Button size="sm" variant="ghost" className="h-7" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5 ml-1" /></Button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
+              <AdminPanel
+                token={token}
+                isAdmin={isAdmin}
+                sessionGenRef={sessionGenRef}
+                apiFetch={apiFetch}
+                onAuthFailure={handleAuthFailure}
+              />
             </TabsContent>
+
           </Tabs>
         </div>
 
