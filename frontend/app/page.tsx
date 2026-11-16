@@ -541,6 +541,7 @@ export default function Dashboard() {
       // failed Inspect leaves the panel (and the ref) on the previous
       // domain, so uploads for it keep refreshing (transition semantics
       // unit-tested in lib/domainPanel).
+      if (domainDetailsIdRef.current !== domain.id) setFixRecommendations(null);
       domainDetailsIdRef.current = domain.id;
       shownIsFullRef.current = true;
       setSelectedDomainSync(data);
@@ -617,15 +618,20 @@ export default function Dashboard() {
   };
 
   const fixDomain = async (domainId: number) => {
+    const gen = sessionGenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domainId}/analyze-fix`, { method: 'POST' });
       const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
       
       if (data.error) {
         notify('Couldn\'t analyze this domain.', 'error', describeApiError(data.error));
         return;
       }
 
+      // the operator may have switched domains while the analysis ran —
+      // don't pin old records onto the newly selected domain
+      if (domainDetailsIdRef.current !== domainId) return;
       setFixRecommendations(data);
       setShowDetailsSync(true);
     } catch (e) {
