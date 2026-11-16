@@ -1,6 +1,8 @@
 "use client";
 
-import { Upload, Wrench, AlertTriangle, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import CopyButton from "@/components/dashboard/CopyButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { recordState, recordToneClass } from "@/lib/domainPanel";
@@ -34,6 +36,15 @@ export default function DomainDetailPanel({
   fixDomain,
   onClose,
 }: DomainDetailPanelProps) {
+  const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
+  const toggleIssue = (key: string) => {
+    setOpenIssues((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   return (
   <Card className="border-orange-500/50 mb-6">
     <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -138,28 +149,51 @@ export default function DomainDetailPanel({
         ) : null}
       </div>
 
-      {/* Issues with Tooltips */}
+      {/* Issues — expandable rows with the fix inline (hover tooltips
+          are invisible on touch/keyboard) */}
       {selectedDomain.issues?.length > 0 && (
         <div className="space-y-2 mb-4">
           <p className="font-medium text-sm">Issues Found:</p>
-          {selectedDomain.issues.map((issue: any, i: number) => (
-            <div key={i} className="flex items-center gap-2 p-2 rounded bg-amber-500/10 border border-amber-500/30">
-              <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <span className="text-sm">{issue.message || issue.type || issue}</span>
-              {issue.type === 'SPF' && (
-                <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=spf1 include:_spf.yourdomain.com ~all'">Fix: Add SPF record</span>
-              )}
-              {issue.type === 'DMARC' && (
-                <span className="text-xs text-muted-foreground ml-auto" title="Add a TXT record with 'v=DMARC1; p=quarantine; rua=mailto:reports@yourdomain.com'">Fix: Add DMARC record</span>
-              )}
-              {issue.type === 'MTA-STS' && (
-                <span className="text-xs text-muted-foreground ml-auto" title="Add _mta-sts TXT record for SMTP TLS enforcement">Fix: Add MTA-STS record</span>
-              )}
-              {issue.type === 'TLS-RPT' && (
-                <span className="text-xs text-muted-foreground ml-auto" title="Add _smtp._tls TXT record for TLS reporting">Fix: Add TLS-RPT record</span>
-              )}
-            </div>
-          ))}
+          {selectedDomain.issues.map((issue: any, i: number) => {
+            const key = issue.type || String(i);
+            const fixText: Record<string, string> = {
+              'SPF': "Add a TXT record at the domain root: v=spf1 include:_spf.yourdomain.com ~all (adjust the include to your mail provider).",
+              'DMARC': "Add a TXT record at _dmarc.yourdomain.com: v=DMARC1; p=quarantine; rua=mailto:reports@yourdomain.com.",
+              'MTA-STS': "Add a TXT record at _mta-sts.yourdomain.com with your SMTP TLS policy id.",
+              'TLS-RPT': "Add a TXT record at _smtp._tls.yourdomain.com: v=TLSRPTv1; rua=mailto:reports@yourdomain.com.",
+            };
+            const recKey: Record<string, string> = { 'SPF': 'spf', 'DMARC': 'dmarc', 'MTA-STS': 'mta_sts', 'TLS-RPT': 'tls_rpt' };
+            const rec = fixRecommendations?.recommended_records?.[recKey[issue.type]];
+            const open = openIssues.has(key + i);
+            return (
+              <div key={i} className="rounded bg-amber-500/10 border border-amber-500/30 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleIssue(key + i)}
+                  aria-expanded={open}
+                  className="w-full flex items-center gap-2 p-2 text-left cursor-pointer hover:bg-amber-500/15 transition-colors"
+                >
+                  {open ? <ChevronDown className="w-4 h-4 text-amber-500 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-amber-500 flex-shrink-0" />}
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  <span className="text-sm flex-1">{issue.message || issue.type || issue}</span>
+                  {issue.type && (
+                    <span className="text-xs text-amber-300 flex-shrink-0">{open ? "Hide fix" : "Show fix"}</span>
+                  )}
+                </button>
+                {open && (
+                  <div className="px-2 pb-2 pl-8 space-y-2">
+                    <p className="text-xs text-foreground/90">{fixText[issue.type] || "Open the Get Fix Records output below for the exact record to publish."}</p>
+                    {rec?.recommended && (
+                      <div className="flex items-center gap-2 p-2 rounded bg-background border font-mono text-xs">
+                        <span className="flex-1 break-all">{rec.recommended}</span>
+                        <CopyButton value={rec.recommended} label="Copy" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -169,23 +203,31 @@ export default function DomainDetailPanel({
           <p className="font-medium text-sm">Recommended DNS Records:</p>
           <div className="grid gap-2 text-xs font-mono">
             {fixRecommendations.recommended_records?.spf && (
-              <div className="p-2 bg-background rounded border">
-                <span className="text-muted-foreground">SPF:</span> {fixRecommendations.recommended_records.spf.recommended}
+              <div className="p-2 bg-background rounded border flex items-center gap-2">
+                <span className="text-muted-foreground flex-shrink-0">SPF:</span>
+                <span className="flex-1 break-all">{fixRecommendations.recommended_records.spf.recommended}</span>
+                <CopyButton value={fixRecommendations.recommended_records.spf.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.dmarc && (
-              <div className="p-2 bg-background rounded border">
-                <span className="text-muted-foreground">DMARC:</span> {fixRecommendations.recommended_records.dmarc.recommended}
+              <div className="p-2 bg-background rounded border flex items-center gap-2">
+                <span className="text-muted-foreground flex-shrink-0">DMARC:</span>
+                <span className="flex-1 break-all">{fixRecommendations.recommended_records.dmarc.recommended}</span>
+                <CopyButton value={fixRecommendations.recommended_records.dmarc.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.mta_sts && (
-              <div className="p-2 bg-background rounded border">
-                <span className="text-muted-foreground">MTA-STS:</span> {fixRecommendations.recommended_records.mta_sts.recommended}
+              <div className="p-2 bg-background rounded border flex items-center gap-2">
+                <span className="text-muted-foreground flex-shrink-0">MTA-STS:</span>
+                <span className="flex-1 break-all">{fixRecommendations.recommended_records.mta_sts.recommended}</span>
+                <CopyButton value={fixRecommendations.recommended_records.mta_sts.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.tls_rpt && (
-              <div className="p-2 bg-background rounded border">
-                <span className="text-muted-foreground">TLS-RPT:</span> {fixRecommendations.recommended_records.tls_rpt.recommended}
+              <div className="p-2 bg-background rounded border flex items-center gap-2">
+                <span className="text-muted-foreground flex-shrink-0">TLS-RPT:</span>
+                <span className="flex-1 break-all">{fixRecommendations.recommended_records.tls_rpt.recommended}</span>
+                <CopyButton value={fixRecommendations.recommended_records.tls_rpt.recommended} label="Copy" />
               </div>
             )}
           </div>
