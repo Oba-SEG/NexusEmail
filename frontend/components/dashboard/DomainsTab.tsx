@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Search, AlertTriangle, CheckCircle, XCircle, Globe, Plus, RefreshCw,
   Zap, Eye, Clock, Wrench, Trash2, CheckSquare, Square, Activity
@@ -63,6 +63,7 @@ export default function DomainsTab({
   const [addDomainSuccess, setAddDomainSuccess] = useState<string | null>(null);
   const [addBusy, setAddBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const deleteOpenerRef = useRef<HTMLButtonElement | null>(null);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyDomain, setVerifyDomain] = useState<any>(null);
@@ -247,7 +248,7 @@ export default function DomainsTab({
         <Button size="sm" className="btn-premium-primary border-0 h-8" onClick={bulkScan} disabled={scanning}>
           <Zap className="w-3.5 h-3.5 mr-1.5" /> Scan {selectedIds.length === 1 ? 'this' : 'these'}
         </Button>
-        <Button size="sm" variant="outline" className="h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={() => setConfirmDelete(true)}>
+        <Button size="sm" variant="outline" className="h-8 border-red-500/30 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={(e) => { deleteOpenerRef.current = e.currentTarget; setConfirmDelete(true); }}>
           <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete
         </Button>
         <Button size="sm" variant="ghost" className="h-8 text-muted-foreground" onClick={() => setSelectedIds([])}>
@@ -498,7 +499,14 @@ export default function DomainsTab({
 )}
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(e) => {
+            if (deleteOpenerRef.current) {
+              e.preventDefault();
+              deleteOpenerRef.current.focus();
+            }
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               Delete {selectedIds.length === 1 ? '1 domain' : `${selectedIds.length} domains`}?

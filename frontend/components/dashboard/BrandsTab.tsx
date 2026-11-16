@@ -52,6 +52,7 @@ export default function BrandsTab({
   const [brandScanning, setBrandScanning] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
+  const brandDeleteOpenerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     loadAlerts();
@@ -410,7 +411,7 @@ export default function BrandsTab({
               <Button variant="outline" size="sm" onClick={() => openBrandDetails(brand)}>
                 <Eye className="w-4 h-4" />
               </Button>
-              <Button variant="ghost" size="sm" aria-label={`Delete brand ${brand.domain}`} onClick={() => setBrandToDelete(brand)}>
+              <Button variant="ghost" size="sm" aria-label={`Delete brand ${brand.domain}`} onClick={(e) => { brandDeleteOpenerRef.current = e.currentTarget; setBrandToDelete(brand); }}>
                 <Trash2 className="w-4 h-4 text-rose-500" />
               </Button>
             </div>
@@ -788,7 +789,14 @@ export default function BrandsTab({
   </div>
 )}
       <AlertDialog open={!!brandToDelete} onOpenChange={(o) => { if (!o) setBrandToDelete(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(e) => {
+            if (brandDeleteOpenerRef.current) {
+              e.preventDefault();
+              brandDeleteOpenerRef.current.focus();
+            }
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Remove brand {brandToDelete?.domain}?</AlertDialogTitle>
             <AlertDialogDescription>
