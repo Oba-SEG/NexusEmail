@@ -1,6 +1,9 @@
 "use client";
 
-import { X, Key, CheckCircle, RefreshCw } from "lucide-react";
+import { Key, CheckCircle, RefreshCw } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { providerBrand, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
@@ -26,8 +29,8 @@ export default function ProviderModal({
   onClose,
 }: ProviderModalProps) {
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200" onClick={onClose}>
-    <div className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0">
       {/* Hero — provider brand strip */}
       {(() => {
         const brand = providerBrand(selectedProvider.name);
@@ -44,12 +47,10 @@ export default function ProviderModal({
               </div>
               <div className="flex-1 min-w-0">
                 <p className="eyebrow mb-1">Connect provider · {meta?.category}</p>
-                <h3 className="font-display text-xl font-bold tracking-tight">{selectedProvider.name}</h3>
-                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{meta?.summary}</p>
+                <DialogTitle className="font-display text-xl font-bold tracking-tight">{selectedProvider.name}</DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-1 leading-relaxed">{meta?.summary}</DialogDescription>
               </div>
-              <Button variant="ghost" size="icon" className="h-8 w-8 -mt-1 -mr-1" onClick={onClose}>
-                <X className="w-4 h-4" />
-              </Button>
+              <span aria-hidden="true" className="w-8 h-8" />
             </div>
           </div>
         );
@@ -119,7 +120,7 @@ export default function ProviderModal({
           </Button>
         </div>
       </div>
-    </div>
-  </div>
+      </DialogContent>
+    </Dialog>
   );
 }
