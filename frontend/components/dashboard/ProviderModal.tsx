@@ -16,6 +16,7 @@ interface ProviderModalProps {
   onSave: () => void;
   onClose: () => void;
   openerRef?: React.RefObject<HTMLButtonElement | null>;
+  fallbackRef?: React.RefObject<HTMLElement | null>;
 }
 
 /** Configure-provider modal. Presentational: all state and persistence live
@@ -29,12 +30,13 @@ export default function ProviderModal({
   onSave,
   onClose,
   openerRef,
+  fallbackRef,
 }: ProviderModalProps) {
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent
         className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0"
-        onCloseAutoFocus={openerRef ? dialogFocusReturn(openerRef) : undefined}
+        onCloseAutoFocus={openerRef ? dialogFocusReturn(openerRef, fallbackRef) : undefined}
       >
       {/* Hero — provider brand strip */}
       {(() => {

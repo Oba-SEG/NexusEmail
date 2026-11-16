@@ -25,6 +25,9 @@ interface IntegrationsTabProps {
 export default function IntegrationsTab({ settings, loadSettings, sessionGenRef, apiFetch }: IntegrationsTabProps) {
   const [showProviderModal, setShowProviderModal] = useState(false);
   const providerOpenerRef = useRef<HTMLButtonElement | null>(null);
+  // a save flips Configure -> Reconfigure (the opener unmounts), so the
+  // dialog's focus return needs a stable fallback
+  const integrationsHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerCreds, setProviderCreds] = useState<any>({});
   const [savingProvider, setSavingProvider] = useState(false);
@@ -115,7 +118,7 @@ const testProviderConnection = async (provider: any) => {
     <>
             <div>
               <p className="eyebrow mb-2">Integrations</p>
-              <h2 className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
+              <h2 ref={integrationsHeadingRef} className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
               <p className="text-sm text-muted-foreground">
                 Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
               </p>
@@ -274,6 +277,7 @@ const testProviderConnection = async (provider: any) => {
         onSave={saveProviderCredentials}
         onClose={() => setShowProviderModal(false)}
         openerRef={providerOpenerRef}
+        fallbackRef={integrationsHeadingRef}
       />
     )}
     </>
