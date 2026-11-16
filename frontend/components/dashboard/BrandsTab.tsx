@@ -430,7 +430,13 @@ export default function BrandsTab({
     {/* Scan Results Display */}
     {/* persistent live region so scan start/finish is announced */}
     <span role="status" aria-live="polite" className="sr-only">
-      {brandScanning ? 'Scanning brand surface' : brandScanResult ? 'Brand scan finished' : ''}
+      {brandScanning
+        ? 'Scanning brand surface'
+        : brandScanResult?.error
+          ? `Brand scan failed: ${brandScanResult.error}`
+          : brandScanResult
+            ? 'Brand scan finished'
+            : ''}
     </span>
     {brandScanning && (
       <div className="mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
