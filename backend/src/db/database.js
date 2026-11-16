@@ -449,13 +449,38 @@ function secretWriteGuard(key) {
     throw new Error(`NEXUSEMAIL_ENCRYPTION_KEY is not configured; refusing to store secret setting '${key}' as plaintext`);
   }
 }
+// Masked echoes must never overwrite the real secret. GET /settings/config
+// returns secret values as first-4-chars + '****' for display; a UI that
+// prefills its forms with those values and saves them back would otherwise
+// replace the stored secret with the mask (the same substitution the
+// /providers/test route performs for echo-backed tests). Only exact
+// prefix matches are preserved, so genuinely new values always win.
+function isMaskedEcho(value, stored) {
+  return typeof value === 'string' && /\*{4}$/.test(value)
+    && typeof stored === 'string' && stored.length > 4
+    && value === stored.slice(0, 4) + '****';
+}
+function preserveMaskedSecrets(current, patch) {
+  for (const [k, v] of Object.entries(patch)) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const cur = (current && typeof current[k] === 'object' && current[k]) || {};
+      for (const [k2, v2] of Object.entries(v)) {
+        if (isMaskedEcho(v2, cur[k2])) v[k2] = cur[k2];
+      }
+    } else if (isMaskedEcho(v, current ? current[k] : undefined)) {
+      patch[k] = current[k];
+    }
+  }
+}
 async function mergeSetting(key, patch, orgId) {
   if (isSecretKey(key)) {
     secretWriteGuard(key);
     await withTransaction(async (tx) => {
       await tx.q('SELECT pg_advisory_xact_lock(hashtext($1))', [`${orgId || 'global'}:${key}`]);
       const current = JSON.parse(await readSecretMapValue(tx, key, orgId) || '{}');
-      const merged = { ...current, ...(patch ?? {}) };
+      const patchObj = { ...(patch ?? {}) };
+      preserveMaskedSecrets(current, patchObj);
+      const merged = { ...current, ...patchObj };
       await writeSecretMapValue(tx, key, orgId, JSON.stringify(merged));
     });
     return;

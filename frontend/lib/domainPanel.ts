@@ -93,3 +93,63 @@ export async function runDomainListLoad(
   const pendingGone = pendingDetailsId !== null && !data.some((d: any) => d.id === pendingDetailsId);
   return { kind: 'ok', state: next, invalidateDetails: shownGone || pendingGone };
 }
+
+
+// --- Display helpers (moved from app/page.tsx): pure row/tone mapping ---
+
+
+
+
+// --- Display helpers (moved from app/page.tsx): pure row/tone mapping ---
+
+export function parseMaybeJson(v: any): any {
+  if (v == null) return null;
+  if (typeof v === 'object') return v;
+  try { return JSON.parse(v); } catch { return null; }
+}
+
+export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: string; tone: 'pass' | 'fail' | 'warn' | 'none' } {
+  if (!scan) return { label: 'Unknown', tone: 'none' };
+  const selectorsForDkim = key === 'dkim' ? parseMaybeJson(scan.dkim_selectors) : null;
+  const obj = parseMaybeJson(scan[key])
+    ?? (key === 'dkim' ? null : parseMaybeJson(scan[`${key}_record`]))
+    ?? (Array.isArray(selectorsForDkim) ? { found: selectorsForDkim.length > 0, selectors: selectorsForDkim } : null);
+  const flat = scan[`${key}_status`];
+
+  let status: string | null = null;
+  if (flat && flat !== 'UNKNOWN' && typeof flat === 'string') status = flat;
+  else if (obj?.status) status = String(obj.status);
+  else if (obj == null) status = flat ? String(flat) : null;
+  else if (obj.error || (Array.isArray(obj.errors) && obj.errors.length)) {
+    // Validation errors beat found:true (+all, p=none); absent records
+    // (ENOTFOUND / "No X record found") are NOT_FOUND, not ERROR.
+    const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])].filter(Boolean).join(' ');
+    if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found/i.test(msgs)) status = 'NOT_FOUND';
+    else status = 'ERROR';
+  } else if (obj.found) status = 'FOUND';
+  else status = 'NOT_FOUND';
+
+  if (!status) return { label: 'Unknown', tone: 'none' };
+
+  const selectors = Array.isArray(selectorsForDkim) ? selectorsForDkim : (Array.isArray(obj?.selectors) ? obj.selectors : []);
+  const policy = obj?.policy ?? null;
+  const enforcing = key === 'spf' ? (policy === 'hardfail' || policy === 'softfail')
+    : key === 'dmarc' ? (policy === 'reject' || policy === 'quarantine')
+    : selectors.length > 0;
+
+  if (status === 'FOUND' || status === 'pass') {
+    if (key === 'dkim') return { label: selectors.length ? `${selectors.length} selector${selectors.length === 1 ? '' : 's'}` : 'Found', tone: 'pass' };
+    if (policy) return { label: String(policy), tone: enforcing ? 'pass' : 'warn' };
+    return { label: 'Found', tone: 'warn' };
+  }
+  if (status === 'NOT_FOUND') return { label: 'Not found', tone: 'fail' };
+  if (status === 'ERROR') return { label: 'Error', tone: 'fail' };
+  return { label: status, tone: 'warn' };
+}
+
+export const recordToneClass: Record<string, string> = {
+  pass: 'border-emerald-500 bg-emerald-500/10',
+  fail: 'border-red-500 bg-red-500/10',
+  warn: 'border-amber-500 bg-amber-500/10',
+  none: 'border-white/10 bg-white/5'
+};
