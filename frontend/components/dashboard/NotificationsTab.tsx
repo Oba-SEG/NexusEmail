@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, BarChart3, CheckCircle, MessageSquare, Mail, Save, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,13 @@ interface NotificationsTabProps {
   onSavePref: (key: string, value: boolean) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
   loadSettings: () => void;
+  sessionGenRef: { current: number };
 }
 
 /** Notifications tab: event preferences + Slack / Resend delivery. Forms
  * live here and unmount with the tab (no webhook URL or API key survives
  * identity change). */
-export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings }: NotificationsTabProps) {
+export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef }: NotificationsTabProps) {
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
   const [testEmailTo, setTestEmailTo] = useState('');
@@ -28,16 +29,18 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   const [testingSlack, setTestingSlack] = useState(false);
   const [savingResend, setSavingResend] = useState(false);
   const [testingResend, setTestingResend] = useState(false);
+  const dirty = useRef({ slack: false, resend: false });
 
   // Sync delivery forms from the server config. Deps are the sub-objects,
-  // not `settings` itself, so a mid-edit form is not wiped by unrelated
-  // settings updates.
+  // not `settings` itself. A dirty form is never overwritten: saving the
+  // Slack webhook must not clobber an unsaved Resend draft.
   useEffect(() => {
-    setSlackForm({ webhook_url: settings?.slack_webhook || '' });
+    if (!dirty.current.slack) setSlackForm({ webhook_url: settings?.slack_webhook || '' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings?.slack_webhook]);
 
   useEffect(() => {
+    if (dirty.current.resend) return;
     const r = settings?.resend_config;
     setResendForm({ api_key: r?.api_key || '', from: r?.from || '' });
     if (r?.from) setTestEmailTo(r.from);
@@ -46,6 +49,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
 
 
 const saveSlack = async () => {
+const gen = sessionGenRef.current;
 setSavingSlack(true);
 try {
   const res = await apiFetch(`${API_BASE}/settings/slack`, {
@@ -59,7 +63,7 @@ try {
     return;
   }
   notify('Slack webhook saved.', 'success');
-  loadSettings();
+  if (gen === sessionGenRef.current) loadSettings();
 } catch (e) {
   notify('Slack webhook couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
 } finally {
@@ -81,6 +85,7 @@ try {
 };
 
 const saveResend = async () => {
+const gen = sessionGenRef.current;
 setSavingResend(true);
 try {
   const res = await apiFetch(`${API_BASE}/settings/resend`, {
@@ -94,7 +99,7 @@ try {
     return;
   }
   notify('Resend settings saved.', 'success');
-  loadSettings();
+  if (gen === sessionGenRef.current) loadSettings();
 } catch (e) {
   notify('Resend settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
 } finally {

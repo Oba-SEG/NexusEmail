@@ -15,12 +15,13 @@ interface SettingsTabProps {
   onSettingsChange: (updater: any) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
   loadSettings: () => void;
+  sessionGenRef: { current: number };
 }
 
 /** Settings tab: scanning cadence, auto-remediation, SMTP / Slack / Resend
  * delivery configuration. Delivery forms live here (they unmount with the
  * tab, so no secret survives identity change). */
-export default function SettingsTab({ settings, onSettingsChange, apiFetch, loadSettings }: SettingsTabProps) {
+export default function SettingsTab({ settings, onSettingsChange, apiFetch, loadSettings, sessionGenRef }: SettingsTabProps) {
   const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [testingSmtp, setTestingSmtp] = useState(false);
 
@@ -39,6 +40,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, load
 
 
 const saveSmtp = async () => {
+  const gen = sessionGenRef.current;
   try {
     const res = await apiFetch(`${API_BASE}/settings/smtp`, {
       method: 'POST',
@@ -51,7 +53,7 @@ const saveSmtp = async () => {
       return;
     }
     notify('SMTP settings saved.', 'success');
-    loadSettings();
+    if (gen === sessionGenRef.current) loadSettings();
   } catch (e) {
     notify('SMTP settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
   }

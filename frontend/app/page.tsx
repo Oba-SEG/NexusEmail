@@ -1335,6 +1335,7 @@ export default function Dashboard() {
                 onSavePref={saveNotifications}
                 apiFetch={apiFetch}
                 loadSettings={loadSettings}
+                sessionGenRef={sessionGenRef}
               />
             </TabsContent>
 
@@ -1348,6 +1349,7 @@ export default function Dashboard() {
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
                 loadSettings={loadSettings}
+                sessionGenRef={sessionGenRef}
               />
             </TabsContent>
 
