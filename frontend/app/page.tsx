@@ -284,6 +284,9 @@ export default function Dashboard() {
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
     setSavingProvider(false);
+    setShowProviderModal(false);
+    setSelectedProvider(null);
+    setProviderCreds({});
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
@@ -328,6 +331,9 @@ export default function Dashboard() {
       sessionGenRef.current += 1;
       clearStatusQueue();
       setSavingProvider(false);
+      setShowProviderModal(false);
+      setSelectedProvider(null);
+      setProviderCreds({});
       setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
       setSlackForm({ webhook_url: '' });
       setResendForm({ api_key: '', from: '' });
@@ -377,6 +383,9 @@ export default function Dashboard() {
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
     setSavingProvider(false);
+    setShowProviderModal(false);
+    setSelectedProvider(null);
+    setProviderCreds({});
     setSmtpForm({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
     setSlackForm({ webhook_url: '' });
     setResendForm({ api_key: '', from: '' });
