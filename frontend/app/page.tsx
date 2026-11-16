@@ -29,6 +29,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { StatusViewport, notify, describeError, describeApiError } from "@/components/ui/status";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -907,9 +908,9 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(smtpForm)
       });
-      alert('SMTP settings saved!');
+      notify('SMTP settings saved.', 'success');
     } catch (e) {
-      alert('Failed to save SMTP: ' + e.message);
+      notify('SMTP settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
     }
   };
 
@@ -918,9 +919,9 @@ export default function Dashboard() {
     try {
       const res = await apiFetch(`${API_BASE}/settings/smtp/test`, { method: 'POST' });
       const data = await res.json();
-      alert(data.success ? 'SMTP connection successful!' : 'SMTP failed: ' + data.error);
+      notify(data.success ? 'SMTP connection successful.' : 'SMTP connection failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
     } catch (e) {
-      alert('SMTP test failed: ' + e.message);
+      notify('SMTP test failed.', 'error', describeError(e, 'The test could not be run.'));
     } finally {
       setTestingSmtp(false);
     }
@@ -936,12 +937,12 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert('Failed to save Slack: ' + (data.error || `HTTP ${res.status}`));
+        notify('Slack webhook couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
         return;
       }
-      alert('Slack webhook saved!');
+      notify('Slack webhook saved.', 'success');
     } catch (e) {
-      alert('Failed to save Slack: ' + e.message);
+      notify('Slack webhook couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
     } finally {
       setSavingSlack(false);
     }
@@ -952,9 +953,9 @@ export default function Dashboard() {
     try {
       const res = await apiFetch(`${API_BASE}/settings/slack/test`, { method: 'POST' });
       const data = await res.json();
-      alert(data.success ? 'Slack test message sent!' : 'Slack failed: ' + data.error);
+      notify(data.success ? 'Slack test message sent.' : 'Slack test failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
     } catch (e) {
-      alert('Slack test failed: ' + e.message);
+      notify('Slack test failed.', 'error', describeError(e, 'The test could not be run.'));
     } finally {
       setTestingSlack(false);
     }
@@ -970,19 +971,19 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        alert('Failed to save Resend: ' + (data.error || `HTTP ${res.status}`));
+        notify('Resend settings couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
         return;
       }
-      alert('Resend settings saved!');
+      notify('Resend settings saved.', 'success');
     } catch (e) {
-      alert('Failed to save Resend: ' + e.message);
+      notify('Resend settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
     } finally {
       setSavingResend(false);
     }
   };
 
   const testResend = async () => {
-    if (!testEmailTo) { alert('Enter a test email address first'); return; }
+    if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
     setTestingResend(true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/resend/test`, {
@@ -991,9 +992,9 @@ export default function Dashboard() {
         body: JSON.stringify({ to: testEmailTo })
       });
       const data = await res.json();
-      alert(data.success ? 'Test email sent! Check the inbox (and spam folder).' : 'Resend failed: ' + data.error);
+      notify(data.success ? 'Test email sent. Check the inbox — and the spam folder.' : 'Test email failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
     } catch (e) {
-      alert('Resend test failed: ' + e.message);
+      notify('Test email failed.', 'error', describeError(e, 'The test could not be run.'));
     } finally {
       setTestingResend(false);
     }
@@ -1304,14 +1305,14 @@ export default function Dashboard() {
       const data = await res.json();
       
       if (data.error) {
-        alert(data.error);
+        notify('Couldn\'t analyze this domain.', 'error', describeApiError(data.error));
         return;
       }
 
       setFixRecommendations(data);
       setShowDetailsSync(true);
     } catch (e) {
-      alert('Failed to analyze domain: ' + e.message);
+      notify('Couldn\'t analyze this domain.', 'error', describeError(e, 'The analysis request failed.'));
     }
   };
 
@@ -1340,14 +1341,14 @@ export default function Dashboard() {
       const data = await res.json();
       
       if (data.verified) {
-        alert('Domain verified successfully! Features unlocked.');
+        notify('Domain verified. Brand Protection and reporting are now unlocked.', 'success');
         setShowVerifyModal(false);
         loadDomains(gen);
       } else {
-        alert('Verification failed: ' + (data.reason || 'TXT record not found'));
+        notify('Verification failed.', 'error', `${describeApiError(data.reason || 'TXT record not found')} Publish the TXT record, then try again.`);
       }
     } catch (e) {
-      alert('Verification failed: ' + e.message);
+      notify('Verification failed.', 'error', describeError(e, 'The verification request failed.'));
     } finally {
       setVerifying(false);
     }
@@ -1367,7 +1368,7 @@ export default function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Failed to generate report: ' + e.message);
+      notify('Couldn\'t generate the report.', 'error', describeError(e, 'The report request failed.'));
     } finally {
       setGeneratingReport(false);
     }
@@ -1384,7 +1385,7 @@ export default function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Failed to export CSV: ' + e.message);
+      notify('Couldn\'t export the CSV.', 'error', describeError(e, 'The export request failed.'));
     }
   };
 
@@ -1400,7 +1401,7 @@ export default function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert('Failed to export JSON: ' + e.message);
+      notify('Couldn\'t export the JSON.', 'error', describeError(e, 'The export request failed.'));
     }
   };
 
@@ -1423,11 +1424,11 @@ export default function Dashboard() {
           credentials: providerCreds
         })
       });
-      alert(`${selectedProvider.name} connected successfully!`);
+      notify(`${selectedProvider.name} connected.`, 'success');
       setShowProviderModal(false);
       loadSettings();
     } catch (e) {
-      alert('Failed to save credentials: ' + e.message);
+      notify('Credentials couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
     } finally {
       setSavingProvider(false);
     }
@@ -1438,17 +1439,17 @@ export default function Dashboard() {
       await apiFetch(`${API_BASE}/settings/providers/credentials/${providerName}`, {
         method: 'DELETE'
       });
-      alert(`${providerName} disconnected`);
+      notify(`${providerName} disconnected.`, 'success');
       loadSettings();
     } catch (e) {
-      alert('Failed to disconnect: ' + e.message);
+      notify('Couldn\'t disconnect the provider.', 'error', describeError(e, 'The request failed.'));
     }
   };
 
   const testProviderConnection = async (provider: any) => {
     const creds = settings?.provider_credentials?.[provider.name.toLowerCase()];
     if (!creds) {
-      alert('Please configure credentials first');
+      notify('Configure credentials first.', 'info');
       return;
     }
     try {
@@ -1459,12 +1460,12 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (data.success) {
-        alert(`✅ ${provider.name} connection successful! (${data.latency}ms)`);
+        notify(`${provider.name} connection successful.`, 'success', `Responded in ${data.latency}ms.`);
       } else {
-        alert(`❌ ${provider.name} failed: ${data.error}`);
+        notify(`${provider.name} connection failed.`, 'error', describeApiError(data.error));
       }
     } catch (e) {
-      alert('Test failed: ' + e.message);
+      notify('Connection test failed.', 'error', describeError(e, 'The test could not be run.'));
     }
   };
 
@@ -1751,6 +1752,7 @@ export default function Dashboard() {
 
   return (
     <div className={darkMode ? "dark" : ""}>
+      <StatusViewport />
       <div className="min-h-screen text-foreground" style={{background: "radial-gradient(circle at top left, rgba(255, 157, 82, 0.08), transparent 35%), linear-gradient(180deg, #090b12 0%, #0b1018 100%)"}}>
         {/* Navbar */}
         <nav className="border-b border-white/5 bg-background/70 backdrop-blur-2xl sticky top-0 z-50">
@@ -2982,7 +2984,7 @@ export default function Dashboard() {
                                 }).then((res: any) => {
                                   if (!res.ok) {
                                     res.json().catch(() => ({})).then((err: any) => {
-                                      alert(err.error || `Failed to add brand (HTTP ${res.status})`);
+                                      notify('Couldn\'t add the brand.', 'error', describeApiError(err.error || `HTTP ${res.status}`));
                                     });
                                     return;
                                   }
