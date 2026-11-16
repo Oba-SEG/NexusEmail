@@ -268,7 +268,7 @@ export default function BrandsTab({
           <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[10px] font-bold leading-none">{brandAlerts.length}</span>
         </Button>
       )}
-      <Button variant="outline" size="sm" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={bulkScanAll} disabled={bulkScanning}>
+      <Button variant="outline" size="sm" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
         {bulkScanning ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
         Scan all
       </Button>
@@ -412,7 +412,7 @@ export default function BrandsTab({
                 } finally {
                   setBrandScanning(false);
                 }
-              }} disabled={brandScanning}>
+              }} disabled={brandScanning || bulkScanning}>
                 <Search className="w-4 h-4 mr-1" /> Scan
               </Button>
               <Button variant="outline" size="sm" onClick={(e) => { brandDetailsOpenerRef.current = e.currentTarget; openBrandDetails(brand); }}>
@@ -428,6 +428,10 @@ export default function BrandsTab({
     )}
 
     {/* Scan Results Display */}
+    {/* persistent live region so scan start/finish is announced */}
+    <span role="status" aria-live="polite" className="sr-only">
+      {brandScanning ? 'Scanning brand surface' : brandScanResult ? 'Brand scan finished' : ''}
+    </span>
     {brandScanning && (
       <div className="mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
         <div className="flex items-center gap-3">
