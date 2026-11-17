@@ -29,7 +29,7 @@ export default function DashboardChrome({
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
         <div className="nbp-mark w-10 h-10 text-[14px]">NBP</div>
-        <h1 className="text-[15px] font-display font-bold tracking-tight">NexusEmail</h1>
+        <h1 className="text-[15px] font-display font-bold tracking-tight">Nexus Brand Protection</h1>
       </div>
 
       <div className="flex items-center gap-1.5">
@@ -43,7 +43,7 @@ export default function DashboardChrome({
               <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{user.email}</p>
             </div>
           )}
-          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-sm font-bold text-[#1a0d04] ring-2 ring-orange-500/20 ring-offset-2 ring-offset-background flex-shrink-0">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-sm font-bold text-[#1a0d04] ring-2 ring-emerald-500/20 ring-offset-2 ring-offset-background flex-shrink-0">
             {(user?.name || user?.email || 'OB').slice(0, 2).toUpperCase()}
           </div>
           <Button
@@ -66,26 +66,26 @@ export default function DashboardChrome({
   {/* Main Content */}
   <Tabs value={activeTab} onValueChange={onTabChange} className="space-y-6">
     <TabsList className="bg-white/[0.03] border border-white/5 p-1 h-auto flex-wrap rounded-xl">
-      <TabsTrigger value="domains" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset] data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="domains">
+      <TabsTrigger value="domains" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:shadow-[0_1px_0_rgba(255,255,255,0.06)_inset] data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="domains">
         <Globe className="w-4 h-4 mr-2" /> Domains
       </TabsTrigger>
-      <TabsTrigger value="integrations" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="integrations">
+      <TabsTrigger value="integrations" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="integrations">
         <Plug className="w-4 h-4 mr-2" /> Integrations
       </TabsTrigger>
-      <TabsTrigger value="notifications" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="notifications">
+      <TabsTrigger value="notifications" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="notifications">
         <Bell className="w-4 h-4 mr-2" /> Notifications
       </TabsTrigger>
-      <TabsTrigger value="reports" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="reports">
+      <TabsTrigger value="reports" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="reports">
         <BarChart3 className="w-4 h-4 mr-2" /> Reports
       </TabsTrigger>
-      <TabsTrigger value="settings" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="settings">
+      <TabsTrigger value="settings" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="settings">
         <Settings className="w-4 h-4 mr-2" /> Settings
       </TabsTrigger>
-      <TabsTrigger value="brands" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="brands">
+      <TabsTrigger value="brands" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="brands">
         <Shield className="w-4 h-4 mr-2" /> Brand Protection
       </TabsTrigger>
       {isAdmin && (
-        <TabsTrigger value="admin" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-orange-500/30 border border-transparent text-muted-foreground" data-value="admin">
+        <TabsTrigger value="admin" className="data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground" data-value="admin">
           <Building2 className="w-4 h-4 mr-2" /> Admin
         </TabsTrigger>
       )}

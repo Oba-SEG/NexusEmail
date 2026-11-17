@@ -194,7 +194,7 @@ export default function DomainsTab({
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               placeholder="Add one domain, or paste many (commas / spaces / newlines)"
-              className="h-12 pl-12 bg-background/50 border-white/10 focus-visible:border-orange-500/40"
+              className="h-12 pl-12 bg-background/50 border-white/10 focus-visible:border-emerald-500/40"
               value={domainInput}
               onChange={(e) => setDomainInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && addDomain()}
@@ -244,8 +244,8 @@ export default function DomainsTab({
 
     {/* Bulk Actions */}
     {selectedIds.length > 0 && (
-      <div className="flex items-center gap-3 p-4 rounded-xl border border-orange-500/30 bg-gradient-to-r from-orange-500/[0.08] via-orange-500/[0.04] to-transparent">
-        <div className="w-9 h-9 rounded-lg bg-orange-500/15 text-orange-300 flex items-center justify-center font-bold text-sm">
+      <div className="flex items-center gap-3 p-4 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/[0.08] via-emerald-500/[0.04] to-transparent">
+        <div className="w-9 h-9 rounded-lg bg-emerald-500/15 text-emerald-300 flex items-center justify-center font-bold text-sm">
           {selectedIds.length}
         </div>
         <span className="text-sm font-medium">{selectedIds.length === 1 ? 'domain' : 'domains'} selected</span>
@@ -316,10 +316,10 @@ export default function DomainsTab({
             <button
               key={f.label}
               onClick={() => setDomainFilter(f.key as any)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${active ? 'bg-orange-500/15 text-orange-300 border border-orange-500/30' : 'bg-white/[0.03] text-muted-foreground border border-white/5 hover:bg-white/[0.06] hover:text-foreground'}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${active ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-white/[0.03] text-muted-foreground border border-white/5 hover:bg-white/[0.06] hover:text-foreground'}`}
             >
               {f.label}
-              <span className={`ml-1.5 ${active ? 'text-orange-400' : 'text-muted-foreground/70'}`}>{f.count}</span>
+              <span className={`ml-1.5 ${active ? 'text-emerald-400' : 'text-muted-foreground/70'}`}>{f.count}</span>
             </button>
           );
         })}
@@ -330,7 +330,7 @@ export default function DomainsTab({
     {domains.length === 0 ? (
       <Card className="premium-surface premium-card">
         <CardContent className="p-12 text-center">
-          <div className="inline-flex w-16 h-16 rounded-2xl bg-orange-500/10 text-orange-400 items-center justify-center mb-4">
+          <div className="inline-flex w-16 h-16 rounded-2xl bg-emerald-500/10 text-emerald-400 items-center justify-center mb-4">
             <Globe className="w-7 h-7" />
           </div>
           <h3 className="font-display text-lg font-bold tracking-tight mb-1">No domains yet</h3>
@@ -345,7 +345,7 @@ export default function DomainsTab({
         <div className="flex items-center gap-3 px-4 py-2 text-xs text-muted-foreground">
           <button onClick={toggleSelectAll} className="flex items-center gap-2 hover:text-foreground transition-colors">
             {selectedIds.length === domains.length && domains.length > 0
-              ? <CheckSquare className="w-3.5 h-3.5 text-orange-400" />
+              ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
               : <Square className="w-3.5 h-3.5" />}
             <span>Select all</span>
           </button>
@@ -380,17 +380,17 @@ export default function DomainsTab({
           return (
             <div
               key={domain.id}
-              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? '!shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_2px_rgba(255,157,82,0.4)] !border-orange-500/40' : ''}`}
+              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? '!shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_2px_rgba(34,197,94,0.4)] !border-emerald-500/40' : ''}`}
             >
               <div className="flex items-center gap-4">
                 {/* Selection */}
                 <button
                   onClick={() => toggleSelect(domain.id)}
-                  className="flex-shrink-0 w-7 h-7 rounded-md border border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5 flex items-center justify-center transition-colors"
+                  className="flex-shrink-0 w-7 h-7 rounded-md border border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 flex items-center justify-center transition-colors"
                   aria-label={isSelected ? 'Deselect' : 'Select'}
                 >
                   {isSelected
-                    ? <CheckSquare className="w-3.5 h-3.5 text-orange-400" />
+                    ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
                     : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
                 </button>
 
@@ -446,7 +446,7 @@ export default function DomainsTab({
 
                 {/* Actions */}
                 <div className="flex items-center gap-1 flex-shrink-0">
-                  <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-orange-500/10 hover:text-orange-300" onClick={() => scanDomain(domain.id)} title="Re-scan">
+                  <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-emerald-500/10 hover:text-emerald-300" onClick={() => scanDomain(domain.id)} title="Re-scan">
                     <RefreshCw className="w-4 h-4" />
                   </Button>
                   <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => viewDomain(domain)} title="Inspect">

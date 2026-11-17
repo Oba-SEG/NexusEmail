@@ -153,3 +153,57 @@ export const recordToneClass: Record<string, string> = {
   warn: 'border-amber-500 bg-amber-500/10',
   none: 'border-white/10 bg-white/5'
 };
+
+// --- DNS evidence rows: prove what the scanner actually queried ---
+
+export interface DnsEvidenceRow {
+  check: string;
+  query: string;
+  result: string;
+  found: boolean;
+}
+
+export function dnsEvidence(scan: any, domain: string): DnsEvidenceRow[] {
+  if (!scan || !domain) return [];
+  const spfObj = parseMaybeJson(scan.spf_record);
+  const dmarcObj = parseMaybeJson(scan.dmarc_record);
+  const selectors = parseMaybeJson(scan.dkim_selectors);
+  const issues = parseMaybeJson(scan.issues);
+  const issueFor = (type: string) =>
+    Array.isArray(issues) ? String((issues.find((i: any) => i?.type === type) || {}).message || '') : '';
+  const rows: DnsEvidenceRow[] = [];
+  rows.push({
+    check: 'SPF',
+    query: `${domain} · TXT`,
+    result: spfObj?.found && spfObj.record ? String(spfObj.record) : 'No v=spf1 record published',
+    found: !!spfObj?.found,
+  });
+  const selList = Array.isArray(selectors) ? selectors : [];
+  rows.push({
+    check: 'DKIM',
+    query: `${domain} · TXT (common selectors)`,
+    result: selList.length ? `Selectors: ${selList.join(', ')}` : 'No selector records found',
+    found: selList.length > 0,
+  });
+  rows.push({
+    check: 'DMARC',
+    query: `_dmarc.${domain} · TXT`,
+    result: dmarcObj?.found && dmarcObj.record ? String(dmarcObj.record) : 'No DMARC record published',
+    found: !!dmarcObj?.found,
+  });
+  const mtaIssue = issueFor('MTA-STS');
+  if (mtaIssue) rows.push({
+    check: 'MTA-STS',
+    query: `mta-sts.${domain} · TXT`,
+    result: /No MTA-STS/i.test(mtaIssue) ? 'No MTA-STS record published' : mtaIssue,
+    found: !/No MTA-STS/i.test(mtaIssue),
+  });
+  const tlsIssue = issueFor('TLS-RPT');
+  if (tlsIssue) rows.push({
+    check: 'TLS-RPT',
+    query: `_smtp._tls.${domain} · TXT`,
+    result: /No _smtp._tls/i.test(tlsIssue) ? 'No TLS-RPT record published' : tlsIssue,
+    found: !/No _smtp._tls/i.test(tlsIssue),
+  });
+  return rows;
+}

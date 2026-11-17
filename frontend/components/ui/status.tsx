@@ -85,7 +85,7 @@ export function describeApiError(raw?: string | null): string {
 }
 
 export function describeError(e: unknown, fallback: string): string {
-  if (e instanceof TypeError) return "Couldn't reach the NexusEmail server. Check your connection and try again."
+  if (e instanceof TypeError) return "Couldn't reach the Nexus Brand Protection server. Check your connection and try again."
   if (e instanceof Error && e.message) {
     if (DNS_HINTS.some(([pattern]) => pattern.test(e.message))) return describeApiError(e.message)
     return `${fallback} (${e.message})`

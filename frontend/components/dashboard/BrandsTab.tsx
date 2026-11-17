@@ -256,7 +256,7 @@ export default function BrandsTab({
   <CardHeader className="flex flex-row items-center justify-between gap-3">
     <div>
       <CardTitle className="font-display tracking-tight flex items-center gap-2">
-        <Shield className="w-4 h-4 text-orange-400" /> Monitored brands
+        <Shield className="w-4 h-4 text-emerald-400" /> Monitored brands
       </CardTitle>
       <CardDescription>Each brand is tied to a verified domain you own.</CardDescription>
     </div>
@@ -267,7 +267,7 @@ export default function BrandsTab({
           <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[11px] font-bold leading-none">{brandAlerts.length}</span>
         </Button>
       )}
-      <Button variant="outline" size="sm" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
+      <Button variant="outline" size="sm" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
         {bulkScanning ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
         Scan all
       </Button>
@@ -392,7 +392,7 @@ export default function BrandsTab({
         {brands.map((brand: any) => (
           <div key={brand.id} className="flex items-center justify-between p-4 border rounded-lg">
             <div className="flex items-center gap-3">
-              <Shield className="w-5 h-5 text-orange-500" />
+              <Shield className="w-5 h-5 text-emerald-400" />
               <div>
                 <p className="font-medium">{brand.domain}</p>
                 <p className="text-sm text-muted-foreground">{brand.brand_name}</p>
@@ -438,9 +438,9 @@ export default function BrandsTab({
             : ''}
     </span>
     {brandScanning && (
-      <div className="mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
+      <div className="mt-4 p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
         <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-orange-500 border-t-transparent rounded-full animate-spin" />
+          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
           <span className="text-sm font-medium">Scanning brand surface…</span>
         </div>
         {/* Honest status: the backend reports progress only when the scan
@@ -627,7 +627,7 @@ export default function BrandsTab({
 
         <div>
           <h4 className="font-medium mb-3 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-orange-500" />
+            <Zap className="w-4 h-4 text-emerald-400" />
             Takedown Requests ({brandTakedowns.length})
           </h4>
           {brandTakedowns.length === 0 ? (

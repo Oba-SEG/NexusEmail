@@ -112,7 +112,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
             <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-orange-400" /> Scanning
+                  <Activity className="w-4 h-4 text-emerald-400" /> Scanning
                 </CardTitle>
                 <CardDescription>How and when domains get re-scanned.</CardDescription>
               </CardHeader>
@@ -128,7 +128,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className={`min-w-[78px] ${s.on ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
+                      className={`min-w-[78px] ${s.on ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
                       onClick={s.fn}
                     >
                       {s.on ? 'Enabled' : 'Disabled'}
@@ -141,7 +141,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
             <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <Wrench className="w-4 h-4 text-orange-400" /> Auto-remediation
+                  <Wrench className="w-4 h-4 text-emerald-400" /> Auto-remediation
                 </CardTitle>
                 <CardDescription>When a connected DNS provider can patch SPF / DMARC, do it automatically.</CardDescription>
               </CardHeader>
@@ -154,7 +154,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={`min-w-[78px] ${settings?.auto_remediation ? 'bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 border border-orange-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
+                    className={`min-w-[78px] ${settings?.auto_remediation ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
                     onClick={() => toggleAutoRemediation(!settings?.auto_remediation)}
                   >
                     {settings?.auto_remediation ? 'Enabled' : 'Disabled'}
@@ -166,7 +166,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
             <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-orange-400" /> SMTP configuration
+                  <Mail className="w-4 h-4 text-emerald-400" /> SMTP configuration
                 </CardTitle>
                 <CardDescription>Outbound delivery for scan completion, alerts, weekly digests, and takedown emails.</CardDescription>
               </CardHeader>
@@ -174,27 +174,27 @@ const toggleAutoRemediation = async (enabled: boolean) => {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP host</label>
-                    <Input value={smtpForm.host} onChange={(e) => setSmtpForm({...smtpForm, host: e.target.value})} placeholder="smtp.example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
+                    <Input value={smtpForm.host} onChange={(e) => setSmtpForm({...smtpForm, host: e.target.value})} placeholder="smtp.example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm" />
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Port</label>
-                    <Input value={smtpForm.port} onChange={(e) => setSmtpForm({...smtpForm, port: e.target.value})} placeholder="587" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
+                    <Input value={smtpForm.port} onChange={(e) => setSmtpForm({...smtpForm, port: e.target.value})} placeholder="587" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm" />
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Username</label>
-                    <Input value={smtpForm.user} onChange={(e) => setSmtpForm({...smtpForm, user: e.target.value})} placeholder="user@example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
+                    <Input value={smtpForm.user} onChange={(e) => setSmtpForm({...smtpForm, user: e.target.value})} placeholder="user@example.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm" />
                   </div>
                   <div>
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Password</label>
-                    <Input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({...smtpForm, pass: e.target.value})} placeholder="••••••••" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
+                    <Input type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({...smtpForm, pass: e.target.value})} placeholder="••••••••" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm" />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">From email</label>
-                    <Input value={smtpForm.from} onChange={(e) => setSmtpForm({...smtpForm, from: e.target.value})} placeholder="noreply@yourdomain.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm" />
+                    <Input value={smtpForm.from} onChange={(e) => setSmtpForm({...smtpForm, from: e.target.value})} placeholder="noreply@yourdomain.com" className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm" />
                   </div>
                   <div className="sm:col-span-2">
                     <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                      <input type="checkbox" checked={smtpForm.secure} onChange={(e) => setSmtpForm({...smtpForm, secure: e.target.checked})} className="accent-orange-500" />
+                      <input type="checkbox" checked={smtpForm.secure} onChange={(e) => setSmtpForm({...smtpForm, secure: e.target.checked})} className="accent-emerald-500" />
                       <span>Use TLS / SSL</span>
                     </label>
                   </div>
@@ -203,7 +203,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
                   <Button className="btn-premium-primary border-0" onClick={saveSmtp}>
                     <Save className="w-4 h-4 mr-2" /> Save SMTP
                   </Button>
-                  <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={testSmtp} disabled={testingSmtp}>
+                  <Button variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={testSmtp} disabled={testingSmtp}>
                     {testingSmtp ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Testing&hellip;</> : <><Zap className="w-4 h-4 mr-2" /> Test connection</>}
                   </Button>
                 </div>
@@ -213,7 +213,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
             <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <Plug className="w-4 h-4 text-orange-400" /> Connected DNS providers
+                  <Plug className="w-4 h-4 text-emerald-400" /> Connected DNS providers
                 </CardTitle>
                 <CardDescription>Snapshot of providers configured under <strong>Integrations</strong>.</CardDescription>
               </CardHeader>

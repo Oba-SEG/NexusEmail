@@ -5,7 +5,7 @@ import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide
 import CopyButton from "@/components/dashboard/CopyButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { recordState, recordToneClass } from "@/lib/domainPanel";
+import { recordState, recordToneClass, dnsEvidence } from "@/lib/domainPanel";
 
 /** Dedupe key: report IDs are only unique per reporter, so the key is
  * reporter-scoped; fallback keys live in a separate namespace. */
@@ -82,7 +82,7 @@ export default function DomainDetailPanel({
     });
   };
   return (
-  <Card className="border-orange-500/50 mb-6">
+  <Card className="border-emerald-500/50 mb-6">
     <CardHeader className="flex flex-row items-center justify-between pb-2">
       <div>
         <CardTitle className="text-lg">{selectedDomain.name}</CardTitle>
@@ -118,6 +118,44 @@ export default function DomainDetailPanel({
                 <p className="text-xs text-muted-foreground mt-1">{c.desc}</p>
               </div>
             ))}
+          </div>
+        );
+      })()}
+
+      {/* DNS evidence — shows exactly what the scanner queried and what
+          came back, so an all-red result is visibly live-DNS truth, not a
+          scanner failure. */}
+      {(() => {
+        const evidence = dnsEvidence(selectedDomain.latest_scan, selectedDomain.name);
+        if (!evidence.length) return null;
+        const nonePublished = evidence.filter((r) => ['SPF', 'DKIM', 'DMARC'].includes(r.check) && !r.found).length === 3;
+        return (
+          <div className="mb-4 p-4 rounded-lg border bg-background">
+            <div className="flex items-center justify-between mb-2">
+              <p className="font-medium text-sm">What we checked · live DNS</p>
+              {selectedDomain.latest_scan?.scanned_at && (
+                <span className="text-xs text-muted-foreground">
+                  {new Date(selectedDomain.latest_scan.scanned_at).toLocaleString()}
+                </span>
+              )}
+            </div>
+            {nonePublished && (
+              <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2 mb-3">
+                No email authentication records are published for this domain yet — this result mirrors your live DNS,
+                not a scanner error. Run Get Fix Records below for the exact records to add at your DNS provider, then re-scan.
+              </p>
+            )}
+            <table className="w-full text-sm">
+              <tbody>
+                {evidence.map((r) => (
+                  <tr key={r.check} className="border-b border-border/60 last:border-0">
+                    <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{r.check}</td>
+                    <td className="py-1.5 pr-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{r.query}</td>
+                    <td className={`py-1.5 text-xs break-all ${r.found ? 'text-foreground' : 'text-muted-foreground'}`}>{r.result}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         );
       })()}
@@ -312,7 +350,7 @@ export default function DomainDetailPanel({
 
       {/* Recommendations Section */}
       {fixRecommendations && (
-        <div ref={fixSectionRef} className="space-y-3 mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
+        <div ref={fixSectionRef} className="space-y-3 mt-4 p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
           <p className="font-medium text-sm">Recommended DNS Records:</p>
           <div className="grid gap-2 text-xs font-mono">
             {fixRecommendations.recommended_records?.spf && (
