@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import ProviderModal from "@/components/dashboard/ProviderModal";
 import { dialogFocusReturn } from "@/components/ui/dialog";
-import { DNS_PROVIDERS, providerBrand, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
+import { DNS_PROVIDERS, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
@@ -187,18 +187,19 @@ const testProviderConnection = async (provider: any) => {
                       const isConnected = settings?.provider_credentials?.[provider.name.toLowerCase()];
                       const meta = PROVIDER_METADATA[provider.name];
                       const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
-                      const brand = providerBrand(provider.name);
 
                       return (
                         <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? 'border-emerald-500/30' : 'border-0'}`}>
                           <CardContent className="p-5">
                             <div className="flex items-start justify-between mb-3 gap-3">
                               <div className="flex items-start gap-3 min-w-0 flex-1">
+                                {/* one signal color rule: monograms stay
+                                    monochrome, emerald only marks Connected */}
                                 <div
-                                  className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 font-display font-bold text-[13px] shadow-lg"
-                                  style={{ background: brand.bg, color: brand.text, letterSpacing: '-0.02em' }}
+                                  className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 font-display font-bold text-[13px] bg-muted/50 border border-border text-muted-foreground"
+                                  style={{ letterSpacing: '-0.02em' }}
                                 >
-                                  {brand.mono}
+                                  {provider.name.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <p className="font-display font-semibold tracking-tight truncate text-[15px]">{provider.name}</p>
