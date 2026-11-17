@@ -29,7 +29,10 @@ const generateReport = async (domainId: number) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `report-${domainId}-${Date.now()}.html`;
+    // nexus-report-segbytes.xyz-2026-11-17.html — operator-friendly, sorts naturally
+    const domainName = domains.find((d: any) => d.id === domainId)?.name || String(domainId);
+    const date = new Date().toISOString().slice(0, 10);
+    a.download = `nexus-report-${domainName}-${date}.html`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
