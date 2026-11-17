@@ -5,6 +5,19 @@ const { DkimAnalyzer } = require('./dkimAnalyzer');
 const { MtaStsAnalyzer } = require('./mtaStsAnalyzer');
 const { TyposquatDetector } = require('./typosquatDetector');
 
+// DNS outages surface as node internals ("queryTxt ENOTFOUND _dmarc.x") —
+// translate to operator copy before issues reach the dashboard.
+function friendlyDnsError(err, hostname) {
+  const code = err && err.code;
+  if (code === 'ENOTFOUND' || code === 'ENODATA') {
+    return `No ${hostname} record published yet — add it to pass this check`;
+  }
+  if (code === 'ESERVFAIL' || code === 'ETIMEOUT' || code === 'EAI_AGAIN') {
+    return `DNS lookup for ${hostname} failed (${code}) — re-scan to retry`;
+  }
+  return `DNS lookup for ${hostname} failed — re-scan to retry`;
+}
+
 class EmailSecurityAuditor {
   constructor() {}
 
@@ -157,7 +170,7 @@ class EmailSecurityAuditor {
       else result.score = 10;
 
     } catch (error) {
-      result.errors.push(error.message);
+      result.errors.push(friendlyDnsError(error, `_dmarc.${domain}`));
     }
 
     return result;
@@ -215,7 +228,7 @@ class EmailSecurityAuditor {
       if (result.reporting) result.score = 5;
 
     } catch (error) {
-      result.errors.push(error.message);
+      result.errors.push(friendlyDnsError(error, `_smtp._tls.${domain}`));
     }
 
     return result;
