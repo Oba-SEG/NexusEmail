@@ -248,12 +248,11 @@ export default function BrandsTab({
   return (
     <>
 <div>
-  <p className="eyebrow mb-2">Brand Protection</p>
   <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Watch for impersonation</h2>
   <p className="text-sm text-muted-foreground">Detect typosquats, look-alikes, and brand abuse on domains you own.</p>
 </div>
 
-<Card className="premium-surface premium-card border-0">
+<Card className="premium-surface premium-card">
   <CardHeader className="flex flex-row items-center justify-between gap-3">
     <div>
       <CardTitle className="font-display tracking-tight flex items-center gap-2">
@@ -265,7 +264,7 @@ export default function BrandsTab({
       {brandAlerts.length > 0 && (
         <Button variant="outline" size="sm" className="border-red-500/30 bg-red-500/5 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
           <Bell className="w-4 h-4 mr-1.5" /> Alerts
-          <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[10px] font-bold leading-none">{brandAlerts.length}</span>
+          <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[11px] font-bold leading-none">{brandAlerts.length}</span>
         </Button>
       )}
       <Button variant="outline" size="sm" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>

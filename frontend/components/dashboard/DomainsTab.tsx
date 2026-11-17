@@ -187,7 +187,7 @@ export default function DomainsTab({
     </p>
   </div>
   <div className="relative max-w-2xl mx-auto">
-    <Card className="relative premium-surface premium-card border-0">
+    <Card className="relative premium-surface premium-card">
       <CardContent className="p-6">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -281,7 +281,7 @@ export default function DomainsTab({
       return (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {stats.map((s) => (
-            <div key={s.label} className="premium-surface premium-card border-0 rounded-xl p-4">
+            <div key={s.label} className="premium-surface premium-card rounded-xl p-4">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">{s.label}</p>
                 <s.icon className="w-3.5 h-3.5 text-muted-foreground" />
@@ -328,7 +328,7 @@ export default function DomainsTab({
 
     {/* Domain list — card rows, not a table */}
     {domains.length === 0 ? (
-      <Card className="premium-surface premium-card border-0">
+      <Card className="premium-surface premium-card">
         <CardContent className="p-12 text-center">
           <div className="inline-flex w-16 h-16 rounded-2xl bg-orange-500/10 text-orange-400 items-center justify-center mb-4">
             <Globe className="w-7 h-7" />
@@ -380,7 +380,7 @@ export default function DomainsTab({
           return (
             <div
               key={domain.id}
-              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? 'ring-2 ring-orange-500/40 border-orange-500/30' : 'border-0'}`}
+              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? '!shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_2px_rgba(255,157,82,0.4)] !border-orange-500/40' : ''}`}
             >
               <div className="flex items-center gap-4">
                 {/* Selection */}
@@ -418,13 +418,13 @@ export default function DomainsTab({
                   <div className="flex items-center gap-2 mb-1">
                     <p className="font-display font-semibold tracking-tight truncate">{domain.name}</p>
                     {domain.verified ? (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 flex-shrink-0">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 flex-shrink-0">
                         <CheckCircle className="w-2.5 h-2.5" /> Verified
                       </span>
                     ) : (
                       <button
                         onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex-shrink-0 transition-colors"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex-shrink-0 transition-colors"
                       >
                         <AlertTriangle className="w-2.5 h-2.5" /> Verify
                       </button>
@@ -432,7 +432,7 @@ export default function DomainsTab({
                   </div>
                   <div className="flex items-center gap-3 flex-wrap">
                     {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
-                      <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
+                      <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
                         {p.k}
                         {p.v.tone !== 'none' && <span className="opacity-70">·</span>}
                         {p.v.tone !== 'none' && <span>{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}

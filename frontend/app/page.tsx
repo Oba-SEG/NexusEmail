@@ -457,6 +457,10 @@ export default function Dashboard() {
   const deleteDomains = async () => {
     if (selectedIds.length === 0) return;
     const gen = sessionGenRef.current;
+    // names snapshot for the undo affordance — ids die with the rows
+    const deletedNames = domains
+      .filter(d => selectedIds.includes(d.id))
+      .map(d => d.name);
     
     try {
       const res = await apiFetch(`${API_BASE}/settings/bulk-delete`, {
@@ -506,6 +510,66 @@ export default function Dashboard() {
       }
       await loadDomains(gen);
       setSelectedIds([]);
+      if (res.ok && gen === sessionGenRef.current && deletedNames.length > 0) {
+        notify(
+          `Deleted ${deletedNames.length} ${deletedNames.length === 1 ? 'domain' : 'domains'}.`,
+          'success',
+          undefined,
+          {
+            label: 'Undo',
+            onClick: () => {
+              const undoGen = sessionGenRef.current;
+              apiFetch(`${API_BASE}/domains/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains: deletedNames })
+              })
+                .then(r => r.json())
+                .then(async data => {
+                  if (undoGen !== sessionGenRef.current) return;
+                  const restored = data.added || [];
+                  const failed = data.failed || [];
+                  if (restored.length > 0 && failed.length === 0) {
+                    notify(`Restored ${restored.length} ${restored.length === 1 ? 'domain' : 'domains'} — rescanning.`, 'info');
+                  } else if (restored.length > 0) {
+                    notify(`Restored ${restored.length} of ${deletedNames.length}. Not restored: ${failed.map((f: any) => f.name).join(', ')}.`, 'error', failed.map((f: any) => `${f.name}: ${f.error}`).join('; '));
+                  } else {
+                    notify('Undo failed — none of the domains could be re-added.', 'error', failed.map((f: any) => `${f.name}: ${f.error}`).join('; ') || undefined);
+                    return;
+                  }
+                  // fresh rows are invisible to a stale list response
+                  domainListGenRef.current += 1;
+                  await loadDomains(undoGen);
+                  // scan only the restored names and report scan failures
+                  try {
+                    const scanRes = await apiFetch(`${API_BASE}/domains/bulk-scan`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ names: restored })
+                    });
+                    if (undoGen !== sessionGenRef.current) return;
+                    if (scanRes.ok) {
+                      const scanBody = await scanRes.json();
+                      // identity may have changed while the body was pending
+                      if (undoGen !== sessionGenRef.current) return;
+                      const scanFailed = (scanBody.results || []).filter((r: any) => r.error);
+                      if (scanFailed.length > 0) {
+                        notify(`Scan failed for ${scanFailed.map((s: any) => s.domain).join(', ')}.`, 'error', 'Use Re-scan on the domain row to retry.');
+                      }
+                    } else {
+                      notify('The follow-up scan failed — use Re-scan on the domain row.', 'error', describeApiError(`HTTP ${scanRes.status}`));
+                    }
+                  } catch (e) {
+                    if (undoGen === sessionGenRef.current) notify('The follow-up scan failed — use Re-scan on the domain row.', 'error', describeError(e, 'The scan request could not be completed.'));
+                  }
+                })
+                .catch(() => {
+                  if (undoGen === sessionGenRef.current) notify('Undo failed — the request could not be completed.', 'error');
+                });
+            }
+          }
+        );
+      }
     } catch (e) {
       console.error('Delete failed:', e);
     }

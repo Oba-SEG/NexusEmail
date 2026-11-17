@@ -236,7 +236,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
                   ].map((s) => (
                     <Card key={s.label} className="border-border/40 bg-white/[0.02]">
                       <CardContent className="pt-4 pb-3">
-                        <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
                         <p className="font-display font-semibold text-lg">{s.value}</p>
                       </CardContent>
                     </Card>
@@ -283,7 +283,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
                             </div>
                             <span className="flex items-center gap-2 flex-shrink-0">
                               <button
-                                className="text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                                className="text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
                                 onClick={() => {
                                   pwFormGenRef.current += 1;
                                   setPwResetFor(pwResetFor === u.id ? null : u.id);

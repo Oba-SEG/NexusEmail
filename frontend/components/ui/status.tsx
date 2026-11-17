@@ -17,6 +17,7 @@ interface StatusItem {
   title: string
   detail?: string
   tone: Tone
+  action?: { label: string; onClick: () => void }
 }
 
 const DURATION_MS = { success: 5000, info: 5000, error: 8000 }
@@ -35,9 +36,14 @@ function dismissStatus(id: number) {
   emit()
 }
 
-export function notify(title: string, tone: Tone = "info", detail?: string) {
+export function notify(
+  title: string,
+  tone: Tone = "info",
+  detail?: string,
+  action?: { label: string; onClick: () => void },
+) {
   counter += 1
-  items = [...items, { id: counter, title, detail, tone }]
+  items = [...items, { id: counter, title, detail, tone, action }]
   emit()
 }
 
@@ -118,6 +124,14 @@ function StatusCard({ item }: { item: StatusItem }) {
           </ToastPrimitive.Description>
         )}
       </div>
+      {item.action && (
+        <button
+          onClick={() => { item.action!.onClick(); dismissStatus(item.id) }}
+          className="rounded px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+        >
+          {item.action.label}
+        </button>
+      )}
       <ToastPrimitive.Close
         aria-label="Dismiss"
         className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
