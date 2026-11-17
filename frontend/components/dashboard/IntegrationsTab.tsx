@@ -234,7 +234,7 @@ const testProviderConnection = async (provider: any) => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  className="text-[11px] h-8 px-2 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
+                                  className="text-[11px] h-8 px-2 border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
                                   onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
                                   title="Reconfigure"
                                 >
@@ -254,7 +254,7 @@ const testProviderConnection = async (provider: any) => {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="w-full text-[11px] h-8 border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5"
+                                className="w-full text-[11px] h-8 border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
                                 onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
                               >
                                 <Plug className="w-3 h-3 mr-1.5" /> Configure

@@ -22,7 +22,7 @@ export default function LoginScreen({ loginForm, onFormChange, onSubmit, logging
       <StatusViewport />
       <Card className="w-full max-w-md bg-slate-900 border-slate-800 text-white">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> NexusEmail</CardTitle>
+          <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Nexus Brand Protection</CardTitle>
           <CardDescription>Sign in through your Segbytes client account.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

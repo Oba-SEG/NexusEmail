@@ -71,7 +71,7 @@ export default function ProviderModal({
               <div className="flex items-baseline justify-between mb-1.5">
                 <label htmlFor={`provider-field-${field.key}`} className="text-xs font-semibold uppercase tracking-wider text-foreground">
                   {field.label}
-                  {field.required && <span className="ml-1.5 text-orange-400 normal-case" title="Required">*</span>}
+                  {field.required && <span className="ml-1.5 text-emerald-400 normal-case" title="Required">*</span>}
                 </label>
                 {!field.required && <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
               </div>
@@ -81,7 +81,7 @@ export default function ProviderModal({
                 value={providerCreds[field.key] || ''}
                 onChange={(e) => onCredsChange({...providerCreds, [field.key]: e.target.value})}
                 placeholder={field.placeholder}
-                className="bg-background/50 border-white/10 focus-visible:border-orange-500/40 font-mono text-sm"
+                className="bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -92,14 +92,14 @@ export default function ProviderModal({
 
         {/* Docs deep-link + security note */}
         <div className="mt-5 p-3 rounded-lg bg-white/[0.03] border border-white/5 flex items-start gap-3">
-          <Key className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
+          <Key className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
           <div className="flex-1 text-[11px] text-muted-foreground leading-relaxed">
             <p className="mb-1">
               <a
                 href={PROVIDER_METADATA[selectedProvider.name]?.docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-orange-300 hover:text-orange-200 font-medium underline underline-offset-2"
+                className="text-emerald-300 hover:text-emerald-200 font-medium underline underline-offset-2"
               >
                 Open {selectedProvider.name} API settings ↗
               </a>
@@ -122,7 +122,7 @@ export default function ProviderModal({
           >
             {savingProvider ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : <><CheckCircle className="w-4 h-4 mr-2" /> Save credentials</>}
           </Button>
-          <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={onClose}>
+          <Button variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onClose}>
             Cancel
           </Button>
         </div>

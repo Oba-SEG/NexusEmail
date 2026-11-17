@@ -88,13 +88,13 @@ const exportJSON = async () => {
               <Card className="premium-surface premium-card">
                 <CardHeader>
                   <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-orange-400" /> Single domain report
+                    <FileText className="w-4 h-4 text-emerald-400" /> Single domain report
                   </CardTitle>
                   <CardDescription>Detailed HTML breakdown of one domain&rsquo;s SPF / DKIM / DMARC posture.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <select
-                    className="w-full h-10 px-3 rounded-md border border-white/10 bg-background/50 text-sm focus-visible:outline-none focus-visible:border-orange-500/40"
+                    className="w-full h-10 px-3 rounded-md border border-white/10 bg-background/50 text-sm focus-visible:outline-none focus-visible:border-emerald-500/40"
                     value={reportDomainId || ''}
                     onChange={(e) => setReportDomainId(Number(e.target.value))}
                   >
@@ -107,24 +107,28 @@ const exportJSON = async () => {
                     className="w-full btn-premium-primary border-0"
                     onClick={() => reportDomainId && generateReport(reportDomainId)}
                     disabled={!reportDomainId || generatingReport}
+                    title={!reportDomainId ? 'Select a domain above first' : undefined}
                   >
                     {generatingReport ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Generating&hellip;</> : <><FileText className="w-4 h-4 mr-2" /> Generate report</>}
                   </Button>
+                  {!reportDomainId && (
+                    <p className="text-xs text-muted-foreground">Select a domain above to enable report generation.</p>
+                  )}
                 </CardContent>
               </Card>
 
               <Card className="premium-surface premium-card">
                 <CardHeader>
                   <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Download className="w-4 h-4 text-orange-400" /> Bulk export
+                    <Download className="w-4 h-4 text-emerald-400" /> Bulk export
                   </CardTitle>
                   <CardDescription>Download every domain&rsquo;s latest scan as a single archive.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <Button variant="outline" className="w-full border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportCSV}>
+                  <Button variant="outline" className="w-full border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={exportCSV}>
                     <Download className="w-4 h-4 mr-2" /> CSV &mdash; spreadsheet-friendly
                   </Button>
-                  <Button variant="outline" className="w-full border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportJSON}>
+                  <Button variant="outline" className="w-full border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={exportJSON}>
                     <Download className="w-4 h-4 mr-2" /> JSON &mdash; full structured data
                   </Button>
                 </CardContent>

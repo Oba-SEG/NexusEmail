@@ -732,7 +732,7 @@ export default function Dashboard() {
   return (
     <div>
       <StatusViewport />
-      <div className="min-h-screen text-foreground" style={{background: "radial-gradient(circle at top left, rgba(255, 157, 82, 0.08), transparent 35%), linear-gradient(180deg, #090b12 0%, #0b1018 100%)"}}>
+      <div className="min-h-screen text-foreground" style={{background: "linear-gradient(180deg, #0f172a 0%, #0b1220 100%)"}}>
           <DashboardChrome
             user={user}
             logoutNotice={logoutNotice}

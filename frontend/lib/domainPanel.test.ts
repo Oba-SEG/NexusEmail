@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, type DomainPanelState } from './domainPanel';
+import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, dnsEvidence, type DomainPanelState } from './domainPanel';
 
 describe('identity switch: user A -> user B', () => {
   test("A's domains must not survive a switch even when B's load fails", () => {
@@ -360,6 +360,39 @@ describe('selection and upload refresh association', () => {
     expect(failed.selected?.id).toBe(1);
     expect(failed.shownId).toBe(1);
     expect(failed.domains).toEqual(panel.domains);
+  });
+
+  test('dnsEvidence maps live-DNS queries for an empty domain', () => {
+    const scan = {
+      spf_record: JSON.stringify({ found: false, record: null }),
+      dkim_selectors: JSON.stringify([]),
+      dmarc_record: JSON.stringify({ found: false, record: null }),
+      issues: JSON.stringify([
+        { type: 'MTA-STS', severity: 'medium', message: 'No MTA-STS record found - email not secured with TLS enforcement' },
+        { type: 'TLS-RPT', severity: 'low', message: 'No _smtp._tls.a.test record published yet — add it to pass this check' },
+      ]),
+    };
+    const rows = dnsEvidence(scan, 'a.test');
+    expect(rows.map((r) => r.check)).toEqual(['SPF', 'DKIM', 'DMARC', 'MTA-STS', 'TLS-RPT']);
+    expect(rows[0]).toMatchObject({ query: 'a.test · TXT', result: 'No v=spf1 record published', found: false });
+    expect(rows[2].query).toBe('_dmarc.a.test · TXT');
+    expect(rows[3].result).toBe('No MTA-STS record published');
+    expect(rows[4].found).toBe(false);
+  });
+
+  test('dnsEvidence surfaces published records with found flags', () => {
+    const scan = {
+      spf_record: JSON.stringify({ found: true, record: 'v=spf1 include:_spf.google.com ~all' }),
+      dkim_selectors: JSON.stringify(['google']),
+      dmarc_record: JSON.stringify({ found: true, record: 'v=DMARC1; p=none;', policy: 'none' }),
+      issues: '[]',
+    };
+    const rows = dnsEvidence(scan, 'a.test');
+    expect(rows[0].found).toBe(true);
+    expect(rows[0].result).toBe('v=spf1 include:_spf.google.com ~all');
+    expect(rows[1].result).toBe('Selectors: google');
+    expect(rows[2].result).toBe('v=DMARC1; p=none;');
+    expect(rows).toHaveLength(3);
   });
 
   test('a successful Inspect moves both selection and shown id', () => {

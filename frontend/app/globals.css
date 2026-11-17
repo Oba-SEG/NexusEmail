@@ -6,52 +6,53 @@
    T159 — Premium pass: typography, focus rings, scrollbar, transitions,
           surface tokens, premium card class.
    Background: #090b12 (segbytes --seg-bg)
-   Primary:    pale electric orange #ff9d52 (light) / #ffaf73 (dark mute) */
+   Primary:    operational green #16a34a (uupm Dark Mode OLED design system) */
 
 @layer base {
   :root {
-    --background: 224 36% 6%;
-    --foreground: 220 30% 96%;
-    --card: 222 30% 9%;
-    --card-foreground: 220 30% 96%;
-    --popover: 222 32% 7%;
-    --popover-foreground: 220 30% 96%;
-    --primary: 25 100% 65%;
-    --primary-foreground: 224 50% 8%;
-    --secondary: 222 25% 14%;
-    --secondary-foreground: 220 30% 96%;
-    --muted: 222 25% 14%;
-    --muted-foreground: 220 12% 65%;
-    --accent: 25 100% 65%;
-    --accent-foreground: 224 50% 8%;
-    --destructive: 0 75% 55%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 220 20% 18%;
-    --input: 220 20% 16%;
-    --ring: 25 100% 65%;
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 220 28% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 32% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 142 72% 37%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 142 60% 45%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 215 25% 17%;
+    --muted-foreground: 213 18% 76%;
+    --accent: 142 72% 45%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 25% 27%;
+    --input: 215 25% 22%;
+    --ring: 142 72% 45%;
     --radius: 0.75rem;
   }
 
   .dark {
-    --background: 224 36% 6%;
-    --foreground: 220 30% 96%;
-    --card: 222 30% 9%;
-    --card-foreground: 220 30% 96%;
-    --popover: 222 32% 7%;
-    --popover-foreground: 220 30% 96%;
-    --primary: 28 100% 70%;
-    --primary-foreground: 224 50% 8%;
-    --secondary: 222 25% 14%;
-    --secondary-foreground: 220 30% 96%;
-    --muted: 222 25% 14%;
-    --muted-foreground: 220 12% 65%;
-    --accent: 28 100% 70%;
-    --accent-foreground: 224 50% 8%;
-    --destructive: 0 65% 50%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 220 20% 18%;
-    --input: 220 20% 16%;
-    --ring: 28 100% 70%;
+    --background: 222 47% 11%;
+    --foreground: 210 40% 98%;
+    --card: 220 28% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 32% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 142 72% 37%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 142 60% 45%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 215 25% 17%;
+    --muted-foreground: 213 18% 76%;
+    --accent: 142 72% 45%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 25% 27%;
+    --input: 215 25% 22%;
+    --ring: 142 72% 45%;
+    --radius: 0.75rem;
   }
 }
 
@@ -68,13 +69,17 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* uupm checklist: pointer affordance on every interactive element
+     (Radix roles don't get it from the UA stylesheet). */
+  [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"],
+  select, summary, label, a {
+    cursor: pointer;
+  }
+
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
-    background:
-      radial-gradient(circle at top left, rgba(255, 157, 82, 0.06), transparent 35%),
-      radial-gradient(circle at bottom right, rgba(255, 122, 26, 0.04), transparent 40%),
-      linear-gradient(180deg, #090b12 0%, #0b1018 100%);
+    background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
     background-attachment: fixed;
     min-height: 100vh;
   }
@@ -143,42 +148,42 @@
     transition: border-color 160ms ease;
   }
   .premium-card.premium-card:hover {
-    border-color: rgba(255, 157, 82, 0.28);
+    border-color: rgba(34, 197, 94, 0.30);
   }
 
-  /* T159 — Brand mark (the orange rounded square). Reusable across
+  /* Brand mark (the green rounded square). Reusable across
      navbar, loader, modals. Matches the favicon. */
   .nbp-mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #ffaf73 0%, #ff7a1a 100%);
-    color: #1a0d04;
+    background: linear-gradient(135deg, #34d399 0%, #15803d 100%);
+    color: #052e14;
     font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
     font-weight: 800;
     letter-spacing: -0.04em;
     border-radius: 12px;
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.25) inset,
-      0 8px 22px -6px rgba(255, 122, 26, 0.45),
-      0 2px 8px -2px rgba(255, 122, 26, 0.3);
+      0 8px 22px -6px rgba(22, 163, 74, 0.35),
+      0 2px 8px -2px rgba(22, 163, 74, 0.25);
   }
 
   /* Premium primary button — refined gradient, inner highlight, hover lift. */
   .btn-premium-primary {
-    background: linear-gradient(135deg, #ffaf73 0%, #ff7a1a 100%);
-    color: #1a0d04;
+    background: linear-gradient(135deg, #34d399 0%, #15803d 100%);
+    color: #052e14;
     font-weight: 700;
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.25) inset,
-      0 8px 22px -6px rgba(255, 122, 26, 0.4);
+      0 8px 22px -6px rgba(22, 163, 74, 0.35);
   }
   .btn-premium-primary:hover {
-    background: linear-gradient(135deg, #ffbe85 0%, #ff8a30 100%);
+    background: linear-gradient(135deg, #6ee7b7 0%, #16a34a 100%);
     transform: translateY(-1px);
     box-shadow:
       0 1px 0 rgba(255, 255, 255, 0.3) inset,
-      0 12px 28px -8px rgba(255, 122, 26, 0.55);
+      0 12px 28px -8px rgba(22, 163, 74, 0.45);
   }
   .btn-premium-primary:active {
     transform: translateY(0);
@@ -199,3 +204,13 @@
     background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
   }
 }
+
+  /* uupm checklist: reduced-motion guard — kill transforms/animations. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      transform: none !important;
+    }
+  }
