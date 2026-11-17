@@ -550,6 +550,8 @@ export default function Dashboard() {
                     if (undoGen !== sessionGenRef.current) return;
                     if (scanRes.ok) {
                       const scanBody = await scanRes.json();
+                      // identity may have changed while the body was pending
+                      if (undoGen !== sessionGenRef.current) return;
                       const scanFailed = (scanBody.results || []).filter((r: any) => r.error);
                       if (scanFailed.length > 0) {
                         notify(`Scan failed for ${scanFailed.map((s: any) => s.domain).join(', ')}.`, 'error', 'Use Re-scan on the domain row to retry.');

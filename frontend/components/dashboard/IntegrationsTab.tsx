@@ -188,7 +188,7 @@ const testProviderConnection = async (provider: any) => {
                       const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
 
                       return (
-                        <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? 'border-emerald-500/40' : ''}`}>
+                        <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? '!border-emerald-500/40' : ''}`}>
                           <CardContent className="p-5">
                             <div className="flex items-start justify-between mb-3 gap-3">
                               <div className="flex items-start gap-3 min-w-0 flex-1">
