@@ -457,6 +457,10 @@ export default function Dashboard() {
   const deleteDomains = async () => {
     if (selectedIds.length === 0) return;
     const gen = sessionGenRef.current;
+    // names snapshot for the undo affordance — ids die with the rows
+    const deletedNames = domains
+      .filter(d => selectedIds.includes(d.id))
+      .map(d => d.name);
     
     try {
       const res = await apiFetch(`${API_BASE}/settings/bulk-delete`, {
@@ -506,6 +510,43 @@ export default function Dashboard() {
       }
       await loadDomains(gen);
       setSelectedIds([]);
+      if (res.ok && gen === sessionGenRef.current && deletedNames.length > 0) {
+        notify(
+          `Deleted ${deletedNames.length} ${deletedNames.length === 1 ? 'domain' : 'domains'}.`,
+          'success',
+          undefined,
+          {
+            label: 'Undo',
+            onClick: () => {
+              const undoGen = sessionGenRef.current;
+              apiFetch(`${API_BASE}/domains/bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ domains: deletedNames })
+              })
+                .then(r => r.json())
+                .then(async data => {
+                  if (undoGen !== sessionGenRef.current) return;
+                  const restored = (data.added || []).length;
+                  if (restored > 0) {
+                    notify(`Restored ${restored} ${restored === 1 ? 'domain' : 'domains'} — run a scan to refresh their status.`, 'info');
+                    await loadDomains(undoGen);
+                    apiFetch(`${API_BASE}/domains/bulk-scan`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ domains: data.added })
+                    }).catch(() => {});
+                  } else {
+                    notify('Undo failed — the domains could not be re-added.', 'error');
+                  }
+                })
+                .catch(() => {
+                  if (undoGen === sessionGenRef.current) notify('Undo failed — the request could not be completed.', 'error');
+                });
+            }
+          }
+        );
+      }
     } catch (e) {
       console.error('Delete failed:', e);
     }

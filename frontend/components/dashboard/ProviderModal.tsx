@@ -53,7 +53,7 @@ export default function ProviderModal({
                 {brand.mono}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="eyebrow mb-1">Connect provider · {meta?.category}</p>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Connect provider · {meta?.category}</p>
                 <DialogTitle className="font-display text-xl font-bold tracking-tight">{selectedProvider.name}</DialogTitle>
                 <DialogDescription className="text-xs text-muted-foreground mt-1 leading-relaxed">{meta?.summary}</DialogDescription>
               </div>
@@ -73,7 +73,7 @@ export default function ProviderModal({
                   {field.label}
                   {field.required && <span className="ml-1.5 text-orange-400 normal-case" title="Required">*</span>}
                 </label>
-                {!field.required && <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
+                {!field.required && <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
               </div>
               <Input
                 id={`provider-field-${field.key}`}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import CopyButton from "@/components/dashboard/CopyButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -61,6 +61,16 @@ export default function DomainDetailPanel({
   onClose,
 }: DomainDetailPanelProps) {
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
+  const fixSectionRef = useRef<HTMLDivElement>(null);
+  const prevFixRef = useRef<any>(null);
+  // Fresh fix records appear below the fold — scroll them into view once
+  // per result, so the operator sees the output of Get fix records
+  useEffect(() => {
+    if (fixRecommendations && fixRecommendations !== prevFixRef.current) {
+      prevFixRef.current = fixRecommendations;
+      fixSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [fixRecommendations]);
   const [openReports, setOpenReports] = useState<Set<string>>(new Set());
   const [showAllReports, setShowAllReports] = useState(false);
   const toggleIssue = (key: string) => {
@@ -302,7 +312,7 @@ export default function DomainDetailPanel({
 
       {/* Recommendations Section */}
       {fixRecommendations && (
-        <div className="space-y-3 mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
+        <div ref={fixSectionRef} className="space-y-3 mt-4 p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
           <p className="font-medium text-sm">Recommended DNS Records:</p>
           <div className="grid gap-2 text-xs font-mono">
             {fixRecommendations.recommended_records?.spf && (

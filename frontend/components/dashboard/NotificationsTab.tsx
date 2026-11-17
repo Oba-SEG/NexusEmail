@@ -128,14 +128,13 @@ try {
   return (
     <>
             <div>
-              <p className="eyebrow mb-2">Notifications</p>
               <h2 className="font-display text-2xl font-bold tracking-tight mb-1">How we reach you</h2>
               <p className="text-sm text-muted-foreground">
                 Pick which events trigger an email and where they get delivered. SMTP delivery is configured in Settings.
               </p>
             </div>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight">Notification preferences</CardTitle>
                 <CardDescription>Toggle which events generate an outbound email.</CardDescription>
@@ -169,7 +168,7 @@ try {
               </CardContent>
             </Card>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <MessageSquare className="w-4 h-4 text-orange-400" /> Slack
@@ -200,7 +199,7 @@ try {
               </CardContent>
             </Card>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <Mail className="w-4 h-4 text-orange-400" /> Email delivery (Resend)

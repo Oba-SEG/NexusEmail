@@ -133,29 +133,17 @@
   /* T159 — Premium surface: layered glass + inner highlight + soft shadow
      stack. Apply to top-tier cards (hero, primary panels). */
   .premium-surface {
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015));
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.05) inset,
-      0 30px 60px -25px rgba(0, 0, 0, 0.55),
-      0 10px 24px -10px rgba(0, 0, 0, 0.35);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   }
 
   /* Hover lift for premium cards. */
   .premium-card {
-    transition: border-color 220ms ease, transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
-                box-shadow 220ms ease;
+    transition: border-color 160ms ease;
   }
   .premium-card:hover {
-    border-color: rgba(255, 157, 82, 0.22);
-    transform: translateY(-2px);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.06) inset,
-      0 36px 72px -28px rgba(0, 0, 0, 0.65),
-      0 14px 28px -10px rgba(255, 122, 26, 0.12);
+    border-color: rgba(255, 157, 82, 0.28);
   }
 
   /* T159 — Brand mark (the orange rounded square). Reusable across

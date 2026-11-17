@@ -79,14 +79,13 @@ const exportJSON = async () => {
     <>
             <div className="flex items-end justify-between gap-4 flex-wrap">
               <div>
-                <p className="eyebrow mb-2">Reports</p>
                 <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Generate &amp; export</h2>
                 <p className="text-sm text-muted-foreground">Per-domain HTML reports for stakeholders. Bulk CSV / JSON exports for archive.</p>
               </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-5">
-              <Card className="premium-surface premium-card border-0">
+              <Card className="premium-surface premium-card">
                 <CardHeader>
                   <CardTitle className="font-display tracking-tight flex items-center gap-2">
                     <FileText className="w-4 h-4 text-orange-400" /> Single domain report
@@ -114,7 +113,7 @@ const exportJSON = async () => {
                 </CardContent>
               </Card>
 
-              <Card className="premium-surface premium-card border-0">
+              <Card className="premium-surface premium-card">
                 <CardHeader>
                   <CardTitle className="font-display tracking-tight flex items-center gap-2">
                     <Download className="w-4 h-4 text-orange-400" /> Bulk export

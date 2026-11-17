@@ -105,12 +105,11 @@ const toggleAutoRemediation = async (enabled: boolean) => {
   return (
     <>
             <div>
-              <p className="eyebrow mb-2">Settings</p>
               <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Operational defaults</h2>
               <p className="text-sm text-muted-foreground">Scanning cadence, auto-remediation policy, outbound SMTP, and connected DNS providers.</p>
             </div>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <Activity className="w-4 h-4 text-orange-400" /> Scanning
@@ -139,7 +138,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
               </CardContent>
             </Card>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <Wrench className="w-4 h-4 text-orange-400" /> Auto-remediation
@@ -164,7 +163,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
               </CardContent>
             </Card>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <Mail className="w-4 h-4 text-orange-400" /> SMTP configuration
@@ -211,7 +210,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
               </CardContent>
             </Card>
 
-            <Card className="premium-surface premium-card border-0">
+            <Card className="premium-surface premium-card">
               <CardHeader>
                 <CardTitle className="font-display tracking-tight flex items-center gap-2">
                   <Plug className="w-4 h-4 text-orange-400" /> Connected DNS providers

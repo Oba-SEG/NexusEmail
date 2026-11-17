@@ -117,7 +117,6 @@ const testProviderConnection = async (provider: any) => {
   return (
     <>
             <div>
-              <p className="eyebrow mb-2">Integrations</p>
               <h2 ref={integrationsHeadingRef} className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
               <p className="text-sm text-muted-foreground">
                 Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
@@ -131,7 +130,7 @@ const testProviderConnection = async (provider: any) => {
               const byCat = (cat: string) => DNS_PROVIDERS.filter((p: any) => p.category === cat);
               const connectedIn = (cat: string) => byCat(cat).filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
               return (
-                <div className="premium-surface premium-card border-0 rounded-xl p-5">
+                <div className="premium-surface premium-card rounded-xl p-5">
                   <div className="flex items-center gap-6 flex-wrap">
                     <div className="flex items-center gap-4">
                       <div className="relative w-16 h-16 flex-shrink-0">
@@ -158,7 +157,7 @@ const testProviderConnection = async (provider: any) => {
                     <div className="flex items-center gap-5 text-xs">
                       {(['Global', 'Cloud', 'Asia'] as const).map((cat) => (
                         <div key={cat}>
-                          <p className="uppercase tracking-widest text-muted-foreground font-semibold text-[10px]">{cat}</p>
+                          <p className="uppercase tracking-widest text-muted-foreground font-semibold text-[11px]">{cat}</p>
                           <p className="font-display font-bold text-base mt-0.5 tabular-nums">
                             <span className={connectedIn(cat) > 0 ? 'text-emerald-300' : 'text-muted-foreground'}>{connectedIn(cat)}</span>
                             <span className="text-muted-foreground/60 mx-1">/</span>
@@ -189,7 +188,7 @@ const testProviderConnection = async (provider: any) => {
                       const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
 
                       return (
-                        <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? 'border-emerald-500/30' : 'border-0'}`}>
+                        <Card key={provider.name} className={`premium-surface premium-card rounded-xl ${isConnected ? 'border-emerald-500/40' : ''}`}>
                           <CardContent className="p-5">
                             <div className="flex items-start justify-between mb-3 gap-3">
                               <div className="flex items-start gap-3 min-w-0 flex-1">
