@@ -294,7 +294,7 @@ export default function DomainsTab({
               red — say so instead of leaving silent alarm */}
           {atRisk === total && avgScore != null && (
             <p className="text-xs text-muted-foreground col-span-2 lg:col-span-4 leading-relaxed">
-              Red at the start is normal — domains without SPF / DKIM / DMARC records score 0. Open a domain for the exact records to publish, then re-scan; the score moves as DNS changes.
+              Red at the start is normal — domains without SPF / DKIM / DMARC records score 0. Open a domain and run Get Fix Records for the SPF / DMARC records to publish, then re-scan; the score moves as DNS changes.
             </p>
           )}
         </div>
