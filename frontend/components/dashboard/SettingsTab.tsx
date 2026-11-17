@@ -119,8 +119,7 @@ const toggleAutoRemediation = async (enabled: boolean) => {
               </CardHeader>
               <CardContent className="space-y-2">
                 {[
-                  { key: 'autoOnAdd', label: 'Auto-scan on add', desc: 'Run a scan immediately when a new domain is added.', on: !!settings?.scan_schedule?.enabled, fn: () => toggleSchedule(!settings?.scan_schedule?.enabled) },
-                  { key: 'daily', label: 'Daily scheduled scan', desc: 'Re-scan every domain at 02:00 UTC.', on: !!settings?.scan_schedule?.enabled, fn: () => toggleSchedule(!settings?.scan_schedule?.enabled) },
+                  { key: 'daily', label: 'Daily scheduled scan', desc: 'Re-scan every domain at 02:00 UTC. (Scans on add always run.)', on: !!settings?.scan_schedule?.enabled, fn: () => toggleSchedule(!settings?.scan_schedule?.enabled) },
                 ].map((s) => (
                   <div key={s.key} className="flex items-center justify-between p-4 rounded-lg border border-white/5 bg-white/[0.02]">
                     <div>

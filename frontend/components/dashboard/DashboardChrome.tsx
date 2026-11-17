@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bell, Sun, Moon, LogOut, Globe, Plug, BarChart3, Settings,
+  Bell, LogOut, Globe, Plug, BarChart3, Settings,
   Shield, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
-  darkMode: boolean;
-  onToggleDark: () => void;
   user: { name?: string; email?: string } | null;
   logoutNotice: string | null;
   onLogout: () => void;
@@ -21,12 +19,12 @@ interface DashboardChromeProps {
 
 /** App chrome: sticky navbar and the main tab strip. */
 export default function DashboardChrome({
-  children, darkMode, onToggleDark, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin,
+  children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin,
 }: DashboardChromeProps) {
   return (
     <>
 {/* Navbar */}
-<nav className="border-b border-white/5 bg-background/70 backdrop-blur-2xl sticky top-0 z-50">
+<nav className="border-b border-white/5 bg-background sticky top-0 z-50">
   <div className="container mx-auto px-6 py-4">
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -35,13 +33,7 @@ export default function DashboardChrome({
       </div>
 
       <div className="flex items-center gap-1.5">
-        <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-white/5">
-          <Bell className="w-[18px] h-[18px]" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={onToggleDark} className="h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-white/5">
-          {darkMode ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
-        </Button>
-        <div className="ml-3 flex items-center gap-3 pl-4 border-l border-white/5">
+        <div className="flex items-center gap-3 pl-0 sm:pl-0">
           {logoutNotice && (
             <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
           )}

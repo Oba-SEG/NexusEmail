@@ -80,14 +80,6 @@ const exportJSON = async () => {
                 <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Generate &amp; export</h2>
                 <p className="text-sm text-muted-foreground">Per-domain HTML reports for stakeholders. Bulk CSV / JSON exports for archive.</p>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportCSV}>
-                  <Download className="w-4 h-4 mr-2" /> Export all (CSV)
-                </Button>
-                <Button variant="outline" className="border-white/10 hover:border-orange-500/40 hover:bg-orange-500/5" onClick={exportJSON}>
-                  <Download className="w-4 h-4 mr-2" /> Export all (JSON)
-                </Button>
-              </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-5">
