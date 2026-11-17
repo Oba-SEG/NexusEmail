@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
@@ -33,18 +33,29 @@ export default function DashboardChrome({
   children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  useEffect(() => { setMobileNavOpen(false); }, [activeTab]);
+  const toggleRef = useRef<HTMLButtonElement>(null);
+  // Close on selection — pointer or keyboard. If the keyboard focused a
+  // trigger inside the mobile strip, it is about to unmount, so move
+  // focus back to the toggle button first (never drop focus to body).
+  const closeMobileNav = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.closest('[data-mobile-nav]') && toggleRef.current) {
+      toggleRef.current.focus();
+    }
+    setMobileNavOpen(false);
+  };
 
   const items = [...NAV];
   if (isAdmin) items.push({ value: "admin", label: "Admin", icon: Building2 });
 
-  const triggers = (compact: boolean) =>
+  const triggers = (compact: boolean, onSelect?: () => void) =>
     items.map((item) => {
       const Icon = item.icon;
       return (
         <TabsTrigger
           key={item.value}
           value={item.value}
+          onClick={onSelect}
           className={
             compact
               ? "gap-2 px-3 py-2 text-sm data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-300 data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground whitespace-nowrap"
@@ -70,10 +81,11 @@ export default function DashboardChrome({
     </div>
   );
 
-  const userCluster = logoutNotice ? (
-    <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
-  ) : (
+  const userCluster = (
     <div className="flex items-center gap-3">
+      {logoutNotice && (
+        <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
+      )}
       {user?.email && (
         <div className="hidden sm:block text-right leading-tight">
           <p className="text-xs font-medium text-foreground truncate max-w-[180px]">{user.name || user.email}</p>
@@ -102,6 +114,7 @@ export default function DashboardChrome({
       <nav className="lg:hidden sticky top-0 z-40 border-b border-white/5 bg-background/95 backdrop-blur">
         <div className="px-4 py-3 flex items-center justify-between gap-3">
           <button
+            ref={toggleRef}
             className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
             onClick={() => setMobileNavOpen((o) => !o)}
             aria-label="Toggle navigation"
@@ -113,9 +126,11 @@ export default function DashboardChrome({
           {userCluster}
         </div>
         {mobileNavOpen && (
-          <TabsList className="flex gap-1 overflow-x-auto px-3 pb-3 bg-transparent border-0 p-0 h-auto w-full justify-start">
-            {triggers(true)}
-          </TabsList>
+          <div data-mobile-nav>
+            <TabsList className="flex gap-1 overflow-x-auto px-3 pb-3 bg-transparent border-0 p-0 h-auto w-full justify-start">
+              {triggers(true, closeMobileNav)}
+            </TabsList>
+          </div>
         )}
       </nav>
 
