@@ -290,6 +290,13 @@ export default function DomainsTab({
               <p className="text-[11px] text-muted-foreground mt-1 leading-tight">{s.hint}</p>
             </div>
           ))}
+          {/* First-scan reassurance: a fresh portfolio legitimately scores
+              red — say so instead of leaving silent alarm */}
+          {atRisk === total && avgScore != null && (
+            <p className="text-xs text-muted-foreground col-span-2 lg:col-span-4 leading-relaxed">
+              Red at the start is normal — domains without SPF / DKIM / DMARC records score 0. Open a domain for the exact records to publish, then re-scan; the score moves as DNS changes.
+            </p>
+          )}
         </div>
       );
     })()}
