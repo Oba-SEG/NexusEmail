@@ -380,7 +380,7 @@ export default function DomainsTab({
           return (
             <div
               key={domain.id}
-              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? 'ring-2 ring-orange-500/40 !border-orange-500/40' : ''}`}
+              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? '!shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_2px_rgba(255,157,82,0.4)] !border-orange-500/40' : ''}`}
             >
               <div className="flex items-center gap-4">
                 {/* Selection */}
