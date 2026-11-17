@@ -179,9 +179,13 @@ export default function DomainsTab({
   // Inspect button) on dismissal.
   const drawerRef = useRef<HTMLDivElement>(null);
   const inspectOpenerRef = useRef<HTMLButtonElement>(null);
+  // onClosePanel is recreated by the parent each render — keep the latest
+  // in a ref so the focus lifecycle below keys ONLY on open/close state.
+  const onClosePanelRef = useRef(onClosePanel);
+  onClosePanelRef.current = onClosePanel;
   useEffect(() => {
     if (!showDetails) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClosePanel(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClosePanelRef.current(); };
     window.addEventListener('keydown', onKey);
     const raf = requestAnimationFrame(() => {
       drawerRef.current?.querySelector<HTMLElement>('button, [href], input')?.focus();
@@ -192,7 +196,7 @@ export default function DomainsTab({
       const opener = inspectOpenerRef.current;
       if (opener && opener.isConnected) opener.focus();
     };
-  }, [showDetails, onClosePanel]);
+  }, [showDetails]);
   const trapDrawerTab = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
     const c = drawerRef.current;
