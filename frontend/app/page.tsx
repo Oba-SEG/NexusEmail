@@ -99,11 +99,10 @@ export default function Dashboard() {
   // Form-operation generation: bumped whenever the open reset form or
   // organization changes; a password response from an earlier form
   // generation must not touch the current one's state.
-  const [loginForm, setLoginForm] = useState({ email: 'admin@segbytes.xyz', password: '' });
+  const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loginError, setLoginError] = useState('');
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [domains, setDomains] = useState<any[]>([]);
   const [selectedDomain, setSelectedDomain] = useState<any>(null);
@@ -667,12 +666,10 @@ export default function Dashboard() {
   }
 
   return (
-    <div className={darkMode ? "dark" : ""}>
+    <div>
       <StatusViewport />
       <div className="min-h-screen text-foreground" style={{background: "radial-gradient(circle at top left, rgba(255, 157, 82, 0.08), transparent 35%), linear-gradient(180deg, #090b12 0%, #0b1018 100%)"}}>
           <DashboardChrome
-            darkMode={darkMode}
-            onToggleDark={() => setDarkMode(!darkMode)}
             user={user}
             logoutNotice={logoutNotice}
             onLogout={logout}
