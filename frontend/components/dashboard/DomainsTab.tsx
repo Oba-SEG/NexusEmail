@@ -174,13 +174,40 @@ export default function DomainsTab({
     }
   };
 
-  // Slide-over drawer closes on Escape, like a native dialog
+  // Slide-over drawer: modal dialog semantics — Escape closes, focus moves
+  // in on open, Tab is contained, and focus returns to the opener (the
+  // Inspect button) on dismissal.
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const inspectOpenerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!showDetails) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClosePanel(); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const raf = requestAnimationFrame(() => {
+      drawerRef.current?.querySelector<HTMLElement>('button, [href], input')?.focus();
+    });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      cancelAnimationFrame(raf);
+      const opener = inspectOpenerRef.current;
+      if (opener && opener.isConnected) opener.focus();
+    };
   }, [showDetails, onClosePanel]);
+  const trapDrawerTab = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    const c = drawerRef.current;
+    if (!c) return;
+    const focusables = Array.from(
+      c.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+    ).filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null);
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (!c.contains(active)) { e.preventDefault(); first.focus(); }
+    else if (e.shiftKey && active === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
+  };
 
   return (
     <>
@@ -436,7 +463,7 @@ export default function DomainsTab({
                         <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-emerald-500/10 hover:text-emerald-300" onClick={() => scanDomain(domain.id)} title="Re-scan">
                           <RefreshCw className="w-4 h-4" />
                         </Button>
-                        <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => viewDomain(domain)} title="Inspect">
+                        <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(domain); }} title="Inspect">
                           <Eye className="w-4 h-4" />
                         </Button>
                         <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => fixDomain(domain.id)} title="Get fix records">
@@ -456,7 +483,7 @@ export default function DomainsTab({
 {showDetails && selectedDomain && (
   <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`${selectedDomain.name} details`}>
     <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] drawer-backdrop" onClick={onClosePanel} />
-    <div className="absolute inset-y-0 right-0 w-full max-w-xl bg-background border-l border-white/10 shadow-2xl overflow-y-auto drawer-slide-in">
+    <div ref={drawerRef} onKeyDown={trapDrawerTab} className="absolute inset-y-0 right-0 w-full max-w-xl bg-background border-l border-white/10 shadow-2xl overflow-y-auto drawer-slide-in">
       <DomainDetailPanel
         selectedDomain={selectedDomain}
         fixRecommendations={fixRecommendations}
