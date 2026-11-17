@@ -132,17 +132,17 @@
 @layer components {
   /* T159 — Premium surface: layered glass + inner highlight + soft shadow
      stack. Apply to top-tier cards (hero, primary panels). */
-  .premium-surface {
+  .premium-surface.premium-surface {
     background: rgba(255, 255, 255, 0.02);
     border: 1px solid rgba(255, 255, 255, 0.09);
     box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   }
 
   /* Hover lift for premium cards. */
-  .premium-card {
+  .premium-card.premium-card {
     transition: border-color 160ms ease;
   }
-  .premium-card:hover {
+  .premium-card.premium-card:hover {
     border-color: rgba(255, 157, 82, 0.28);
   }
 

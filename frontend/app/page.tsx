@@ -527,17 +527,38 @@ export default function Dashboard() {
                 .then(r => r.json())
                 .then(async data => {
                   if (undoGen !== sessionGenRef.current) return;
-                  const restored = (data.added || []).length;
-                  if (restored > 0) {
-                    notify(`Restored ${restored} ${restored === 1 ? 'domain' : 'domains'} — run a scan to refresh their status.`, 'info');
-                    await loadDomains(undoGen);
-                    apiFetch(`${API_BASE}/domains/bulk-scan`, {
+                  const restored = data.added || [];
+                  const failed = data.failed || [];
+                  if (restored.length > 0 && failed.length === 0) {
+                    notify(`Restored ${restored.length} ${restored.length === 1 ? 'domain' : 'domains'} — rescanning.`, 'info');
+                  } else if (restored.length > 0) {
+                    notify(`Restored ${restored.length} of ${deletedNames.length}. Not restored: ${failed.map((f: any) => f.name).join(', ')}.`, 'error', failed.map((f: any) => `${f.name}: ${f.error}`).join('; '));
+                  } else {
+                    notify('Undo failed — none of the domains could be re-added.', 'error', failed.map((f: any) => `${f.name}: ${f.error}`).join('; ') || undefined);
+                    return;
+                  }
+                  // fresh rows are invisible to a stale list response
+                  domainListGenRef.current += 1;
+                  await loadDomains(undoGen);
+                  // scan only the restored names and report scan failures
+                  try {
+                    const scanRes = await apiFetch(`${API_BASE}/domains/bulk-scan`, {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ domains: data.added })
-                    }).catch(() => {});
-                  } else {
-                    notify('Undo failed — the domains could not be re-added.', 'error');
+                      body: JSON.stringify({ names: restored })
+                    });
+                    if (undoGen !== sessionGenRef.current) return;
+                    if (scanRes.ok) {
+                      const scanBody = await scanRes.json();
+                      const scanFailed = (scanBody.results || []).filter((r: any) => r.error);
+                      if (scanFailed.length > 0) {
+                        notify(`Scan failed for ${scanFailed.map((s: any) => s.domain).join(', ')}.`, 'error', 'Use Re-scan on the domain row to retry.');
+                      }
+                    } else {
+                      notify('The follow-up scan failed — use Re-scan on the domain row.', 'error', describeApiError(`HTTP ${scanRes.status}`));
+                    }
+                  } catch (e) {
+                    if (undoGen === sessionGenRef.current) notify('The follow-up scan failed — use Re-scan on the domain row.', 'error', describeError(e, 'The scan request could not be completed.'));
                   }
                 })
                 .catch(() => {

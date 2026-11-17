@@ -234,7 +234,17 @@ router.post('/bulk', async (req, res) => {
 // Bulk scan
 router.post('/bulk-scan', async (req, res, next) => {
   try {
-    const domains = (await db.getDomains(req.orgId)).filter(d => d.status === 'active');
+    const all = (await db.getDomains(req.orgId)).filter(d => d.status === 'active');
+    // Honor an explicit target list when the caller provides one:
+    // domain_ids (row ids) or names (just-restored domains have no ids
+    // yet). An absent or empty list scans every active domain.
+    const idTargets = Array.isArray(req.body && req.body.domain_ids)
+      ? req.body.domain_ids.map(Number) : null;
+    const nameTargets = Array.isArray(req.body && req.body.names)
+      ? req.body.names.map(String) : null;
+    let domains = all;
+    if (idTargets && idTargets.length > 0) domains = all.filter(d => idTargets.includes(d.id));
+    else if (nameTargets && nameTargets.length > 0) domains = all.filter(d => nameTargets.includes(d.name));
     const results = [];
 
     for (const domain of domains) {
