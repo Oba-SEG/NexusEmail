@@ -82,7 +82,7 @@ export default function DomainDetailPanel({
     });
   };
   return (
-  <Card className="border-emerald-500/50 mb-6">
+  <Card className="border-0 rounded-none bg-background min-h-full shadow-none">
     <CardHeader className="flex flex-row items-center justify-between pb-2">
       <div>
         <CardTitle className="text-lg">{selectedDomain.name}</CardTitle>

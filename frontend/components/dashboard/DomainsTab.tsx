@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Search, AlertTriangle, CheckCircle, XCircle, Globe, Plus, RefreshCw,
   Zap, Eye, Clock, Wrench, Trash2, CheckSquare, Square, Activity
@@ -174,73 +174,62 @@ export default function DomainsTab({
     }
   };
 
+  // Slide-over drawer closes on Escape, like a native dialog
+  useEffect(() => {
+    if (!showDetails) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClosePanel(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showDetails, onClosePanel]);
+
   return (
     <>
-{/* Hero Search */}
+{/* Page header: title + inline add form (was a centered hero card) */}
 <div className="mb-6">
-  <div className="text-center mb-6 max-w-2xl mx-auto">
-    <h2 ref={heroHeadingRef} className="font-display text-2xl sm:text-3xl font-bold tracking-tight mb-2">
-      Add a domain. Watch its posture.
-    </h2>
-    <p className="text-sm text-muted-foreground">
-      We'll scan SPF / DKIM / DMARC, score the result, and surface anything that needs fixing.
-    </p>
+  <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+    <div>
+      <h2 ref={heroHeadingRef} className="font-display text-2xl font-bold tracking-tight">
+        Domains
+      </h2>
+      <p className="text-sm text-muted-foreground mt-1">
+        SPF / DKIM / DMARC posture for every domain you operate.
+      </p>
+    </div>
+    <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+      <div className="relative">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Add one domain, or paste many (commas / spaces / newlines)"
+          className="h-10 pl-10 pr-3 w-full sm:w-96 bg-background/50 border-white/10 focus-visible:border-emerald-500/40"
+          value={domainInput}
+          onChange={(e) => setDomainInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && addDomain()}
+        />
+      </div>
+      <Button
+        className="h-10 px-5 btn-premium-primary border-0"
+        onClick={addDomain}
+        disabled={addBusy}
+      >
+        {addBusy ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
+        Add & Scan
+      </Button>
+    </div>
   </div>
-  <div className="relative max-w-2xl mx-auto">
-    <Card className="relative premium-surface premium-card">
-      <CardContent className="p-6">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
-            <Input
-              placeholder="Add one domain, or paste many (commas / spaces / newlines)"
-              className="h-12 pl-12 bg-background/50 border-white/10 focus-visible:border-emerald-500/40"
-              value={domainInput}
-              onChange={(e) => setDomainInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && addDomain()}
-            />
-          </div>
-          <Button
-            className="h-12 px-6 btn-premium-primary border-0"
-            onClick={addDomain}
-            disabled={addBusy}
-          >
-            {addBusy ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
-            Add & Scan
-          </Button>
-        </div>
-        {addDomainError && (
-          <div className="mt-3 p-3 rounded-md bg-red-500/10 border border-red-500/40 text-sm text-red-300">
-            {addDomainError}
-          </div>
-        )}
-        {addDomainSuccess && !addDomainError && (
-          <div className="mt-3 p-3 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-300">
-            {addDomainSuccess}
-          </div>
-        )}
-        <p className="mt-3 text-xs text-muted-foreground">
-          Tip: paste multiple domains separated by commas, spaces, or newlines to bulk-add in one click.
-        </p>
-      </CardContent>
-    </Card>
-  </div>
+  {addDomainError && (
+    <div className="mt-3 p-3 rounded-md bg-red-500/10 border border-red-500/40 text-sm text-red-300">
+      {addDomainError}
+    </div>
+  )}
+  {addDomainSuccess && !addDomainError && (
+    <div className="mt-3 p-3 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-300">
+      {addDomainSuccess}
+    </div>
+  )}
+  <p className="mt-2 text-xs text-muted-foreground">
+    Tip: paste multiple domains separated by commas, spaces, or newlines to bulk-add in one click.
+  </p>
 </div>
-
-{showDetails && selectedDomain && (
-  <DomainDetailPanel
-    selectedDomain={selectedDomain}
-    fixRecommendations={fixRecommendations}
-    detailRefreshing={detailRefreshing}
-    detailRefreshError={detailRefreshError}
-    dmarcUploading={dmarcUploading}
-    dmarcUploadError={dmarcUploadError}
-    dmarcFileRef={dmarcFileRef}
-    uploadDmarcReport={uploadDmarcReport}
-    fixDomain={fixDomain}
-    onClose={onClosePanel}
-  />
-)}
 
     {/* Bulk Actions */}
     {selectedIds.length > 0 && (
@@ -279,21 +268,18 @@ export default function DomainsTab({
         { label: 'At risk', value: atRisk, hint: atRisk === 0 ? `No domains below ${PASSING_SCORE}` : `${atRisk} below threshold`, icon: AlertTriangle, accent: atRisk > 0 ? 'text-amber-400' : 'text-emerald-400' },
       ];
       return (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="flex flex-wrap items-start gap-x-10 gap-y-4">
           {stats.map((s) => (
-            <div key={s.label} className="premium-surface premium-card rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">{s.label}</p>
-                <s.icon className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
-              <p className={`font-display text-3xl font-bold tracking-tight tabular-nums ${s.accent}`}>{s.value}</p>
-              <p className="text-[11px] text-muted-foreground mt-1 leading-tight">{s.hint}</p>
+            <div key={s.label}>
+              <p className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">{s.label}</p>
+              <p className={`font-display text-2xl font-bold tracking-tight tabular-nums ${s.accent}`}>{s.value}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{s.hint}</p>
             </div>
           ))}
           {/* First-scan reassurance: a fresh portfolio legitimately scores
               red — say so instead of leaving silent alarm */}
           {atRisk === total && avgScore != null && (
-            <p className="text-xs text-muted-foreground col-span-2 lg:col-span-4 leading-relaxed">
+            <p className="text-xs text-muted-foreground basis-full leading-relaxed">
               Red at the start is normal — domains without SPF / DKIM / DMARC records score 0. Open a domain and run Get Fix Records for the SPF / DMARC records to publish, then re-scan; the score moves as DNS changes.
             </p>
           )}
@@ -340,128 +326,152 @@ export default function DomainsTab({
         </CardContent>
       </Card>
     ) : (
-      <div className="space-y-2">
-        {/* Select-all bar */}
-        <div className="flex items-center gap-3 px-4 py-2 text-xs text-muted-foreground">
-          <button onClick={toggleSelectAll} className="flex items-center gap-2 hover:text-foreground transition-colors">
-            {selectedIds.length === domains.length && domains.length > 0
-              ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
-              : <Square className="w-3.5 h-3.5" />}
-            <span>Select all</span>
-          </button>
-          <div className="hairline flex-1" />
-          <span>{filterByBand(domains, domainFilter).length} shown</span>
-        </div>
+      <div className="premium-surface rounded-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-widest text-muted-foreground border-b border-white/5 bg-white/[0.02]">
+                <th className="px-4 py-3 w-12 text-left font-semibold">
+                  <button
+                    onClick={toggleSelectAll}
+                    aria-label={selectedIds.length === domains.length && domains.length > 0 ? 'Deselect all' : 'Select all'}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {selectedIds.length === domains.length && domains.length > 0
+                      ? <CheckSquare className="w-4 h-4 text-emerald-400" />
+                      : <Square className="w-4 h-4" />}
+                  </button>
+                </th>
+                <th className="px-4 py-3 text-left font-semibold">Domain</th>
+                <th className="px-4 py-3 text-left font-semibold">SPF · DKIM · DMARC</th>
+                <th className="px-4 py-3 text-left font-semibold">Score</th>
+                <th className="px-4 py-3 text-left font-semibold">Last scan</th>
+                <th className="px-4 py-3 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {filterByBand(domains, domainFilter).map((domain: any) => {
+                const score = domain.last_score;
+                const hasScore = typeof score === 'number';
+                const scoreColor = !hasScore ? '#94a3b8' : scoreBand(score) === 'passing' ? '#86efac' : scoreBand(score) === 'warnings' ? '#fbbf24' : '#fca5a5';
+                const scoreRing = !hasScore ? 0 : Math.max(0, Math.min(100, score));
+                const isSelected = selectedIds.includes(domain.id);
+                const lastScanAgo = (() => {
+                  if (!domain.last_scan) return 'Never scanned';
+                  const ms = Date.now() - new Date(domain.last_scan).getTime();
+                  const sec = Math.floor(ms / 1000);
+                  if (sec < 60) return 'Just now';
+                  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+                  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+                  return `${Math.floor(sec / 86400)}d ago`;
+                })();
+                const spf = recordState(domain.latest_scan, 'spf');
+                const dkim = recordState(domain.latest_scan, 'dkim');
+                const dmarc = recordState(domain.latest_scan, 'dmarc');
+                const pillClass = (row: { tone: string }) =>
+                  row.tone === 'pass' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
+                  row.tone === 'fail' ? 'bg-red-500/10 text-red-300 border-red-500/30' :
+                  row.tone === 'warn' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
+                  'bg-white/5 text-muted-foreground border-white/5';
 
-        {filterByBand(domains, domainFilter).map((domain: any) => {
-          const score = domain.last_score;
-          const hasScore = typeof score === 'number';
-          const scoreColor = !hasScore ? '#94a3b8' : scoreBand(score) === 'passing' ? '#86efac' : scoreBand(score) === 'warnings' ? '#fbbf24' : '#fca5a5';
-          const scoreRing = !hasScore ? 0 : Math.max(0, Math.min(100, score));
-          const isSelected = selectedIds.includes(domain.id);
-          const lastScanAgo = (() => {
-            if (!domain.last_scan) return 'Never scanned';
-            const ms = Date.now() - new Date(domain.last_scan).getTime();
-            const sec = Math.floor(ms / 1000);
-            if (sec < 60) return 'Just now';
-            if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
-            if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
-            return `${Math.floor(sec / 86400)}d ago`;
-          })();
-          const spf = recordState(domain.latest_scan, 'spf');
-          const dkim = recordState(domain.latest_scan, 'dkim');
-          const dmarc = recordState(domain.latest_scan, 'dmarc');
-          const pillClass = (row: { tone: string }) =>
-            row.tone === 'pass' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
-            row.tone === 'fail' ? 'bg-red-500/10 text-red-300 border-red-500/30' :
-            row.tone === 'warn' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' :
-            'bg-white/5 text-muted-foreground border-white/5';
-
-          return (
-            <div
-              key={domain.id}
-              className={`premium-surface premium-card rounded-xl p-4 ${isSelected ? '!shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_2px_rgba(34,197,94,0.4)] !border-emerald-500/40' : ''}`}
-            >
-              <div className="flex items-center gap-4">
-                {/* Selection */}
-                <button
-                  onClick={() => toggleSelect(domain.id)}
-                  className="flex-shrink-0 w-7 h-7 rounded-md border border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 flex items-center justify-center transition-colors"
-                  aria-label={isSelected ? 'Deselect' : 'Select'}
-                >
-                  {isSelected
-                    ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
-                    : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
-                </button>
-
-                {/* Score ring */}
-                <div className="relative w-14 h-14 flex-shrink-0">
-                  <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
-                    <circle cx="18" cy="18" r="15.9155" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="3" />
-                    {hasScore && (
-                      <circle
-                        cx="18" cy="18" r="15.9155" fill="none"
-                        stroke={scoreColor} strokeWidth="3" strokeLinecap="round"
-                        strokeDasharray={`${scoreRing} ${100 - scoreRing}`}
-                      />
-                    )}
-                  </svg>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="font-display text-base font-bold tabular-nums" style={{ color: scoreColor }}>
-                      {hasScore ? score : '—'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Domain info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="font-display font-semibold tracking-tight truncate">{domain.name}</p>
-                    {domain.verified ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 flex-shrink-0">
-                        <CheckCircle className="w-2.5 h-2.5" /> Verified
-                      </span>
-                    ) : (
+                return (
+                  <tr
+                    key={domain.id}
+                    className={`transition-colors hover:bg-white/[0.02] ${isSelected ? 'bg-emerald-500/[0.06] shadow-[inset_2px_0_0_0_rgba(52,211,153,0.9)]' : ''}`}
+                  >
+                    <td className="px-4 py-3">
                       <button
-                        onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 flex-shrink-0 transition-colors"
+                        onClick={() => toggleSelect(domain.id)}
+                        className="w-5 h-5 rounded border border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 flex items-center justify-center transition-colors"
+                        aria-label={isSelected ? 'Deselect' : 'Select'}
                       >
-                        <AlertTriangle className="w-2.5 h-2.5" /> Verify
+                        {isSelected
+                          ? <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                          : <Square className="w-3.5 h-3.5 text-muted-foreground" />}
                       </button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
-                      <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
-                        {p.k}
-                        {p.v.tone !== 'none' && <span className="opacity-70">·</span>}
-                        {p.v.tone !== 'none' && <span>{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
-                      </span>
-                    ))}
-                    <span className="text-[11px] text-muted-foreground flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {lastScanAgo}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-emerald-500/10 hover:text-emerald-300" onClick={() => scanDomain(domain.id)} title="Re-scan">
-                    <RefreshCw className="w-4 h-4" />
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => viewDomain(domain)} title="Inspect">
-                    <Eye className="w-4 h-4" />
-                  </Button>
-                  <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => fixDomain(domain.id)} title="Get fix records">
-                    <Wrench className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-display font-semibold tracking-tight whitespace-nowrap">{domain.name}</span>
+                        {domain.verified ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                            <CheckCircle className="w-2.5 h-2.5" /> Verified
+                          </span>
+                        ) : (
+                          <button
+                            onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-amber-400 hover:text-amber-300 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/15 transition-colors"
+                          >
+                            <AlertTriangle className="w-2.5 h-2.5" /> Verify
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
+                          <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${pillClass(p.v)}`}>
+                            {p.k}
+                            {p.v.tone !== 'none' && <span className="opacity-70">·</span>}
+                            {p.v.tone !== 'none' && <span>{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-display font-bold tabular-nums w-7 text-right" style={{ color: scoreColor }}>
+                          {hasScore ? score : '—'}
+                        </span>
+                        <div className="w-16 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${scoreRing}%`, background: scoreColor }} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                      <span className="inline-flex items-center gap-1 text-[11px]"><Clock className="w-3 h-3" /> {lastScanAgo}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-emerald-500/10 hover:text-emerald-300" onClick={() => scanDomain(domain.id)} title="Re-scan">
+                          <RefreshCw className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => viewDomain(domain)} title="Inspect">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-9 w-9 hover:bg-white/5" onClick={() => fixDomain(domain.id)} title="Get fix records">
+                          <Wrench className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     )}
+
+{showDetails && selectedDomain && (
+  <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`${selectedDomain.name} details`}>
+    <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] drawer-backdrop" onClick={onClosePanel} />
+    <div className="absolute inset-y-0 right-0 w-full max-w-xl bg-background border-l border-white/10 shadow-2xl overflow-y-auto drawer-slide-in">
+      <DomainDetailPanel
+        selectedDomain={selectedDomain}
+        fixRecommendations={fixRecommendations}
+        detailRefreshing={detailRefreshing}
+        detailRefreshError={detailRefreshError}
+        dmarcUploading={dmarcUploading}
+        dmarcUploadError={dmarcUploadError}
+        dmarcFileRef={dmarcFileRef}
+        uploadDmarcReport={uploadDmarcReport}
+        fixDomain={fixDomain}
+        onClose={onClosePanel}
+      />
+    </div>
+  </div>
+)}
 
 {showVerifyModal && verifyDomain && (
   <Dialog open onOpenChange={(o) => { if (!o) setShowVerifyModal(false); }}>
