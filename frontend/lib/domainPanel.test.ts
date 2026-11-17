@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, dnsEvidence, type DomainPanelState } from './domainPanel';
+import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, dnsEvidence, recordState, type DomainPanelState } from './domainPanel';
 
 describe('identity switch: user A -> user B', () => {
   test("A's domains must not survive a switch even when B's load fails", () => {
@@ -360,6 +360,17 @@ describe('selection and upload refresh association', () => {
     expect(failed.selected?.id).toBe(1);
     expect(failed.shownId).toBe(1);
     expect(failed.domains).toEqual(panel.domains);
+  });
+
+  test('friendly "published yet" DNS errors are NOT_FOUND, not ERROR', () => {
+    const scan = {
+      dmarc_record: JSON.stringify({
+        found: false, record: null, policy: null,
+        errors: ['No _dmarc.a.test record published yet — add it to pass this check'],
+      }),
+    };
+    expect(recordState(scan, 'dmarc').tone).toBe('fail');
+    expect(recordState(scan, 'dmarc').label).toBe('Not found');
   });
 
   test('dnsEvidence maps live-DNS queries for an empty domain', () => {

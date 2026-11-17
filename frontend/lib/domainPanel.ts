@@ -124,7 +124,9 @@ export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: 
     // Validation errors beat found:true (+all, p=none); absent records
     // (ENOTFOUND / "No X record found") are NOT_FOUND, not ERROR.
     const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])].filter(Boolean).join(' ');
-    if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found/i.test(msgs)) status = 'NOT_FOUND';
+    // NOT_FOUND also matches the friendly wording emitted by the backend
+    // (friendlyDnsError): "No _dmarc.<domain> record published yet".
+    if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found|record published yet/i.test(msgs)) status = 'NOT_FOUND';
     else status = 'ERROR';
   } else if (obj.found) status = 'FOUND';
   else status = 'NOT_FOUND';
