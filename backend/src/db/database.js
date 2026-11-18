@@ -762,9 +762,10 @@ async function addBrandThreat(threat, brandId, orgId, tx) {
     [created.id, created.brand_id, created.org_id, created.domain, created.threat_type, created.severity, created.notes, created.status, created.detected_at]);
   return hydrateThreat(await exec.one('SELECT * FROM brand_threats WHERE id = $1', [created.id]));
 }
-async function deleteBrandThreatByDomain(brandId, domain, orgId) {
+async function deleteBrandThreatByDomain(brandId, domain, orgId, tx) {
   if (!orgId) return;
-  await q('DELETE FROM brand_threats WHERE brand_id = $1 AND org_id = $2 AND domain = $3', [brandId, orgId, domain]);
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  await exec.q('DELETE FROM brand_threats WHERE brand_id = $1 AND org_id = $2 AND domain = $3', [brandId, orgId, domain]);
 }
 
 async function getBrandTakedowns(brandId, orgId) {
@@ -813,6 +814,15 @@ async function claimBrandScan(brandId, orgId, token, staleMinutes = 30) {
   );
   return result.rowCount > 0;
 }
+// Verify this scan still owns the brand, locking the row so a completion
+// write can't interleave with a newer claim. An expired claim that was
+// re-taken while the probe ran returns false and the result is discarded.
+async function verifyScanClaim(brandId, orgId, token, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const row = await exec.one('SELECT 1 AS ok FROM brands WHERE id = $1 AND org_id = $2 AND scan_claim = $3 FOR UPDATE', [brandId, orgId, token]);
+  return !!row;
+}
+
 async function releaseBrandScan(brandId, token) {
   if (!brandId || !token) return;
   await q('UPDATE brands SET scan_claim = NULL, scan_claimed_at = NULL WHERE id = $1 AND scan_claim = $2', [brandId, token]);
@@ -1066,5 +1076,6 @@ module.exports = {
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,
   claimBrandScan, releaseBrandScan,
+  verifyScanClaim,
   getBrandAlerts, addBrandAlert, deleteBrandAlert, clearBrandAlerts,
 };

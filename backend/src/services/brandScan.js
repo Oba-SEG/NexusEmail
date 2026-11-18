@@ -15,9 +15,11 @@ const { BrandProtectionService } = require('./brandProtection');
 const SCHEDULE_DAYS = { daily: 1, weekly: 7, monthly: 30 };
 const ALLOWED_SCHEDULES = ['manual', 'daily', 'weekly', 'monthly'];
 
+const ownsSchedule = (schedule) => Object.prototype.hasOwnProperty.call(SCHEDULE_DAYS, schedule);
+
 function nextScanFor(schedule, from = Date.now()) {
+  if (!ownsSchedule(schedule)) return null;
   const days = SCHEDULE_DAYS[schedule];
-  if (!days) return null;
   return new Date(from + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
@@ -91,13 +93,16 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
     }
 
     const scannedAt = new Date().toISOString();
-    let added = [];
 
-    await db.withTransaction(async (tx) => {
-      // Read the brand again inside the transaction: the user may have
-      // changed the schedule or alerts while the probe was running.
+    // All completion writes + the ownership check in one transaction.
+    const outcome = await db.withTransaction(async (tx) => {
+      // A scan that outlived its claim must not overwrite a newer scan's
+      // results. Row lock serializes against a concurrent claim.
+      if (!(await db.verifyScanClaim(fresh.id, orgId, claim, tx))) {
+        return { skipped: 'claim_lost' };
+      }
       const current = await db.getBrand(fresh.id, orgId, tx);
-      if (!current) return;
+      if (!current) return { skipped: 'deleted' };
       const nextScan = nextScanFor(current.scan_schedule);
 
       const [safeList, existing] = await Promise.all([
@@ -105,11 +110,19 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
         db.getBrandThreats(fresh.id, orgId, tx),
       ]);
       const known = new Set(existing.map((t) => String(t.domain).toLowerCase()));
-      added = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
+      const added = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
 
       for (const threat of added) {
         await db.addBrandThreat({ ...threat, notes: 'Detected by brand scan' }, fresh.id, orgId, tx);
       }
+      // Re-read the safe list after inserting: a concurrent safe-list request
+      // may have landed between the earlier read and the insert.
+      const safeNow = new Set((await db.getBrandSafeList(fresh.id, orgId, tx)).map((d) => String(d).toLowerCase()));
+      const kept = added.filter((t) => !safeNow.has(t.domain));
+      for (const removedThreat of added.filter((t) => safeNow.has(t.domain))) {
+        await db.deleteBrandThreatByDomain(fresh.id, removedThreat.domain, orgId, tx);
+      }
+
       await db.updateBrand(fresh.id, {
         last_scan: scannedAt,
         next_scan: nextScan,
@@ -118,17 +131,21 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
       await db.addBrandScan({ brand_id: fresh.id, scanned_at: scannedAt, ...result }, orgId, tx);
 
       if (current.alerts_enabled) {
-        for (const alert of alertsForThreats(added)) {
+        for (const alert of alertsForThreats(kept)) {
           await db.addBrandAlert({ ...alert, brand_id: fresh.id, brand_name: current.domain }, orgId, tx);
         }
       }
+
+      return { nextScan, added: kept };
     });
 
-    const currentSchedule = (await db.getBrand(fresh.id, orgId)) || fresh;
+    if (outcome.skipped) {
+      return { skipped: outcome.skipped, domain: brand.domain, brand_id: brand.id };
+    }
     return {
       ...result,
-      next_scan: nextScanFor(currentSchedule.scan_schedule),
-      threats_persisted: added.length,
+      next_scan: outcome.nextScan,
+      threats_persisted: outcome.added.length,
     };
   } finally {
     await db.releaseBrandScan(brand.id, claim).catch(() => {});
@@ -137,8 +154,9 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
 
 function isBrandDue(brand, now = Date.now()) {
   if (!brand || brand.status !== 'active') return false;
-  // Unknown schedule strings are inert rather than perpetually due.
-  if (!SCHEDULE_DAYS[brand.scan_schedule]) return false;
+  // Unknown (or prototype-chain) schedule strings are inert rather than
+  // perpetually due.
+  if (!ownsSchedule(brand.scan_schedule)) return false;
   if (!brand.next_scan) return true;
   return Date.parse(brand.next_scan) <= now;
 }

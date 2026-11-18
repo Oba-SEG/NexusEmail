@@ -55,7 +55,7 @@ export default function BrandsTab({
   const [brandScanning, setBrandScanning] = useState(false);
   const [brandHistory, setBrandHistory] = useState<any[]>([]);
   const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
-  const [savingScheduleFor, setSavingScheduleFor] = useState<number | null>(null);
+  const [savingSchedules, setSavingSchedules] = useState<Set<number>>(new Set());
   const [newBrandSchedule, setNewBrandSchedule] = useState('daily');
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
@@ -193,7 +193,7 @@ export default function BrandsTab({
     const gen = sessionGenRef.current;
     // Serialize per brand: the selector is disabled while its save is in
     // flight so an earlier request can't land after a later selection.
-    setSavingScheduleFor(brandId);
+    setSavingSchedules((s) => new Set(s).add(brandId));
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}`, {
         method: 'PATCH',
@@ -209,7 +209,13 @@ export default function BrandsTab({
       console.error('Failed to update schedule:', e);
       if (gen === sessionGenRef.current) notify('Couldn\'t update the schedule.', 'error', 'The request failed.');
     } finally {
-      if (gen === sessionGenRef.current) setSavingScheduleFor(null);
+      if (gen === sessionGenRef.current) {
+        setSavingSchedules((s) => {
+          const next = new Set(s);
+          next.delete(brandId);
+          return next;
+        });
+      }
     }
   };
 
@@ -431,6 +437,7 @@ export default function BrandsTab({
                     loadBrands(gen);
                     setNewBrandDomain('');
                     setNewBrandName('');
+                    setNewBrandSchedule('daily');
                     setShowAddBrand(false);
                   });
                 }}
@@ -441,6 +448,7 @@ export default function BrandsTab({
                 setShowAddBrand(false);
                 setNewBrandDomain('');
                 setNewBrandName('');
+                setNewBrandSchedule('daily');
               }}>
                 Cancel
               </Button>
@@ -482,7 +490,7 @@ export default function BrandsTab({
                 id={`brand-schedule-${brand.id}`}
                 value={brand.scan_schedule || 'manual'}
                 onChange={(e) => updateBrandSchedule(brand.id, e.target.value)}
-                disabled={savingScheduleFor === brand.id}
+                disabled={savingSchedules.has(brand.id)}
                 className="h-9 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
               >
                 <option value="manual">Manual</option>
@@ -499,8 +507,10 @@ export default function BrandsTab({
                     const data = await res.json();
                     if (gen !== sessionGenRef.current) return;
                     setBrandScanResult(data.error ? { error: data.error, brand: brand.domain } : { ...data, brand: brand.domain });
-                    // Refresh the persisted view (last_scan, next_scan, threats).
+                    // Refresh the persisted view (last_scan, next_scan, threats)
+                    // and the alert feed — a first scan can create alerts.
                     loadBrands(gen);
+                    loadAlerts(gen);
                   } catch (e) {
                     if (gen === sessionGenRef.current) setBrandScanResult({ error: 'Scan failed' });
                 } finally {

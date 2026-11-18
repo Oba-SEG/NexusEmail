@@ -86,10 +86,10 @@ router.post('/check/:id', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
     const result = await performBrandScan(brand, req.orgId);
-    if (result.skipped === 'already_running') {
+    if (result.skipped === 'already_running' || result.skipped === 'claim_lost') {
       return res.status(409).json({ error: 'A scan is already running for this brand — try again in a moment.' });
     }
-    if (result.skipped === 'inactive') {
+    if (result.skipped === 'inactive' || result.skipped === 'deleted') {
       return res.status(409).json({ error: 'This brand is not active.' });
     }
     res.json(result);
