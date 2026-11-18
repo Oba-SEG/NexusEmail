@@ -458,7 +458,11 @@ export default function Dashboard() {
       notificationsRevRef.current += 1;
       setNotifications(current);
     } catch (e) {
-      console.error('Failed to save notifications:', e);
+      if (gen !== sessionGenRef.current) return;
+      // The connection may have dropped after the server stored the value:
+      // report the uncertainty and re-read instead of repeating the POST.
+      notify('Preference couldn\'t be confirmed.', 'error', describeError(e, 'The save outcome is unknown.'));
+      loadSettings();
     }
   };
 

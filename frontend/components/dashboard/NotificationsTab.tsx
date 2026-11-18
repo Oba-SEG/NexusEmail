@@ -177,14 +177,20 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         description="Pick which events trigger an alert, and configure every outbound channel in one place."
       />
 
-      {!ready ? (
+      {!ready || configError ? (
         <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
           <p className="text-sm text-muted-foreground">
-            {configError || 'Loading your saved delivery settings…'}
+            {configError
+              ? ready
+                ? "Preferences couldn't be refreshed — showing the last values loaded."
+                : "Settings couldn't be loaded. Delivery controls stay locked until a retry succeeds."
+              : 'Loading your saved delivery settings…'}
           </p>
-          <Button size="sm" variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onRetryConfig} disabled={!onRetryConfig}>
-            Retry
-          </Button>
+          {configError ? (
+            <Button size="sm" variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onRetryConfig} disabled={!onRetryConfig}>
+              Retry
+            </Button>
+          ) : null}
         </div>
       ) : null}
 
