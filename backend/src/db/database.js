@@ -179,6 +179,15 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_brands_org ON brands(org_id);
     CREATE INDEX IF NOT EXISTS idx_brands_org_domain ON brands(org_id, domain);
 
+    CREATE TABLE IF NOT EXISTS brand_scans (
+      id BIGINT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      brand_id BIGINT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+      data TEXT NOT NULL,
+      scanned_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_brand_scans_brand ON brand_scans(brand_id, scanned_at);
+
     CREATE TABLE IF NOT EXISTS brand_threats (
       id BIGINT PRIMARY KEY,
       brand_id BIGINT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
@@ -672,6 +681,30 @@ async function getBrandsFull(orgId) {
     safe_list: await getBrandSafeList(b.id, orgId),
   })));
 }
+async function getAllBrands() {
+  const rows = await all('SELECT * FROM brands ORDER BY added_at DESC');
+  return rows.map(hydrateBrand);
+}
+async function addBrandScan(scan, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  if (!orgId) throw new Error('orgId required');
+  const created = {
+    ...scan,
+    id: scan.id || nextNumericId(),
+    org_id: orgId,
+    scanned_at: scan.scanned_at || now(),
+  };
+  await exec.q('INSERT INTO brand_scans (id, org_id, brand_id, data, scanned_at) VALUES ($1, $2, $3, $4, $5)',
+    [created.id, created.org_id, created.brand_id, json(created), created.scanned_at]);
+  return created;
+}
+async function getBrandScans(brandId, limit = 20, orgId, tx) {
+  if (!orgId) return [];
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const rows = await exec.all('SELECT * FROM brand_scans WHERE brand_id = $1 AND org_id = $2 ORDER BY scanned_at DESC LIMIT $3', [brandId, orgId, limit]);
+  return rows.map((row) => ({ ...parse(row.data, {}), id: row.id, org_id: row.org_id, brand_id: row.brand_id, scanned_at: row.scanned_at })).reverse();
+}
+
 async function addBrand(brand, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   if (!orgId) throw new Error('orgId required to add a brand');
@@ -1007,5 +1040,6 @@ module.exports = {
   getBrandThreats, addBrandThreat, deleteBrandThreatByDomain,
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
+  getAllBrands, addBrandScan, getBrandScans,
   getBrandAlerts, addBrandAlert, deleteBrandAlert, clearBrandAlerts,
 };
