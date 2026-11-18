@@ -1,7 +1,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { nextScanFor, collectThreats, isBrandDue, alertsForThreats, ALLOWED_SCHEDULES } = require('../src/services/brandScan');
-const { canonicalDomain } = require('../src/services/brandProtection');
+const { canonicalDomain, typoProbeCandidates } = require('../src/services/brandProtection');
 
 describe('brand scan scheduling helpers', () => {
   test('nextScanFor maps schedules to future timestamps', () => {
@@ -62,4 +62,25 @@ test('alertsForThreats mirrors persisted threats (first-scan included)', () => {
   assert.equal(alerts[1].severity, 'medium');
   assert.match(alerts[0].message, /typosquatting detected: segbvtes\.xyz/);
   assert.equal(alerts[0].domain, 'segbvtes.xyz');
+});
+
+describe('typo probe candidates', () => {
+  test('the brand name on other TLDs is probed, the main domain is not', () => {
+    const { candidates } = typoProbeCandidates('segbytes', 'segbytes.xyz', ['xyz', 'com', 'co.za']);
+    const sameName = candidates.filter((c) => c.sameName).map((c) => c.domain);
+    assert.deepEqual(sameName, ['segbytes.com', 'segbytes.co.za']);
+    assert.equal(candidates.some((c) => c.domain === 'segbytes.xyz'), false);
+    const other = candidates.find((c) => c.domain === 'segbytes.co.za');
+    assert.equal(other.tld, 'co.za');
+    assert.equal(other.sameName, true);
+  });
+
+  test('typo variants keep the main exclusion and stay sameName=false', () => {
+    const { candidates } = typoProbeCandidates('segbytes', 'segbytes.xyz', ['com']);
+    const typos = candidates.filter((c) => !c.sameName);
+    assert.ok(typos.length > 0);
+    assert.equal(typos.every((c) => c.domain.endsWith('.com') || c.domain.endsWith('.xyz')), true);
+    assert.equal(typos.some((c) => c.domain === 'segbytes.xyz'), false);
+    assert.equal(candidates.some((c) => c.domain === 'segbytes.com'), true);
+  });
 });

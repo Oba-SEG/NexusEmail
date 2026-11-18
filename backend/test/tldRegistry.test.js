@@ -1,7 +1,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { parseTldResponse, cleanTlds } = require('../src/services/tldRegistry');
-const { orderedTlds, normalizeTldList, typoVariants, canonicalDomain, SCAN_TLDS } = require('../src/services/brandProtection');
+const { orderedTlds, normalizeTldList, typoVariants, homographVariants, canonicalDomain, SCAN_TLDS } = require('../src/services/brandProtection');
 const { collectThreats } = require('../src/services/brandScan');
 const { applySafeListToResult } = require('../src/services/brandProtection');
 
@@ -188,5 +188,60 @@ describe('safe-list summary new-threat metadata', () => {
     assert.deepEqual(out.newThreats.map((t) => t.domain), ['fake-segbytes']);
     assert.deepEqual(out.alerts.map((a) => a.domain), ['fake-segbytes']);
     assert.equal(out.score, 100);
+  });
+});
+
+describe('homograph candidates', () => {
+  test('generates unicode single-character substitutions, never ASCII typos', () => {
+    const variants = homographVariants('segbytes');
+    assert.ok(variants.includes('ѕegbytes'));
+    assert.ok(variants.length > 1 && variants.length <= 16);
+    assert.equal(variants.includes('segbytes'), false);
+    assert.equal(variants.some((v) => /[0-9]/.test(v)), false, 'ASCII digit substitutions belong to the typo generator');
+    for (const variant of variants) assert.notEqual(variant, 'segbytes');
+  });
+
+  test('respects the limit and includes the full-string variant', () => {
+    const variants = homographVariants('segbytes', 3);
+    assert.equal(variants.length, 3);
+    const full = homographVariants('segbytes', 16).find((v) => v[0] === 'ѕ' && v[1] === 'е');
+    assert.ok(full, 'full-string variant present');
+  });
+});
+
+describe('similar-domain summary polish', () => {
+  test('a domain in two sections is counted once under the first section', () => {
+    const result = {
+      typosquatting: [{ domain: 'segbytes.co.za', type: 'same_name' }],
+      lookalikes: [{ domain: 'segbvtes.xyz', type: 'prefix' }, { domain: 'segbytes.co.za', type: 'suffix' }],
+      impersonation: [], homographs: [], socialMedia: [], score: 100, issues: [], recommendations: [],
+    };
+    Object.defineProperty(result, 'detections', {
+      value: {
+        typosquatting: [{ domain: 'segbytes.co.za', type: 'same_name' }],
+        lookalikes: [{ domain: 'segbvtes.xyz', type: 'prefix' }, { domain: 'segbytes.co.za', type: 'suffix' }],
+        impersonation: [], homographs: [],
+      },
+      enumerable: false,
+    });
+    const out = applySafeListToResult(result, []);
+    assert.deepEqual(out.typosquatting.map((r) => r.domain), ['segbytes.co.za']);
+    assert.deepEqual(out.lookalikes.map((r) => r.domain), ['segbvtes.xyz']);
+    assert.equal(out.issues.find((i) => i.type === 'typosquatting').count, 1);
+    assert.equal(out.issues.find((i) => i.type === 'lookalike').count, 1);
+  });
+
+  test('exact-name and mail-capable hits carry higher penalties', () => {
+    const result = {
+      typosquatting: [
+        { domain: 'segbytes.co.za', type: 'same_name' },
+        { domain: 'segbyte.com', type: 'typosquat_with_email' },
+        { domain: 'sgbytes.com', type: 'typosquat' },
+      ],
+      lookalikes: [{ domain: 'mailsegbytes.com', type: 'prefix', hasMailServer: true }],
+      impersonation: [], homographs: [], socialMedia: [], score: 100, issues: [], recommendations: [],
+    };
+    const out = applySafeListToResult(result, []);
+    assert.equal(out.score, 100 - 25 - 20 - 15 - 15);
   });
 });

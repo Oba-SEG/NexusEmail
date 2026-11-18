@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Shield, Search, AlertTriangle, CheckCircle, XCircle, Plus, RefreshCw,
   Zap, Eye, ChevronRight, Bell, Trash2, Save
@@ -19,6 +19,14 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
+const ISSUE_LABELS: Record<string, string> = {
+  typosquatting: 'Typosquatting',
+  lookalike: 'Lookalike domains',
+  subdomain_abuse: 'Subdomain abuse',
+  homograph: 'Homographs',
+  social_media: 'Social media profiles',
+};
 
 interface BrandsTabProps {
   brands: any[];
@@ -58,6 +66,24 @@ export default function BrandsTab({
   const [savingSchedules, setSavingSchedules] = useState<Set<number>>(new Set());
   const [newBrandSchedule, setNewBrandSchedule] = useState('daily');
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const toggleSection = (key: string) => {
+    setExpandedSections((prev) => (prev.includes(key) ? prev.filter((e) => e !== key) : [...prev, key]));
+  };
+  const sectionToggleProps = (key: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-expanded': expandedSections.includes(key),
+    onClick: () => toggleSection(key),
+    onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      // Chrome exposes overflowing lists as focusable scrollers; their Space
+      // key belongs to the list, not to this header.
+      if (event.target !== event.currentTarget) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSection(key);
+      }
+    },
+  });
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
   const brandDetailsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const takedownOpenerRef = useRef<HTMLButtonElement | null>(null);
@@ -580,59 +606,104 @@ export default function BrandsTab({
                 <p className="text-muted-foreground">DNS Provider</p>
                 <p className="font-medium">{brandScanResult.dns_provider?.name || 'Unknown'}</p>
               </div>
+              <div className="p-2 bg-muted rounded">
+                <p className="text-muted-foreground">TLD coverage</p>
+                <p className="font-medium tabular-nums">
+                  {brandScanResult.tld_count ? `${brandScanResult.tld_count} TLDs checked` : 'Pending'}
+                </p>
+              </div>
 
               {/* Clickable: Typosquatting */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('typo') ? expandedSections.filter(e => e !== 'typo') : [...expandedSections, 'typo'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('typo')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Typosquatting
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('typo') ? 'rotate-90' : ''}`} />
                 </p>
                 <p className="font-medium">{brandScanResult.typosquatting?.length || 0} found</p>
                 {expandedSections.includes('typo') && brandScanResult.typosquatting?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.typosquatting.slice(0, 10).map((t: any, i: number) => (
-                      <div key={i} className="p-1 bg-background rounded truncate">{t.domain}</div>
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.typosquatting.map((t: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5 p-1 bg-background rounded">
+                        <span className="truncate flex-1" title={t.domain}>{t.domain}</span>
+                        {String(t.type || '').startsWith('same_name') && (
+                          <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">same name</Badge>
+                        )}
+                        {String(t.type || '').endsWith('_with_email') && (
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">email</Badge>
+                        )}
+                        {t.hasWebsite === false && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">parked</Badge>
+                        )}
+                      </div>
                     ))}
-                    {brandScanResult.typosquatting.length > 10 && <p className="text-muted-foreground">+{brandScanResult.typosquatting.length - 10} more</p>}
                   </div>
                 )}
               </div>
 
               {/* Clickable: Lookalikes */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('lookalike') ? expandedSections.filter(e => e !== 'lookalike') : [...expandedSections, 'lookalike'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('lookalike')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Lookalikes
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('lookalike') ? 'rotate-90' : ''}`} />
                 </p>
                 <p className="font-medium">{brandScanResult.lookalikes?.length || 0} found</p>
                 {expandedSections.includes('lookalike') && brandScanResult.lookalikes?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.lookalikes.slice(0, 10).map((l: any, i: number) => (
-                      <div key={i} className="p-1 bg-background rounded truncate">{l.domain}</div>
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.lookalikes.map((l: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5 p-1 bg-background rounded">
+                        <span className="truncate flex-1" title={l.domain}>{l.domain}</span>
+                        {l.type && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">{l.type}</Badge>
+                        )}
+                        {l.hasMailServer && (
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">email</Badge>
+                        )}
+                        {l.hasWebsite === false && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">parked</Badge>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
               </div>
 
               {/* Clickable: Impersonation */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('impersonation') ? expandedSections.filter(e => e !== 'impersonation') : [...expandedSections, 'impersonation'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('impersonation')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Impersonation
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('impersonation') ? 'rotate-90' : ''}`} />
                 </p>
                 <p className="font-medium">{brandScanResult.impersonation?.length || 0} found</p>
                 {expandedSections.includes('impersonation') && brandScanResult.impersonation?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.impersonation.slice(0, 10).map((imp: any, i: number) => (
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.impersonation.map((imp: any, i: number) => (
                       <div key={i} className="p-1 bg-background rounded truncate">{imp.domain}</div>
                     ))}
-                    {brandScanResult.impersonation.length > 10 && <p className="text-muted-foreground">+{brandScanResult.impersonation.length - 10} more</p>}
+                  </div>
+                )}
+              </div>
+
+              {/* Clickable: Homographs */}
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('homograph')}>
+                <p className="text-muted-foreground flex items-center gap-1">
+                  Homographs
+                  <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('homograph') ? 'rotate-90' : ''}`} />
+                </p>
+                <p className="font-medium">{brandScanResult.homographs?.length || 0} found</p>
+                {expandedSections.includes('homograph') && brandScanResult.homographs?.length > 0 && (
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.homographs.map((h: any, i: number) => (
+                      <div key={i} className="p-1 bg-background rounded">
+                        <p className="truncate" title={h.domain}>{h.unicode || h.domain}</p>
+                        {h.punycode && <p className="truncate text-muted-foreground">{h.punycode}</p>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
               {/* Clickable: NS Records */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('ns') ? expandedSections.filter(e => e !== 'ns') : [...expandedSections, 'ns'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('ns')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   NS Records
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('ns') ? 'rotate-90' : ''}`} />
@@ -654,7 +725,7 @@ export default function BrandsTab({
                 {brandScanResult.issues.map((issue: any, i: number) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    <span>{issue.type}: {issue.count} issues</span>
+                    <span>{ISSUE_LABELS[issue.type] || issue.type}: {issue.count} {issue.count === 1 ? 'issue' : 'issues'}</span>
                   </div>
                 ))}
               </div>
@@ -788,6 +859,7 @@ export default function BrandsTab({
                   <span className="text-muted-foreground">{new Date(scan.scanned_at).toLocaleString()}</span>
                   <span className="tabular-nums">
                     Score {scan.score}/100 · typo {scan.typosquatting} · lookalike {scan.lookalikes} · subdomain {scan.impersonation} · homograph {scan.homographs}
+                    {scan.tld_count ? ` · ${scan.tld_count} TLDs` : ''}
                   </span>
                 </div>
               ))}

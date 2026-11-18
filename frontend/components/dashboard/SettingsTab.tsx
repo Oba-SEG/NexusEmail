@@ -3,6 +3,7 @@
 import { Activity, Server, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DNS_PROVIDERS } from "@/lib/providers";
+import { useState } from "react";
 import { SettingsSection, TabHeader, ToggleRow } from "@/components/dashboard/settings-ui";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
@@ -19,8 +20,15 @@ interface SettingsTabProps {
  * channels in Notifications — links point there instead of duplicating them. */
 export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGoToIntegrations }: SettingsTabProps) {
   const connected = DNS_PROVIDERS.filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
+  // Reflecting the intent immediately keeps the click from feeling dead while
+  // the write is in flight; the stored value still wins if it fails.
+  const [pendingToggles, setPendingToggles] = useState({ schedule: false, remediation: false });
+  const setPending = (key: 'schedule' | 'remediation', value: boolean) => {
+    setPendingToggles((cur) => ({ ...cur, [key]: value }));
+  };
 
   const toggleSchedule = async (enabled: boolean) => {
+    setPending('schedule', true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/schedule`, {
         method: 'POST',
@@ -33,10 +41,13 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
       onSettingsChange((cur: any) => ({ ...cur, scan_schedule: { ...(cur?.scan_schedule || {}), enabled } }));
     } catch (e) {
       console.error('Failed to toggle schedule:', e);
+    } finally {
+      setPending('schedule', false);
     }
   };
 
   const toggleAutoRemediation = async (enabled: boolean) => {
+    setPending('remediation', true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/auto-remediation`, {
         method: 'POST',
@@ -47,6 +58,8 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
       onSettingsChange((cur: any) => ({ ...cur, auto_remediation: enabled }));
     } catch (e) {
       console.error('Failed to toggle auto-remediation:', e);
+    } finally {
+      setPending('remediation', false);
     }
   };
 
@@ -79,6 +92,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
           description="Re-scan every domain at 02:00 UTC. (Scans on add always run.)"
           on={!!settings?.scan_schedule?.enabled}
           onClick={() => toggleSchedule(!settings?.scan_schedule?.enabled)}
+          pending={pendingToggles.schedule}
         />
       </SettingsSection>
 
@@ -92,6 +106,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
           description="Apply recommended record changes via your DNS provider integration."
           on={!!settings?.auto_remediation}
           onClick={() => toggleAutoRemediation(!settings?.auto_remediation)}
+          pending={pendingToggles.remediation}
         />
       </SettingsSection>
     </>
