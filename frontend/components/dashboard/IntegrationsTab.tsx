@@ -8,6 +8,7 @@ import ProviderModal from "@/components/dashboard/ProviderModal";
 import { dialogFocusReturn } from "@/components/ui/dialog";
 import { DNS_PROVIDERS, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
+import { TabHeader } from "@/components/dashboard/settings-ui";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -116,12 +117,11 @@ const testProviderConnection = async (provider: any) => {
 
   return (
     <>
-            <div>
-              <h2 ref={integrationsHeadingRef} className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
-              <p className="text-sm text-muted-foreground">
-                Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
-              </p>
-            </div>
+            <TabHeader
+              headingRef={integrationsHeadingRef}
+              title="DNS providers"
+              description="Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API."
+            />
 
             {/* T164 — Connection summary strip: how much of the integration surface is configured */}
             {(() => {

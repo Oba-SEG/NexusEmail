@@ -806,8 +806,7 @@ export default function Dashboard() {
                 settings={settings}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
-                loadSettings={loadSettings}
-                sessionGenRef={sessionGenRef}
+                onGoToIntegrations={() => setActiveTab('integrations')}
               />
             </TabsContent>
 
