@@ -3,6 +3,7 @@ const router = express.Router();
 const { BrandProtectionService } = require('../services/brandProtection');
 const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
 const db = require('../db/database');
+const { canonicalDomain } = require('../services/brandProtection');
 const { captureException } = require('../capture');
 
 const brandService = new BrandProtectionService();
@@ -166,17 +167,22 @@ router.patch('/:id', async (req, res, next) => {
 
 router.post('/:id/safe', async (req, res, next) => {
   try {
-    const { domain } = req.body;
-    const normalized = String(domain || '').trim().toLowerCase();
-    if (!normalized) return res.status(400).json({ error: 'Domain is required' });
     const brandId = parseInt(req.params.id);
+    // Canonical (IDNA) form: scan threats are stored canonically, so a
+    // unicode submission must match the same key.
+    const normalized = canonicalDomain(req.body.domain);
+    if (!normalized) return res.status(400).json({ error: 'Domain is required' });
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    // Scan-created threat domains are lowercase; normalize so the safe entry
-    // and the auto-purge target the same rows.
     await db.addSafeEntry(brandId, normalized, req.orgId);
-    await db.deleteBrandThreatByDomain(brandId, normalized, req.orgId);
+    // Purge by canonical comparison so legacy non-canonical rows match too.
+    const threats = await db.getBrandThreats(brandId, req.orgId);
+    for (const threat of threats) {
+      if (canonicalDomain(threat.domain) === normalized) {
+        await db.deleteBrandThreatByDomain(brandId, threat.domain, req.orgId);
+      }
+    }
 
     res.json({ success: true, message: `Added ${normalized} to safe list` });
   } catch (err) { next(err); }
@@ -184,13 +190,23 @@ router.post('/:id/safe', async (req, res, next) => {
 
 router.delete('/:id/safe', async (req, res, next) => {
   try {
-    const { domain } = req.body;
-    const normalized = String(domain || '').trim().toLowerCase();
+    const normalized = canonicalDomain(req.body.domain);
+    if (!normalized) return res.status(400).json({ error: 'Domain is required' });
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    await db.removeSafeEntry(brandId, normalized, req.orgId);
+    // Remove every stored spelling that matches canonically (legacy unicode
+    // entries were saved before canonicalization), atomically so a partial
+    // failure can't leave one spelling still suppressing the domain.
+    await db.withTransaction(async (tx) => {
+      const entries = await db.getBrandSafeList(brandId, req.orgId, tx);
+      for (const entry of entries) {
+        if (canonicalDomain(entry) === normalized) {
+          await db.removeSafeEntry(brandId, entry, req.orgId, tx);
+        }
+      }
+    });
     res.json({ success: true });
   } catch (err) { next(err); }
 });

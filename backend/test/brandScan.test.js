@@ -1,6 +1,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { nextScanFor, collectThreats, isBrandDue, alertsForThreats, ALLOWED_SCHEDULES } = require('../src/services/brandScan');
+const { canonicalDomain } = require('../src/services/brandProtection');
 
 describe('brand scan scheduling helpers', () => {
   test('nextScanFor maps schedules to future timestamps', () => {
@@ -26,11 +27,11 @@ describe('brand scan scheduling helpers', () => {
       typosquatting: [{ domain: 'segbvtes.xyz', registered: true }, { domain: 'segbytes-signin.com', registered: false }],
       lookalikes: [{ domain: 'segbvtes.xyz' }, { domain: 'segbytes.xyz' }],
       impersonation: [{ domain: 'login.segbytes.xyz' }],
-      homographs: [{ domain: 'sеgbytes.xyz' }],
+      homographs: [{ domain: canonicalDomain('sеgbytes.xyz') }],
     };
     const threats = collectThreats(result, 'segbytes.xyz', ['login.segbytes.xyz']);
     const domains = threats.map((t) => t.domain).sort();
-    assert.deepEqual(domains, ['segbvtes.xyz', 'segbytes-signin.com', 'sеgbytes.xyz'].sort());
+    assert.deepEqual(domains, ['segbvtes.xyz', 'segbytes-signin.com', canonicalDomain('sеgbytes.xyz')].sort());
     const typo = threats.find((t) => t.domain === 'segbvtes.xyz');
     assert.equal(typo.threat_type, 'typosquatting');
     assert.equal(typo.severity, 'high');

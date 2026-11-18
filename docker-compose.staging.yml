@@ -36,6 +36,7 @@ services:
       - DATABASE_URL=postgres://nexusemail:${POSTGRES_PASSWORD}@postgres:5432/nexusemail
       - JWT_SECRET=${JWT_SECRET}
       - CRON_SECRET=${CRON_SECRET}
+      - DOMAINSCOZA_API_KEY=${DOMAINSCOZA_API_KEY:-}
       - SEED_ADMIN_EMAIL=${SEED_ADMIN_EMAIL}
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
       - ALLOWED_ORIGINS=https://brandprotection.segbytes.xyz,http://192.168.8.4:4102,http://localhost:3000

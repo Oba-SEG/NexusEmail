@@ -1,10 +1,170 @@
 const dns = require('dns').promises;
 const https = require('https');
 const { escapeHtml } = require('../utils/html');
+const { domainToASCII } = require('url');
+
+// TLD coverage for typo / homograph / lookalike probing. The brand's own TLD
+// is prepended at scan time. Phishing registrations cluster on the cheap
+// commercial TLDs below, but country TLDs matter too — keep this list focused
+// and use concurrency (not a narrower list) to stay within a sane scan time.
+const SCAN_TLDS = [
+  'com', 'net', 'org',
+  'io', 'co', 'ai', 'app', 'dev', 'xyz', 'info', 'biz',
+  'shop', 'site', 'online', 'top', 'link', 'club', 'live', 'icu', 'buzz', 'click',
+  'us', 'uk', 'de', 'za', 'co.za', 'com.au', 'ca', 'in', 'br', 'ng', 'ke',
+];
+const MAX_TYPO_VARIANTS = 80;
+const MAX_TYPO_RECORDS = 100;
+const MAX_LOOKALIKE_RECORDS = 25;
+const MAX_TYPO_PROBES = 20000;
+const MAX_LOOKALIKE_PROBES = 6000;
+const PROBE_CONCURRENCY = 48;
+// Raw detections kept for persistence (bounded against wildcard-TLD blowups)
+// are separate from the display-capped `records` arrays.
+const MAX_DETECTIONS = 1000;
+
+// Brand TLD first (typos usually keep the original suffix), then the rest.
+// `tlds` comes from the registry when configured (see tldRegistry.js).
+function orderedTlds(brandTld, tlds = SCAN_TLDS) {
+  const tld = String(brandTld || '').toLowerCase();
+  return [...new Set([tld, ...tlds].map((t) => String(t || '').toLowerCase()).filter(Boolean))];
+}
+
+// Canonical DNS form (IDNA/punycode, lowercase) so a safe-listed unicode
+// homograph matches its ASCII probe result and vice versa.
+function canonicalDomain(domain) {
+  const raw = String(domain || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw) return '';
+  const ascii = domainToASCII(raw);
+  return (ascii || raw).toLowerCase();
+}
+
+// Rebuild a scan summary against the completion-time safe list so the saved
+// snapshot (records, counts, score, issues) agrees with what was persisted.
+const SUMMARY_SECTIONS = [
+  { key: 'typosquatting', cap: MAX_TYPO_RECORDS, penalty: 15, issue: 'typosquatting', severity: 'high', rec: 'Consider registering common typosquatting domains to prevent abuse' },
+  { key: 'lookalikes', cap: MAX_LOOKALIKE_RECORDS, penalty: 10, issue: 'lookalike', severity: 'medium', rec: 'Monitor or register lookalike domains that could be used for phishing' },
+  { key: 'impersonation', cap: Infinity, penalty: 5, issue: 'subdomain_abuse', severity: 'low' },
+  { key: 'homographs', cap: 25, penalty: 12, issue: 'homograph', severity: 'high' },
+];
+
+function applySafeListToResult(result, safeList = []) {
+  const safe = new Set(safeList.map(canonicalDomain).filter(Boolean));
+  const detections = (result && result.detections) || {};
+  const filtered = {};
+  for (const section of SUMMARY_SECTIONS) {
+    const source = detections[section.key] || (result && result[section.key]) || [];
+    filtered[section.key] = source.filter((r) => !safe.has(canonicalDomain(r && r.domain)));
+  }
+
+  const out = { ...result };
+  for (const section of SUMMARY_SECTIONS) {
+    out[section.key] = filtered[section.key].slice(0, section.cap);
+  }
+
+  const knownIssues = new Set([...SUMMARY_SECTIONS.map((s) => s.issue), 'social_media']);
+  const knownRecs = new Set(SUMMARY_SECTIONS.map((s) => s.rec).filter(Boolean));
+  const priorIssues = (result && result.issues) || [];
+  // Social media is display-capped by the probe; its issue carries the full
+  // found count, so reuse that for the penalty instead of the visible slice.
+  const priorSocial = priorIssues.find((i) => i && i.type === 'social_media');
+  const socialCount = priorSocial ? Number(priorSocial.count) || 0 : ((result && result.socialMedia) || []).length;
+  out.issues = priorIssues.filter((i) => !knownIssues.has(i && i.type));
+  out.recommendations = ((result && result.recommendations) || []).filter((r) => !knownRecs.has(r));
+
+  let score = 100;
+  for (const section of SUMMARY_SECTIONS) {
+    const count = filtered[section.key].length;
+    if (count === 0) continue;
+    score -= count * section.penalty;
+    out.issues.push({ type: section.issue, count, severity: section.severity });
+    if (section.rec) out.recommendations.push(section.rec);
+  }
+  score -= socialCount * 8;
+  if (socialCount > 0) out.issues.push({ type: 'social_media', count: socialCount, severity: 'medium' });
+  out.score = Math.max(0, Math.round(score));
+
+  // New-threat metadata mirrors what persistence will write: drop only
+  // safe-listed domains. Social-media entries have no persisted threat row,
+  // so they must not be filtered out by section membership.
+  const safeEntry = (entry) => !entry || !entry.domain || !safe.has(canonicalDomain(entry.domain));
+  if (Array.isArray(out.newThreats)) out.newThreats = out.newThreats.filter(safeEntry);
+  if (Array.isArray(out.alerts)) out.alerts = out.alerts.filter(safeEntry);
+  return out;
+}
+
+function normalizeTldList(tlds) {
+  if (!Array.isArray(tlds)) return SCAN_TLDS;
+  const clean = [...new Set(tlds.map((t) => String(t || '').toLowerCase()).filter((t) => t && t.length <= 63))];
+  return clean.length ? clean : SCAN_TLDS;
+}
+
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+// Pure typo generator (no DNS) — extracted so it can be unit-tested.
+function typoVariants(baseName) {
+  const variations = new Set();
+  const keyboardAdjacent = {
+    'a': ['q', 'w', 's', 'z'], 'b': ['v', 'g', 'h', 'n'], 'c': ['x', 'd', 'f', 'v'],
+    'd': ['s', 'e', 'r', 'f', 'c', 'x'], 'e': ['w', 's', 'd', 'r'], 'f': ['d', 'r', 't', 'g', 'v', 'c'],
+    'g': ['f', 't', 'y', 'h', 'b', 'v'], 'h': ['g', 'y', 'u', 'j', 'n', 'b'], 'i': ['u', 'j', 'k', 'o'],
+    'j': ['h', 'u', 'i', 'k', 'm', 'n'], 'k': ['j', 'i', 'o', 'l', 'm'], 'l': ['k', 'o', 'p'],
+    'm': ['n', 'j', 'k'], 'n': ['b', 'h', 'j', 'm'], 'o': ['i', 'k', 'l', 'p'], 'p': ['o', 'l'],
+    'q': ['w', 'a'], 'r': ['e', 'd', 'f', 't'], 's': ['a', 'w', 'e', 'd', 'x', 'z'], 't': ['r', 'f', 'g', 'y'],
+    'u': ['y', 'h', 'j', 'i'], 'v': ['c', 'f', 'g', 'b'], 'w': ['q', 'a', 's', 'e'],
+    'x': ['z', 's', 'd', 'c'], 'y': ['t', 'g', 'h', 'u'], 'z': ['a', 's', 'x'],
+  };
+  const charReplacements = { 'o': ['0', 'a'], 'l': ['1', 'i', 't'], 'i': ['1', 'l', 'o'], 'e': ['a', 'o', '3'], 'a': ['e', 'o', '4'] };
+
+  for (let i = 0; i < baseName.length; i++) {
+    const char = baseName[i];
+    if (keyboardAdjacent[char]) {
+      for (const adj of keyboardAdjacent[char]) {
+        variations.add(baseName.slice(0, i) + adj + baseName.slice(i + 1));
+      }
+    }
+    if (charReplacements[char]) {
+      for (const rep of charReplacements[char]) {
+        variations.add(baseName.slice(0, i) + rep + baseName.slice(i + 1));
+      }
+    }
+  }
+  for (let i = 0; i < baseName.length - 1; i++) {
+    variations.add(baseName.slice(0, i) + baseName[i + 1] + baseName[i] + baseName.slice(i + 2));
+  }
+  for (let i = 0; i < baseName.length; i++) {
+    variations.add(baseName.slice(0, i) + baseName[i] + baseName[i] + baseName.slice(i));
+  }
+  for (let i = 0; i < baseName.length - 1; i++) {
+    if (baseName[i] === baseName[i + 1]) {
+      variations.add(baseName.slice(0, i) + baseName[i] + baseName.slice(i + 2));
+    }
+  }
+  for (let i = 0; i < baseName.length; i++) {
+    variations.add(baseName.slice(0, i) + baseName.slice(i + 1));
+  }
+  if (baseName.length > 4) {
+    for (let i = 1; i < baseName.length - 1; i++) {
+      variations.add(baseName.slice(0, i) + '-' + baseName.slice(i));
+    }
+  }
+  return variations;
+}
 
 class BrandProtectionService {
   constructor() {
-    this.commonTLDs = ['com', 'net', 'org', 'io', 'co', 'ai', 'app', 'dev', 'xyz', 'info', 'biz', 'co.za', 'org.za', 'net.za', 'web.za', 'gov.za', 'school.za', 'ac.za'];
+    this.commonTLDs = SCAN_TLDS;
     this.dnsProviders = [
       { name: 'Cloudflare', ns: ['cloudflare.com', 'ns.cloudflare.com', 'cf-dns'] },
       { name: 'AWS Route53', ns: ['aws.amazon.com', 'route53', 'amazonaws.com'] },
@@ -47,8 +207,12 @@ class BrandProtectionService {
     ];
   }
 
-  async checkBrandProtection(mainDomain, previousResults = null) {
+  async checkBrandProtection(mainDomain, previousResults = null, options = {}) {
     const baseName = mainDomain.split('.')[0];
+    const scanTlds = normalizeTldList(options.tlds);
+    const safeDomains = new Set((Array.isArray(options.safeList) ? options.safeList : []).map(canonicalDomain).filter(Boolean));
+    const isSafe = (domain) => !safeDomains.has(canonicalDomain(domain));
+    const detections = { typosquatting: [], lookalikes: [], impersonation: [], homographs: [] };
     const results = {
       domain: mainDomain,
       timestamp: new Date().toISOString(),
@@ -80,9 +244,11 @@ class BrandProtectionService {
       results.progress[1].done = true;
       results.progress[1].complete = true;
 
-      results.progress.push({ step: 'typosquatting', label: 'Checking typosquatting variations...', done: false, complete: false });
-      const typos = await this.checkTypoSquats(baseName, mainDomain);
+      results.tld_count = scanTlds.length;
+      results.progress.push({ step: 'typosquatting', label: `Checking typosquatting across ${scanTlds.length} TLDs...`, done: false, complete: false });
+      const typos = await this.checkTypoSquats(baseName, mainDomain, scanTlds, isSafe);
       results.typosquatting = typos.records;
+      detections.typosquatting = typos.all || typos.records;
       results.progress[2].done = true;
       results.progress[2].complete = true;
       if (typos.found > 0) {
@@ -92,8 +258,9 @@ class BrandProtectionService {
       }
 
       results.progress.push({ step: 'lookalikes', label: 'Checking lookalike domains...', done: false, complete: false });
-      const lookalikes = await this.checkLookalikes(baseName, mainDomain);
+      const lookalikes = await this.checkLookalikes(baseName, mainDomain, scanTlds, isSafe);
       results.lookalikes = lookalikes.records;
+      detections.lookalikes = lookalikes.all || lookalikes.records;
       results.progress[3].done = true;
       results.progress[3].complete = true;
       if (lookalikes.found > 0) {
@@ -105,6 +272,7 @@ class BrandProtectionService {
       results.progress.push({ step: 'subdomain_abuse', label: 'Checking subdomain abuse...', done: false, complete: false });
       const subdomains = await this.checkSubdomainAbuse(mainDomain);
       results.impersonation = subdomains.records;
+      detections.impersonation = subdomains.all || subdomains.records;
       results.progress[4].done = true;
       results.progress[4].complete = true;
       if (subdomains.found > 0) {
@@ -123,8 +291,9 @@ class BrandProtectionService {
       }
 
       results.progress.push({ step: 'homograph', label: 'Checking homograph attacks...', done: false, complete: false });
-      const homographs = await this.checkHomographs(baseName, mainDomain);
+      const homographs = await this.checkHomographs(baseName, mainDomain, scanTlds, isSafe);
       results.homographs = homographs.records;
+      detections.homographs = homographs.all || homographs.records;
       results.progress[6].done = true;
       results.progress[6].complete = true;
       if (homographs.found > 0) {
@@ -143,6 +312,9 @@ class BrandProtectionService {
       results.error = error.message;
     }
 
+    // Non-enumerable: available to the persistence transaction in-process,
+    // never serialized into last_results/history payloads.
+    Object.defineProperty(results, 'detections', { value: detections, enumerable: false });
     return results;
   }
 
@@ -436,108 +608,78 @@ class BrandProtectionService {
     });
   }
 
-  async checkTypoSquats(baseName, mainDomain) {
-    const records = [];
-    const variations = new Set();
+  async checkTypoSquats(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
     const tld = mainDomain.split('.').slice(1).join('.') || 'com';
+    const tldList = orderedTlds(tld, tlds);
+    const variants = [...typoVariants(baseName)].slice(0, MAX_TYPO_VARIANTS);
 
-    const keyboardAdjacent = {
-      'a': ['q', 'w', 's', 'z'], 'b': ['v', 'g', 'h', 'n'], 'c': ['x', 'd', 'f', 'v'],
-      'd': ['s', 'e', 'r', 'f', 'c', 'x'], 'e': ['w', 's', 'd', 'r'], 'f': ['d', 'r', 't', 'g', 'v', 'c'],
-      'g': ['f', 't', 'y', 'h', 'b', 'v'], 'h': ['g', 'y', 'u', 'j', 'n', 'b'], 'i': ['u', 'j', 'k', 'o'],
-      'j': ['h', 'u', 'i', 'k', 'm', 'n'], 'k': ['j', 'i', 'o', 'l', 'm'], 'l': ['k', 'o', 'p'],
-      'm': ['n', 'j', 'k'], 'n': ['b', 'h', 'j', 'm'], 'o': ['i', 'k', 'l', 'p'], 'p': ['o', 'l'],
-      'q': ['w', 'a'], 'r': ['e', 'd', 'f', 't'], 's': ['a', 'w', 'e', 'd', 'x', 'z'],
-      't': ['r', 'f', 'g', 'y'], 'u': ['y', 'h', 'j', 'i'], 'v': ['c', 'f', 'g', 'b'],
-      'w': ['q', 'a', 's', 'e'], 'x': ['z', 's', 'd', 'c'], 'y': ['t', 'g', 'h', 'u'], 'z': ['a', 's', 'x'],
-    };
-
-    const charReplacements = { 'o': ['0', 'a'], 'l': ['1', 'i', 't'], 'i': ['1', 'l', 'o'], 'e': ['a', 'o', '3'], 'a': ['e', 'o', '4'] };
-
-    for (let i = 0; i < baseName.length; i++) {
-      const char = baseName[i];
-      if (keyboardAdjacent[char]) {
-        for (const adj of keyboardAdjacent[char]) {
-          variations.add(baseName.slice(0, i) + adj + baseName.slice(i + 1));
-        }
-      }
-      if (charReplacements[char]) {
-        for (const rep of charReplacements[char]) {
-          variations.add(baseName.slice(0, i) + rep + baseName.slice(i + 1));
-        }
-      }
-    }
-
-    for (let i = 0; i < baseName.length - 1; i++) {
-      variations.add(baseName.slice(0, i) + baseName[i + 1] + baseName[i] + baseName.slice(i + 2));
-    }
-
-    for (let i = 0; i < baseName.length; i++) {
-      variations.add(baseName.slice(0, i) + baseName[i] + baseName[i] + baseName.slice(i));
-    }
-
-    for (let i = 0; i < baseName.length - 1; i++) {
-      if (baseName[i] === baseName[i + 1]) {
-        variations.add(baseName.slice(0, i) + baseName[i] + baseName.slice(i + 2));
-      }
-    }
-
-    for (let i = 0; i < baseName.length; i++) {
-      variations.add(baseName.slice(0, i) + baseName.slice(i + 1));
-    }
-
-    if (baseName.length > 4) {
-      for (let i = 1; i < baseName.length - 1; i++) {
-        variations.add(baseName.slice(0, i) + '-' + baseName.slice(i));
-      }
-    }
-
-    const tldsToCheck = [tld, 'com', 'net', 'org', 'io', 'co', 'co.za'];
-    
-    for (const variant of [...variations].slice(0, 80)) {
+    const candidates = [];
+    for (const variant of variants) {
       if (variant === baseName || variant.length < 2) continue;
-      
-      for (const checkTld of tldsToCheck) {
+      for (const checkTld of tldList) {
         const domain = `${variant}.${checkTld}`;
-        if (domain === mainDomain) continue;
-        
-        try {
-          const addresses = await dns.resolve4(domain);
-          let hasMX = false;
-          try { const mx = await dns.resolveMx(domain); hasMX = mx.length > 0; } catch (e) {}
-          
-          records.push({ domain, type: hasMX ? 'typosquat_with_email' : 'typosquat', tld: checkTld, status: 'registered', hasMailServer: hasMX, hasWebsite: addresses.length > 0 });
-        } catch (e) {}
+        if (domain !== mainDomain) candidates.push({ domain, tld: checkTld });
+        if (candidates.length >= MAX_TYPO_PROBES) break;
       }
+      if (candidates.length >= MAX_TYPO_PROBES) break;
     }
 
-    const uniqueRecords = records.filter((r, i, arr) => arr.findIndex(x => x.domain === r.domain) === i);
-    return { records: uniqueRecords.slice(0, 20), found: uniqueRecords.length };
+    const probes = await mapLimit(candidates, PROBE_CONCURRENCY, async ({ domain, tld: checkTld }) => {
+      try {
+        const addresses = await dns.resolve4(domain);
+        let hasMX = false;
+        try { hasMX = (await dns.resolveMx(domain)).length > 0; } catch (e) {}
+        return {
+          domain,
+          type: hasMX ? 'typosquat_with_email' : 'typosquat',
+          tld: checkTld,
+          status: 'registered',
+          hasMailServer: hasMX,
+          hasWebsite: addresses.length > 0,
+        };
+      } catch (e) {
+        return null;
+      }
+    });
+
+    const uniqueRecords = probes
+      .filter(Boolean)
+      .filter((r, i, arr) => arr.findIndex((x) => x.domain === r.domain) === i);
+    const actionable = uniqueRecords.filter((r) => isSafe(r.domain));
+    return {
+      records: actionable.slice(0, MAX_TYPO_RECORDS),
+      found: actionable.length,
+      all: uniqueRecords.slice(0, MAX_DETECTIONS),
+      tlds_checked: tldList.length,
+    };
   }
 
-  async checkLookalikes(baseName, mainDomain) {
-    const records = [];
-    const base = mainDomain.split('.').slice(1).join('.');
+  async checkLookalikes(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
+    const tld = mainDomain.split('.').slice(1).join('.') || 'com';
+    const tldList = orderedTlds(tld, tlds);
     const prefixes = ['mail', 'web', 'www', 'ftp', 'secure', 'login', 'account', 'admin', 'support', 'smtp', 'webmail'];
     const suffixes = ['mail', 'web', 'email', 'hub', 'center', 'portal', 'app', 'dev'];
 
-    for (const prefix of prefixes) {
-      const domain = `${prefix}${baseName}.${base}`;
-      try {
-        await dns.resolve(domain);
-        records.push({ domain, type: 'prefix', status: 'exists' });
-      } catch (e) {}
+    const candidates = [];
+    for (const checkTld of tldList) {
+      for (const prefix of prefixes) candidates.push({ domain: `${prefix}${baseName}.${checkTld}`, type: 'prefix' });
+      for (const suffix of suffixes) candidates.push({ domain: `${baseName}${suffix}.${checkTld}`, type: 'suffix' });
+      if (candidates.length >= MAX_LOOKALIKE_PROBES) break;
     }
 
-    for (const suffix of suffixes) {
-      const domain = `${baseName}${suffix}.${base}`;
+    const hits = await mapLimit(candidates.slice(0, MAX_LOOKALIKE_PROBES), PROBE_CONCURRENCY, async ({ domain, type }) => {
+      if (domain === mainDomain) return null;
       try {
         await dns.resolve(domain);
-        records.push({ domain, type: 'suffix', status: 'exists' });
-      } catch (e) {}
-    }
+        return { domain, type, status: 'exists' };
+      } catch (e) {
+        return null;
+      }
+    });
 
-    return { records: records.slice(0, 15), found: records.length };
+    const all = hits.filter(Boolean).slice(0, MAX_DETECTIONS);
+    const actionable = all.filter((r) => isSafe(r.domain));
+    return { records: actionable.slice(0, MAX_LOOKALIKE_RECORDS), found: actionable.length, all };
   }
 
   async checkSubdomainAbuse(mainDomain) {
@@ -567,7 +709,7 @@ class BrandProtectionService {
       }
     }
 
-    return { records, found: records.length };
+    return { records, found: records.length, all: records };
   }
 
   async checkSocialMedia(baseName, mainDomain) {
@@ -590,9 +732,9 @@ class BrandProtectionService {
     return { records: records.slice(0, 10), found: records.length };
   }
 
-  async checkHomographs(baseName, mainDomain) {
+  async checkHomographs(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
     const records = [];
-    const tld = mainDomain.split('.').slice(1).join('.');
+    const tld = mainDomain.split('.').slice(1).join('.') || 'com';
     
     const homoglyphs = {
       'a': ['а', 'ą', 'α'], 'b': ['Ь', 'ƅ'], 'c': ['с', 'ć'], 'd': ['ԁ'], 'e': ['е', 'ę', 'ε'],
@@ -608,18 +750,23 @@ class BrandProtectionService {
     }
 
     if (homographVariant !== baseName.toLowerCase()) {
-      for (const checkTld of [tld, 'com', 'net', 'org']) {
-        const domain = `${homographVariant}.${checkTld}`;
-        if (domain !== mainDomain) {
-          try {
-            await dns.resolve(domain);
-            records.push({ domain, punycode: 'xn--' + Buffer.from(domain.split('.')[0]).toString('base64').replace(/=/g, ''), type: 'homograph', status: 'registered' });
-          } catch (e) {}
+      const candidates = orderedTlds(tld, tlds)
+        .map((checkTld) => `${homographVariant}.${checkTld}`)
+        .filter((domain) => domain !== mainDomain);
+      const hits = await mapLimit(candidates, PROBE_CONCURRENCY, async (domain) => {
+        try {
+          await dns.resolve(domain);
+          return { domain, punycode: 'xn--' + Buffer.from(domain.split('.')[0]).toString('base64').replace(/=/g, ''), type: 'homograph', status: 'registered' };
+        } catch (e) {
+          return null;
         }
-      }
+      });
+      records.push(...hits.filter(Boolean));
     }
 
-    return { records: records.slice(0, 5), found: records.length };
+    const all = records.slice(0, MAX_DETECTIONS);
+    const actionable = all.filter((r) => isSafe(r.domain));
+    return { records: actionable.slice(0, 25), found: actionable.length, all };
   }
 
   async addBrandMonitoring(brandDomain, brandName) {
@@ -639,4 +786,4 @@ class BrandProtectionService {
   }
 }
 
-module.exports = { BrandProtectionService };
+module.exports = { BrandProtectionService, SCAN_TLDS, orderedTlds, normalizeTldList, typoVariants, mapLimit, canonicalDomain, applySafeListToResult };

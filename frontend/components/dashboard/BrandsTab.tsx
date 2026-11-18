@@ -556,7 +556,7 @@ export default function BrandsTab({
             completes, so a stepwise checklist here would be a lie. An
             indeterminate state with a real duration expectation isn't. */}
         <p className="text-xs text-muted-foreground mt-2">
-          DNS lookups across typosquatting, lookalike, subdomain and homograph checks — usually takes 10–30 seconds. The result replaces this note when it lands.
+          DNS lookups across typosquatting, lookalike, subdomain and homograph checks — usually takes 30–90 seconds. The result replaces this note when it lands.
         </p>
       </div>
     )}
