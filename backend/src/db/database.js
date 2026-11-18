@@ -660,9 +660,10 @@ async function getBrands(orgId) {
   const rows = await all('SELECT * FROM brands WHERE org_id = $1 ORDER BY added_at DESC', [orgId]);
   return rows.map(hydrateBrand);
 }
-async function getBrand(id, orgId) {
+async function getBrand(id, orgId, tx) {
   if (!orgId) return null;
-  return hydrateBrand(await one('SELECT * FROM brands WHERE id = $1 AND org_id = $2', [id, orgId]));
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return hydrateBrand(await exec.one('SELECT * FROM brands WHERE id = $1 AND org_id = $2', [id, orgId]));
 }
 async function getBrandFull(id, orgId) {
   const brand = await getBrand(id, orgId);
@@ -726,13 +727,14 @@ async function addBrand(brand, orgId, tx) {
     [created.id, created.org_id, created.domain, created.brand_name, created.status, created.scan_schedule, created.alerts_enabled, created.last_scan, created.next_scan, created.last_results, created.added_at, created.updated_at]);
   return hydrateBrand(await exec.one('SELECT * FROM brands WHERE id = $1', [created.id]));
 }
-async function updateBrand(id, updates, orgId) {
-  const existing = await getBrand(id, orgId);
+async function updateBrand(id, updates, orgId, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const existing = await getBrand(id, orgId, tx);
   if (!existing) return null;
   const next = { ...existing, ...updates, updated_at: now() };
-  await q('UPDATE brands SET domain=$3, brand_name=$4, status=$5, scan_schedule=$6, alerts_enabled=$7, last_scan=$8, next_scan=$9, last_results=$10, updated_at=$11 WHERE id=$1 AND org_id=$2',
+  await exec.q('UPDATE brands SET domain=$3, brand_name=$4, status=$5, scan_schedule=$6, alerts_enabled=$7, last_scan=$8, next_scan=$9, last_results=$10, updated_at=$11 WHERE id=$1 AND org_id=$2',
     [id, orgId, next.domain, next.brand_name, next.status, next.scan_schedule, next.alerts_enabled ? 1 : 0, next.last_scan || null, next.next_scan || null, next.last_results ? json(next.last_results) : null, next.updated_at]);
-  return getBrand(id, orgId);
+  return getBrand(id, orgId, tx);
 }
 async function deleteBrand(id, orgId) {
   if (!orgId) return false;
@@ -740,9 +742,10 @@ async function deleteBrand(id, orgId) {
   return result.rowCount > 0;
 }
 
-async function getBrandThreats(brandId, orgId) {
+async function getBrandThreats(brandId, orgId, tx) {
   if (!orgId) return [];
-  const rows = await all('SELECT * FROM brand_threats WHERE brand_id = $1 AND org_id = $2 ORDER BY detected_at DESC', [brandId, orgId]);
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const rows = await exec.all('SELECT * FROM brand_threats WHERE brand_id = $1 AND org_id = $2 ORDER BY detected_at DESC', [brandId, orgId]);
   return rows.map(hydrateThreat);
 }
 async function addBrandThreat(threat, brandId, orgId, tx) {
@@ -797,6 +800,24 @@ async function addBrandTakedown(takedown, brandId, orgId, tx) {
     [created.id, created.brand_id, created.org_id, created.domain, created.threat_type, created.evidence, created.contact_email, created.sender_email, created.status, created.provider, created.abuse_email, created.email_template, created.sent, created.sent_at, created.notes, created.submitted_at]);
   return { ...hydrateTakedown(await exec.one('SELECT * FROM brand_takedowns WHERE id = $1', [created.id])), replies: [] };
 }
+// Atomic per-brand scan claim: only the process that flips the row wins.
+// Prevents scheduled + manual scans racing (duplicate threat inserts,
+// overlapping history rows). Stale claims expire so a crashed scan can't
+// lock a brand forever.
+async function claimBrandScan(brandId, orgId, token, staleMinutes = 30) {
+  if (!orgId || !token) return false;
+  const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+  const result = await q(
+    'UPDATE brands SET scan_claim = $3, scan_claimed_at = $4 WHERE id = $1 AND org_id = $2 AND (scan_claim IS NULL OR scan_claimed_at < $5)',
+    [brandId, orgId, token, now(), cutoff]
+  );
+  return result.rowCount > 0;
+}
+async function releaseBrandScan(brandId, token) {
+  if (!brandId || !token) return;
+  await q('UPDATE brands SET scan_claim = NULL, scan_claimed_at = NULL WHERE id = $1 AND scan_claim = $2', [brandId, token]);
+}
+
 async function updateBrandTakedown(takedownId, brandId, updates, orgId, expectedStatus) {
   if (!orgId) return null;
   // Partial update: only the supplied columns are written, so a concurrent
@@ -836,9 +857,10 @@ async function addTakedownReply(reply, takedownId, brandId, orgId, tx) {
   return hydrateReply(await exec.one('SELECT * FROM brand_takedown_replies WHERE id = $1', [created.id]));
 }
 
-async function getBrandSafeList(brandId, orgId) {
+async function getBrandSafeList(brandId, orgId, tx) {
   if (!orgId) return [];
-  const rows = await all('SELECT domain FROM brand_safe_entries WHERE brand_id = $1 AND org_id = $2 ORDER BY added_at DESC', [brandId, orgId]);
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const rows = await exec.all('SELECT domain FROM brand_safe_entries WHERE brand_id = $1 AND org_id = $2 ORDER BY added_at DESC', [brandId, orgId]);
   return rows.map(r => r.domain);
 }
 async function addSafeEntry(brandId, domain, orgId, tx) {
@@ -972,6 +994,8 @@ async function initDatabase() {
   await initSchema();
   await migrateLegacyJsonIfNeeded();
   await ensureColumn('users', 'token_version', 'INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn('brands', 'scan_claim', 'TEXT');
+  await ensureColumn('brands', 'scan_claimed_at', 'TEXT');
   await migrateBrandsFromSettingsBlob();
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
@@ -1041,5 +1065,6 @@ module.exports = {
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,
+  claimBrandScan, releaseBrandScan,
   getBrandAlerts, addBrandAlert, deleteBrandAlert, clearBrandAlerts,
 };

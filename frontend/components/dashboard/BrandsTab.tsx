@@ -54,6 +54,8 @@ export default function BrandsTab({
   const [brandScanResult, setBrandScanResult] = useState<any>(null);
   const [brandScanning, setBrandScanning] = useState(false);
   const [brandHistory, setBrandHistory] = useState<any[]>([]);
+  const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [savingScheduleFor, setSavingScheduleFor] = useState<number | null>(null);
   const [newBrandSchedule, setNewBrandSchedule] = useState('daily');
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
@@ -165,23 +167,33 @@ export default function BrandsTab({
   };
 
   const loadBrandHistory = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
+    if (gen === sessionGenRef.current && sel === brandDetailsGenRef.current) setHistoryState('loading');
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/history`);
       if (gen !== sessionGenRef.current) return;
       if (res.status === 401) { onAuthFailure(); return; }
-      if (!res.ok) { console.error(`Failed to load history: HTTP ${res.status}`); return; }
+      if (!res.ok) {
+        console.error(`Failed to load history: HTTP ${res.status}`);
+        if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
+        return;
+      }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
       if (brandDetailsRef.current !== brandId) return;
       if (sel !== brandDetailsGenRef.current) return;
       setBrandHistory(Array.isArray(data) ? data : []);
+      setHistoryState('ready');
     } catch (e) {
       console.error('Failed to load history:', e);
+      if (gen === sessionGenRef.current && brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
     }
   };
 
   const updateBrandSchedule = async (brandId: number, scan_schedule: string) => {
     const gen = sessionGenRef.current;
+    // Serialize per brand: the selector is disabled while its save is in
+    // flight so an earlier request can't land after a later selection.
+    setSavingScheduleFor(brandId);
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}`, {
         method: 'PATCH',
@@ -189,12 +201,15 @@ export default function BrandsTab({
         body: JSON.stringify({ scan_schedule }),
       });
       if (!res.ok) {
-        notify('Couldn\'t update the schedule.', 'error', `HTTP ${res.status}`);
+        if (gen === sessionGenRef.current) notify('Couldn\'t update the schedule.', 'error', `HTTP ${res.status}`);
         return;
       }
       if (gen === sessionGenRef.current) loadBrands(gen);
     } catch (e) {
       console.error('Failed to update schedule:', e);
+      if (gen === sessionGenRef.current) notify('Couldn\'t update the schedule.', 'error', 'The request failed.');
+    } finally {
+      if (gen === sessionGenRef.current) setSavingScheduleFor(null);
     }
   };
 
@@ -258,6 +273,7 @@ export default function BrandsTab({
     setBrandThreats([]);
     setBrandTakedowns([]);
     setBrandHistory([]);
+    setHistoryState('idle');
     loadBrandThreats(brand.id);
     loadBrandTakedowns(brand.id);
     loadBrandHistory(brand.id);
@@ -377,8 +393,9 @@ export default function BrandsTab({
               />
             </div>
             <div>
-              <label className="text-sm text-muted-foreground">Automatic scans</label>
+              <label htmlFor="new-brand-schedule" className="text-sm text-muted-foreground">Automatic scans</label>
               <select
+                id="new-brand-schedule"
                 value={newBrandSchedule}
                 onChange={(e) => setNewBrandSchedule(e.target.value)}
                 className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -460,11 +477,13 @@ export default function BrandsTab({
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <label htmlFor={`brand-schedule-${brand.id}`} className="sr-only">Scan schedule for {brand.domain}</label>
               <select
-                aria-label={`Scan schedule for ${brand.domain}`}
+                id={`brand-schedule-${brand.id}`}
                 value={brand.scan_schedule || 'manual'}
                 onChange={(e) => updateBrandSchedule(brand.id, e.target.value)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-xs"
+                disabled={savingScheduleFor === brand.id}
+                className="h-9 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
               >
                 <option value="manual">Manual</option>
                 <option value="daily">Daily</option>
@@ -474,16 +493,18 @@ export default function BrandsTab({
               <Button variant="outline" size="sm" onClick={async () => {
                 setBrandScanning(true);
                 setBrandScanResult(null);
+                const gen = sessionGenRef.current;
                 try {
-                  const res = await apiFetch(`${API_BASE}/brands/check/${brand.id}`, { method: 'POST' });
-                  const data = await res.json();
-                  setBrandScanResult({ ...data, brand: brand.domain });
-                  // Refresh the persisted view (last_scan, next_scan, threats).
-                  loadBrands(sessionGenRef.current);
-                } catch (e) { 
-                  setBrandScanResult({ error: 'Scan failed' });
+                    const res = await apiFetch(`${API_BASE}/brands/check/${brand.id}`, { method: 'POST' });
+                    const data = await res.json();
+                    if (gen !== sessionGenRef.current) return;
+                    setBrandScanResult(data.error ? { error: data.error, brand: brand.domain } : { ...data, brand: brand.domain });
+                    // Refresh the persisted view (last_scan, next_scan, threats).
+                    loadBrands(gen);
+                  } catch (e) {
+                    if (gen === sessionGenRef.current) setBrandScanResult({ error: 'Scan failed' });
                 } finally {
-                  setBrandScanning(false);
+                  if (gen === sessionGenRef.current) setBrandScanning(false);
                 }
               }} disabled={brandScanning || bulkScanning}>
                 <Search className="w-4 h-4 mr-1" /> Scan
@@ -731,7 +752,20 @@ export default function BrandsTab({
             <Search className="w-4 h-4 text-emerald-400" />
             Scan History ({brandHistory.length})
           </h4>
-          {brandHistory.length === 0 ? (
+          {historyState === 'loading' ? (
+            <p className="text-sm text-muted-foreground">Loading scan history…</p>
+          ) : historyState === 'error' ? (
+            <p className="text-sm text-muted-foreground">
+              Scan history couldn't be loaded.{' '}
+              <button
+                type="button"
+                className="underline text-emerald-400"
+                onClick={() => selectedBrand && loadBrandHistory(selectedBrand.id)}
+              >
+                Retry
+              </button>
+            </p>
+          ) : brandHistory.length === 0 ? (
             <p className="text-sm text-muted-foreground">No saved scans yet — run a scan or set an automatic schedule.</p>
           ) : (
             <div className="space-y-1 max-h-56 overflow-y-auto">

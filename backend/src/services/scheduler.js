@@ -39,7 +39,8 @@ async function runBrandDueScans() {
   for (const brand of await getAllBrands()) {
     if (!isBrandDue(brand)) continue;
     try {
-      await performBrandScan(brand, brand.org_id);
+      const result = await performBrandScan(brand, brand.org_id, { requireDue: true });
+      if (result.skipped) continue;
       scanned += 1;
       console.log(`🛡️ Brand scan done: ${brand.domain}`);
     } catch (error) {

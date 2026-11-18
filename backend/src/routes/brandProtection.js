@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { BrandProtectionService } = require('../services/brandProtection');
-const { performBrandScan, nextScanFor, SCHEDULE_DAYS } = require('../services/brandScan');
+const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
 const db = require('../db/database');
 const { captureException } = require('../capture');
 
@@ -46,7 +46,10 @@ router.post('/', async (req, res, next) => {
     if (!domain) {
       return res.status(400).json({ error: 'Domain is required' });
     }
-    const schedule = SCHEDULE_DAYS[scan_schedule] ? scan_schedule : 'daily';
+    if (scan_schedule !== undefined && !ALLOWED_SCHEDULES.includes(scan_schedule)) {
+      return res.status(400).json({ error: `Invalid scan schedule. Allowed: ${ALLOWED_SCHEDULES.join(', ')}.` });
+    }
+    const schedule = scan_schedule || 'daily';
     const created = await db.addBrand({
       domain,
       brand_name,
@@ -83,6 +86,12 @@ router.post('/check/:id', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
     const result = await performBrandScan(brand, req.orgId);
+    if (result.skipped === 'already_running') {
+      return res.status(409).json({ error: 'A scan is already running for this brand — try again in a moment.' });
+    }
+    if (result.skipped === 'inactive') {
+      return res.status(409).json({ error: 'This brand is not active.' });
+    }
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -137,6 +146,9 @@ router.get('/:id', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { scan_schedule, alerts_enabled, brand_name } = req.body;
+    if (scan_schedule !== undefined && !ALLOWED_SCHEDULES.includes(scan_schedule)) {
+      return res.status(400).json({ error: `Invalid scan schedule. Allowed: ${ALLOWED_SCHEDULES.join(', ')}.` });
+    }
     const updates = {};
     if (scan_schedule !== undefined) updates.scan_schedule = scan_schedule;
     if (alerts_enabled !== undefined) updates.alerts_enabled = alerts_enabled;

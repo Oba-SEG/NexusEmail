@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const db = require('../db/database');
 const { BrandProtectionService } = require('./brandProtection');
 
@@ -5,8 +6,14 @@ const { BrandProtectionService } = require('./brandProtection');
 // scanner. Persists everything a reload needs: the snapshot (brand_scans
 // history), the detected threats (brand_threats rows), the brand's
 // last_scan/next_scan, and alerts for genuinely new threats.
+//
+// Concurrency: each scan must win an atomic per-brand claim before probing,
+// so a scheduled run and a manual click can't double-insert threats. All
+// completion writes happen in one transaction — a failure leaves the last
+// committed scan (and its due date) intact for retry.
 
 const SCHEDULE_DAYS = { daily: 1, weekly: 7, monthly: 30 };
+const ALLOWED_SCHEDULES = ['manual', 'daily', 'weekly', 'monthly'];
 
 function nextScanFor(schedule, from = Date.now()) {
   const days = SCHEDULE_DAYS[schedule];
@@ -42,56 +49,106 @@ function collectThreats(result, brandDomain, safeList = []) {
   return [...byDomain.values()];
 }
 
-async function syncThreats(brand, result, orgId) {
-  const [existing, safeList] = await Promise.all([
-    db.getBrandThreats(brand.id, orgId),
-    db.getBrandSafeList(brand.id, orgId),
-  ]);
-  const known = new Set(existing.map((t) => String(t.domain).toLowerCase()));
-  const detected = collectThreats(result, brand.domain, safeList);
-  const added = [];
-  for (const threat of detected) {
-    if (known.has(threat.domain)) continue;
-    await db.addBrandThreat({ ...threat, notes: 'Detected by scheduled/manual brand scan' }, brand.id, orgId);
-    added.push(threat);
-  }
-  return added;
+// Alerts derive from the exact threats this scan persists — one definition
+// of "new" for both the threat list and the alert feed, including a brand's
+// first scan.
+function alertsForThreats(added) {
+  return added.map((threat) => ({
+    type: 'new_threat',
+    severity: threat.threat_type === 'typosquatting' || threat.threat_type === 'homograph' ? 'high' : 'medium',
+    message: `New ${threat.threat_type} detected: ${threat.domain}`,
+    timestamp: new Date().toISOString(),
+    domain: threat.domain,
+  }));
 }
 
-async function performBrandScan(brand, orgId) {
-  const service = new BrandProtectionService();
-  const result = await service.checkBrandProtection(brand.domain, brand.last_results);
-  const scannedAt = new Date().toISOString();
+async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
+  const claim = crypto.randomUUID();
+  const claimed = await db.claimBrandScan(brand.id, orgId, claim);
+  if (!claimed) return { skipped: 'already_running', domain: brand.domain, brand_id: brand.id };
 
-  // A successful scan schedules the next one; manual brands keep no next_scan.
-  const nextScan = brand.scan_schedule && brand.scan_schedule !== 'manual'
-    ? nextScanFor(brand.scan_schedule)
-    : null;
-
-  await db.updateBrand(brand.id, {
-    last_scan: scannedAt,
-    next_scan: nextScan,
-    last_results: result,
-  }, orgId);
-
-  await db.addBrandScan({ brand_id: brand.id, scanned_at: scannedAt, ...result }, orgId);
-
-  const addedThreats = await syncThreats(brand, result, orgId);
-
-  if (brand.alerts_enabled) {
-    for (const alert of (result.alerts || [])) {
-      await db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, orgId);
+  try {
+    // Re-read under the claim: schedule/alerts/status may have changed since
+    // the caller loaded the row (e.g. user switched to Manual mid-flight).
+    const fresh = await db.getBrand(brand.id, orgId);
+    if (!fresh || fresh.status !== 'active') {
+      return { skipped: 'inactive', domain: brand.domain, brand_id: brand.id };
     }
-  }
+    if (requireDue && !isBrandDue(fresh)) {
+      return { skipped: 'not_due', domain: brand.domain, brand_id: brand.id };
+    }
 
-  return { ...result, next_scan: nextScan, threats_persisted: addedThreats.length };
+    const service = new BrandProtectionService();
+    const result = await service.checkBrandProtection(fresh.domain, fresh.last_results);
+
+    // The service reports partial failures as result.error instead of
+    // throwing. Never record those as successful scans or advance the
+    // schedule — the brand stays due so the scheduler retries.
+    if (result.error) {
+      const err = new Error(result.error);
+      err.brand_id = fresh.id;
+      throw err;
+    }
+
+    const scannedAt = new Date().toISOString();
+    let added = [];
+
+    await db.withTransaction(async (tx) => {
+      // Read the brand again inside the transaction: the user may have
+      // changed the schedule or alerts while the probe was running.
+      const current = await db.getBrand(fresh.id, orgId, tx);
+      if (!current) return;
+      const nextScan = nextScanFor(current.scan_schedule);
+
+      const [safeList, existing] = await Promise.all([
+        db.getBrandSafeList(fresh.id, orgId, tx),
+        db.getBrandThreats(fresh.id, orgId, tx),
+      ]);
+      const known = new Set(existing.map((t) => String(t.domain).toLowerCase()));
+      added = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
+
+      for (const threat of added) {
+        await db.addBrandThreat({ ...threat, notes: 'Detected by brand scan' }, fresh.id, orgId, tx);
+      }
+      await db.updateBrand(fresh.id, {
+        last_scan: scannedAt,
+        next_scan: nextScan,
+        last_results: result,
+      }, orgId, tx);
+      await db.addBrandScan({ brand_id: fresh.id, scanned_at: scannedAt, ...result }, orgId, tx);
+
+      if (current.alerts_enabled) {
+        for (const alert of alertsForThreats(added)) {
+          await db.addBrandAlert({ ...alert, brand_id: fresh.id, brand_name: current.domain }, orgId, tx);
+        }
+      }
+    });
+
+    const currentSchedule = (await db.getBrand(fresh.id, orgId)) || fresh;
+    return {
+      ...result,
+      next_scan: nextScanFor(currentSchedule.scan_schedule),
+      threats_persisted: added.length,
+    };
+  } finally {
+    await db.releaseBrandScan(brand.id, claim).catch(() => {});
+  }
 }
 
 function isBrandDue(brand, now = Date.now()) {
   if (!brand || brand.status !== 'active') return false;
-  if (!brand.scan_schedule || brand.scan_schedule === 'manual') return false;
+  // Unknown schedule strings are inert rather than perpetually due.
+  if (!SCHEDULE_DAYS[brand.scan_schedule]) return false;
   if (!brand.next_scan) return true;
   return Date.parse(brand.next_scan) <= now;
 }
 
-module.exports = { performBrandScan, nextScanFor, collectThreats, isBrandDue, SCHEDULE_DAYS };
+module.exports = {
+  performBrandScan,
+  nextScanFor,
+  collectThreats,
+  alertsForThreats,
+  isBrandDue,
+  SCHEDULE_DAYS,
+  ALLOWED_SCHEDULES,
+};

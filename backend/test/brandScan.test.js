@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { nextScanFor, collectThreats, isBrandDue } = require('../src/services/brandScan');
+const { nextScanFor, collectThreats, isBrandDue, alertsForThreats, ALLOWED_SCHEDULES } = require('../src/services/brandScan');
 
 describe('brand scan scheduling helpers', () => {
   test('nextScanFor maps schedules to future timestamps', () => {
@@ -42,4 +42,23 @@ describe('brand scan scheduling helpers', () => {
     assert.deepEqual(collectThreats({}, 'segbytes.xyz'), []);
     assert.deepEqual(collectThreats({ typosquatting: [null, 'junk', { domain: '' }] }, 'segbytes.xyz'), []);
   });
+});
+
+test('unknown schedule strings are inert, not perpetually due', () => {
+  const now = Date.parse('2026-01-10T00:00:00.000Z');
+  assert.equal(isBrandDue({ status: 'active', scan_schedule: 'weeky', next_scan: null }, now), false);
+  assert.equal(isBrandDue({ status: 'active', scan_schedule: 'daily', next_scan: 'garbage' }, now), false);
+  assert.deepEqual(ALLOWED_SCHEDULES, ['manual', 'daily', 'weekly', 'monthly']);
+});
+
+test('alertsForThreats mirrors persisted threats (first-scan included)', () => {
+  const alerts = alertsForThreats([
+    { domain: 'segbvtes.xyz', threat_type: 'typosquatting' },
+    { domain: 'login.segbytes.co', threat_type: 'subdomain_abuse' },
+  ]);
+  assert.equal(alerts.length, 2);
+  assert.equal(alerts[0].severity, 'high');
+  assert.equal(alerts[1].severity, 'medium');
+  assert.match(alerts[0].message, /typosquatting detected: segbvtes\.xyz/);
+  assert.equal(alerts[0].domain, 'segbvtes.xyz');
 });
