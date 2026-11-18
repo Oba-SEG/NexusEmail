@@ -105,8 +105,9 @@ export function ToggleRow({
         aria-checked={on}
         aria-labelledby={labelId}
         aria-busy={pending}
-        disabled={disabled || pending}
-        onClick={onClick}
+        aria-disabled={disabled || pending}
+        disabled={disabled}
+        onClick={() => { if (!pending) onClick(); }}
         className={cn(
           "pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border px-1",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",

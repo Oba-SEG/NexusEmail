@@ -75,6 +75,9 @@ export default function BrandsTab({
     'aria-expanded': expandedSections.includes(key),
     onClick: () => toggleSection(key),
     onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      // Chrome exposes overflowing lists as focusable scrollers; their Space
+      // key belongs to the list, not to this header.
+      if (event.target !== event.currentTarget) return;
       if (event.key === 'Enter' || event.key === ' ') {
         event.preventDefault();
         toggleSection(key);
