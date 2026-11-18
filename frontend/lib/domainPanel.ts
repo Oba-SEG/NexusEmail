@@ -130,7 +130,18 @@ export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: 
     // p=none) stays FOUND — the policy-based tone below renders it amber,
     // and "Error" would mislabel a live, valid record.
     if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found|record published yet/i.test(msgs)) status = 'NOT_FOUND';
-    else if (obj.found) status = 'FOUND';
+    else if (obj.found) {
+      // FOUND stays FOUND only when every error is a known advisory
+      // recommendation (e.g. the p=none note). A genuine validation
+      // error (e.g. SPF `-all +all` CRITICAL) still resolves to ERROR,
+      // never a passing pill.
+      const errs = [
+        ...(obj.error ? [String(obj.error)] : []),
+        ...(Array.isArray(obj.errors) ? obj.errors.map(String) : []),
+      ];
+      const allAdvisory = errs.every((e) => /policy is "?none"?|no action taken|no action on failures/i.test(e));
+      status = allAdvisory ? 'FOUND' : 'ERROR';
+    }
     else status = 'ERROR';
   } else if (obj.found) status = 'FOUND';
   else status = 'NOT_FOUND';

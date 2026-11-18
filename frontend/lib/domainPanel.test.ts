@@ -375,6 +375,19 @@ describe('selection and upload refresh association', () => {
     expect(recordState(scan, 'dmarc').tone).toBe('warn');
   });
 
+  test('a FOUND SPF with a genuine validation error stays ERROR', () => {
+    const scan = {
+      spf_record: JSON.stringify({
+        found: true,
+        record: 'v=spf1 -all +all',
+        policy: 'hardfail',
+        errors: ['+all present with -all is a CRITICAL misconfiguration'],
+      }),
+    };
+    expect(recordState(scan, 'spf').label).toBe('Error');
+    expect(recordState(scan, 'spf').tone).toBe('fail');
+  });
+
   test('dnsEvidence renders selector objects by name', () => {
     const scan = {
       spf_record: JSON.stringify({ found: false }),
