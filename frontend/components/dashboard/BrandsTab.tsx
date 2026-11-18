@@ -53,6 +53,10 @@ export default function BrandsTab({
   const [newBrandName, setNewBrandName] = useState('');
   const [brandScanResult, setBrandScanResult] = useState<any>(null);
   const [brandScanning, setBrandScanning] = useState(false);
+  const [brandHistory, setBrandHistory] = useState<any[]>([]);
+  const [historyState, setHistoryState] = useState<'idle' | 'loading' | 'error' | 'ready'>('idle');
+  const [savingSchedules, setSavingSchedules] = useState<Set<number>>(new Set());
+  const [newBrandSchedule, setNewBrandSchedule] = useState('daily');
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
   const brandDetailsOpenerRef = useRef<HTMLButtonElement | null>(null);
@@ -66,10 +70,13 @@ export default function BrandsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const alertsLoadSeqRef = useRef(0);
   const loadAlerts = async (gen: number = sessionGenRef.current) => {
+    const seq = ++alertsLoadSeqRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
       if (gen !== sessionGenRef.current) return;
+      if (seq !== alertsLoadSeqRef.current) return;
       if (res.status === 401) {
         onAuthFailure();
         return;
@@ -80,6 +87,7 @@ export default function BrandsTab({
       }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
+      if (seq !== alertsLoadSeqRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load alerts: API returned non-array', data);
         return;
@@ -162,6 +170,59 @@ export default function BrandsTab({
     }
   };
 
+  const loadBrandHistory = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
+    if (gen === sessionGenRef.current && sel === brandDetailsGenRef.current) setHistoryState('loading');
+    try {
+      const res = await apiFetch(`${API_BASE}/brands/${brandId}/history`);
+      if (gen !== sessionGenRef.current) return;
+      if (res.status === 401) { onAuthFailure(); return; }
+      if (!res.ok) {
+        console.error(`Failed to load history: HTTP ${res.status}`);
+        if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
+        return;
+      }
+      const data = await res.json();
+      if (gen !== sessionGenRef.current) return;
+      if (brandDetailsRef.current !== brandId) return;
+      if (sel !== brandDetailsGenRef.current) return;
+      setBrandHistory(Array.isArray(data) ? data : []);
+      setHistoryState('ready');
+    } catch (e) {
+      console.error('Failed to load history:', e);
+      if (gen === sessionGenRef.current && brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
+    }
+  };
+
+  const updateBrandSchedule = async (brandId: number, scan_schedule: string) => {
+    const gen = sessionGenRef.current;
+    // Serialize per brand: the selector is disabled while its save is in
+    // flight so an earlier request can't land after a later selection.
+    setSavingSchedules((s) => new Set(s).add(brandId));
+    try {
+      const res = await apiFetch(`${API_BASE}/brands/${brandId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scan_schedule }),
+      });
+      if (!res.ok) {
+        if (gen === sessionGenRef.current) notify('Couldn\'t update the schedule.', 'error', `HTTP ${res.status}`);
+        return;
+      }
+      if (gen === sessionGenRef.current) loadBrands(gen);
+    } catch (e) {
+      console.error('Failed to update schedule:', e);
+      if (gen === sessionGenRef.current) notify('Couldn\'t update the schedule.', 'error', 'The request failed.');
+    } finally {
+      if (gen === sessionGenRef.current) {
+        setSavingSchedules((s) => {
+          const next = new Set(s);
+          next.delete(brandId);
+          return next;
+        });
+      }
+    }
+  };
+
   const markAsSafe = async (brandId: number, domain: string) => {
     const gen = sessionGenRef.current;
     try {
@@ -221,8 +282,11 @@ export default function BrandsTab({
     brandDetailsGenRef.current += 1;
     setBrandThreats([]);
     setBrandTakedowns([]);
+    setBrandHistory([]);
+    setHistoryState('idle');
     loadBrandThreats(brand.id);
     loadBrandTakedowns(brand.id);
+    loadBrandHistory(brand.id);
   };
 
   const deleteBrand = () => {
@@ -338,6 +402,20 @@ export default function BrandsTab({
                 className="mt-1"
               />
             </div>
+            <div>
+              <label htmlFor="new-brand-schedule" className="text-sm text-muted-foreground">Automatic scans</label>
+              <select
+                id="new-brand-schedule"
+                value={newBrandSchedule}
+                onChange={(e) => setNewBrandSchedule(e.target.value)}
+                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="manual">Manual only</option>
+              </select>
+            </div>
             <div className="flex gap-2">
               <Button
                 size="sm"
@@ -350,7 +428,8 @@ export default function BrandsTab({
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                       domain: newBrandDomain.toLowerCase().trim(),
-                      brand_name: newBrandName || newBrandDomain.split('.')[0]
+                      brand_name: newBrandName || newBrandDomain.split('.')[0],
+                      scan_schedule: newBrandSchedule
                     })
                   }).then((res: any) => {
                     if (!res.ok) {
@@ -362,6 +441,7 @@ export default function BrandsTab({
                     loadBrands(gen);
                     setNewBrandDomain('');
                     setNewBrandName('');
+                    setNewBrandSchedule('daily');
                     setShowAddBrand(false);
                   });
                 }}
@@ -372,6 +452,7 @@ export default function BrandsTab({
                 setShowAddBrand(false);
                 setNewBrandDomain('');
                 setNewBrandName('');
+                setNewBrandSchedule('daily');
               }}>
                 Cancel
               </Button>
@@ -395,21 +476,49 @@ export default function BrandsTab({
               <Shield className="w-5 h-5 text-emerald-400" />
               <div>
                 <p className="font-medium">{brand.domain}</p>
-                <p className="text-sm text-muted-foreground">{brand.brand_name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {brand.brand_name}
+                  {(brand.threats?.length || 0) > 0 && (
+                    <span className="ml-2 text-amber-400">{brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {brand.last_scan ? `Last scan ${new Date(brand.last_scan).toLocaleString()}` : 'Never scanned'}
+                  {brand.next_scan ? ` · Next ${new Date(brand.next_scan).toLocaleString()}` : ''}
+                </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <label htmlFor={`brand-schedule-${brand.id}`} className="sr-only">Scan schedule for {brand.domain}</label>
+              <select
+                id={`brand-schedule-${brand.id}`}
+                value={brand.scan_schedule || 'manual'}
+                onChange={(e) => updateBrandSchedule(brand.id, e.target.value)}
+                disabled={savingSchedules.has(brand.id)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+              >
+                <option value="manual">Manual</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
               <Button variant="outline" size="sm" onClick={async () => {
                 setBrandScanning(true);
                 setBrandScanResult(null);
+                const gen = sessionGenRef.current;
                 try {
-                  const res = await apiFetch(`${API_BASE}/brands/check/${brand.id}`, { method: 'POST' });
-                  const data = await res.json();
-                  setBrandScanResult({ ...data, brand: brand.domain });
-                } catch (e) { 
-                  setBrandScanResult({ error: 'Scan failed' });
+                    const res = await apiFetch(`${API_BASE}/brands/check/${brand.id}`, { method: 'POST' });
+                    const data = await res.json();
+                    if (gen !== sessionGenRef.current) return;
+                    setBrandScanResult(data.error ? { error: data.error, brand: brand.domain } : { ...data, brand: brand.domain });
+                    // Refresh the persisted view (last_scan, next_scan, threats)
+                    // and the alert feed — a first scan can create alerts.
+                    loadBrands(gen);
+                    loadAlerts(gen);
+                  } catch (e) {
+                    if (gen === sessionGenRef.current) setBrandScanResult({ error: 'Scan failed' });
                 } finally {
-                  setBrandScanning(false);
+                  if (gen === sessionGenRef.current) setBrandScanning(false);
                 }
               }} disabled={brandScanning || bulkScanning}>
                 <Search className="w-4 h-4 mr-1" /> Scan
@@ -646,6 +755,40 @@ export default function BrandsTab({
                     </Badge>
                   </div>
                   {takedown.notes && <p className="text-xs text-muted-foreground mt-2">{takedown.notes}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h4 className="font-medium mb-3 flex items-center gap-2">
+            <Search className="w-4 h-4 text-emerald-400" />
+            Scan History ({brandHistory.length})
+          </h4>
+          {historyState === 'loading' ? (
+            <p className="text-sm text-muted-foreground">Loading scan history…</p>
+          ) : historyState === 'error' ? (
+            <p className="text-sm text-muted-foreground">
+              Scan history couldn't be loaded.{' '}
+              <button
+                type="button"
+                className="underline text-emerald-400"
+                onClick={() => selectedBrand && loadBrandHistory(selectedBrand.id)}
+              >
+                Retry
+              </button>
+            </p>
+          ) : brandHistory.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No saved scans yet — run a scan or set an automatic schedule.</p>
+          ) : (
+            <div className="space-y-1 max-h-56 overflow-y-auto">
+              {[...brandHistory].reverse().map((scan: any) => (
+                <div key={scan.id} className="flex items-center justify-between p-2 border rounded-lg bg-muted/30 text-xs">
+                  <span className="text-muted-foreground">{new Date(scan.scanned_at).toLocaleString()}</span>
+                  <span className="tabular-nums">
+                    Score {scan.score}/100 · typo {scan.typosquatting} · lookalike {scan.lookalikes} · subdomain {scan.impersonation} · homograph {scan.homographs}
+                  </span>
                 </div>
               ))}
             </div>

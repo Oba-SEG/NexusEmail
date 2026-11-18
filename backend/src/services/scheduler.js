@@ -1,8 +1,9 @@
 const cron = require('node-cron');
-const { getDomains, addScan, getScans } = require('../db/database');
+const { getDomains, addScan, getScans, getAllBrands } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
 const { captureException } = require('../capture');
 const { NotificationService } = require('./notifications');
+const { performBrandScan, isBrandDue } = require('./brandScan');
 
 function startScheduledScans() {
   // Run daily at 2 AM
@@ -17,7 +18,38 @@ function startScheduledScans() {
     await runCriticalScans();
   });
 
+  // Brand Protection: hourly check for brands whose next_scan is due
+  // (per-brand daily/weekly/monthly schedules). Idempotent — brands not
+  // due cost nothing beyond one list query.
+  cron.schedule('15 * * * *', async () => {
+    try {
+      await runBrandDueScans();
+    } catch (error) {
+      captureException(error);
+      console.error('❌ Brand due scans failed:', error.message);
+    }
+  });
+
   console.log('✅ Scheduled scans initialized');
+}
+
+// Scans every brand whose per-brand schedule has come due.
+async function runBrandDueScans() {
+  let scanned = 0;
+  for (const brand of await getAllBrands()) {
+    if (!isBrandDue(brand)) continue;
+    try {
+      const result = await performBrandScan(brand, brand.org_id, { requireDue: true });
+      if (result.skipped) continue;
+      scanned += 1;
+      console.log(`🛡️ Brand scan done: ${brand.domain}`);
+    } catch (error) {
+      captureException(error);
+      console.error(`❌ Brand scan failed for ${brand.domain}:`, error.message);
+    }
+  }
+  if (scanned > 0) console.log(`🛡️ Brand due scans finished (${scanned} scanned)`);
+  return { scanned };
 }
 
 async function scanDomain(domain, dnsService, { notify } = {}) {
@@ -60,8 +92,15 @@ async function runScheduledScans() {
       console.error(`❌ Error scanning ${domain.name}:`, error.message);
     }
   }
+  let brands = { scanned: 0 };
+  try {
+    brands = await runBrandDueScans();
+  } catch (error) {
+    captureException(error);
+    console.error('❌ Brand due scans failed:', error.message);
+  }
   console.log(`🔄 Scheduled scans finished (${scanned} scanned)`);
-  return { scanned };
+  return { scanned, brands_scanned: brands.scanned };
 }
 
 // Scans only domains whose latest scan is older than maxAgeHours.
@@ -82,8 +121,15 @@ async function runDueScans(maxAgeHours = 12) {
       console.error(`❌ Error scanning ${domain.name}:`, error.message);
     }
   }
+  let brands = { scanned: 0 };
+  try {
+    brands = await runBrandDueScans();
+  } catch (error) {
+    captureException(error);
+    console.error('❌ Brand due scans failed:', error.message);
+  }
   console.log(`🔄 Due scans finished (${scanned} scanned)`);
-  return { scanned };
+  return { scanned, brands_scanned: brands.scanned };
 }
 
 async function runCriticalScans() {
@@ -120,4 +166,4 @@ async function runCriticalScans() {
   }
 }
 
-module.exports = { startScheduledScans, runScheduledScans, runDueScans };
+module.exports = { startScheduledScans, runScheduledScans, runDueScans, runBrandDueScans };

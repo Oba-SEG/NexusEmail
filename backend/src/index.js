@@ -118,6 +118,14 @@ async function main() {
   app.use('/api/reports', requireAuth, reportsRoutes);
   app.use('/api/scans', requireAuth, scanRoutes);
 
+  // Start in-process schedulers (2 AM domain scans, 6-hour critical sweep,
+  // hourly brand-protection due scans). Previously exported but never
+  // invoked — "auto-scan" was dead config.
+  if (process.env.DISABLE_SCHEDULER !== 'true') {
+    const { startScheduledScans } = require('./services/scheduler');
+    startScheduledScans();
+  }
+
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

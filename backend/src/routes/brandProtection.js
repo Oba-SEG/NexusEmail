@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { BrandProtectionService } = require('../services/brandProtection');
+const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
 const db = require('../db/database');
 const { captureException } = require('../capture');
 
@@ -41,65 +42,56 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const { domain, brand_name } = req.body;
+    const { domain, brand_name, scan_schedule } = req.body;
     if (!domain) {
       return res.status(400).json({ error: 'Domain is required' });
     }
-    const created = await db.addBrand({ domain, brand_name }, req.orgId);
+    if (scan_schedule !== undefined && !ALLOWED_SCHEDULES.includes(scan_schedule)) {
+      return res.status(400).json({ error: `Invalid scan schedule. Allowed: ${ALLOWED_SCHEDULES.join(', ')}.` });
+    }
+    const schedule = scan_schedule || 'daily';
+    const created = await db.addBrand({
+      domain,
+      brand_name,
+      scan_schedule: schedule,
+      next_scan: nextScanFor(schedule),
+    }, req.orgId);
     res.json({ success: true, ...created, threats: [], takedowns: [], safe_list: [] });
   } catch (err) { next(err); }
 });
 
 router.post('/scan/all', async (req, res, next) => {
   try {
-  const brands = await db.getBrandsFull(req.orgId);
-  const results = [];
+    const brands = await db.getBrands(req.orgId);
+    const results = [];
 
-  for (const brand of brands) {
-    try {
-      const previousResults = brand.last_results;
-      const result = await brandService.checkBrandProtection(brand.domain, previousResults);
-      result.brand_id = brand.id;
-      results.push(result);
-
-      await db.updateBrand(brand.id, {
-        last_scan: new Date().toISOString(),
-        last_results: result,
-      }, req.orgId);
-
-      if (result.newThreats && result.newThreats.length > 0 && brand.alerts_enabled) {
-        for (const alert of (result.alerts || [])) {
-          await db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
-        }
+    for (const brand of brands) {
+      try {
+        const result = await performBrandScan(brand, req.orgId);
+        result.brand_id = brand.id;
+        results.push(result);
+      } catch (e) {
+        captureException(e);
+        results.push({ domain: brand.domain, error: e.message, brand_id: brand.id });
       }
-    } catch (e) {
-    captureException(e);
-      results.push({ domain: brand.domain, error: e.message, brand_id: brand.id });
     }
-  }
 
-  res.json({ scanned: brands.length, results });
+    res.json({ scanned: brands.length, results });
   } catch (err) { next(err); }
 });
 
 router.post('/check/:id', async (req, res, next) => {
   try {
-    const brand = await db.getBrandFull(parseInt(req.params.id), req.orgId);
+    const brand = await db.getBrand(parseInt(req.params.id), req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    const result = await brandService.checkBrandProtection(brand.domain, brand.last_results);
-
-    await db.updateBrand(brand.id, {
-      last_scan: new Date().toISOString(),
-      last_results: result,
-    }, req.orgId);
-
-    if (result.newThreats && result.newThreats.length > 0 && brand.alerts_enabled) {
-      for (const alert of (result.alerts || [])) {
-        await db.addBrandAlert({ ...alert, brand_id: brand.id, brand_name: brand.domain }, req.orgId);
-      }
+    const result = await performBrandScan(brand, req.orgId);
+    if (result.skipped === 'already_running' || result.skipped === 'claim_lost') {
+      return res.status(409).json({ error: 'A scan is already running for this brand — try again in a moment.' });
     }
-
+    if (result.skipped === 'inactive' || result.skipped === 'deleted') {
+      return res.status(409).json({ error: 'This brand is not active.' });
+    }
     res.json(result);
   } catch (err) { next(err); }
 });
@@ -125,6 +117,24 @@ router.post('/alerts/clear', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/:id/history', async (req, res, next) => {
+  try {
+    const brand = await db.getBrand(parseInt(req.params.id), req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const scans = await db.getBrandScans(brand.id, 20, req.orgId);
+    res.json(scans.map((s) => ({
+      id: s.id,
+      scanned_at: s.scanned_at,
+      score: s.score,
+      typosquatting: (s.typosquatting || []).length,
+      lookalikes: (s.lookalikes || []).length,
+      impersonation: (s.impersonation || []).length,
+      homographs: (s.homographs || []).length,
+      social_media: (s.socialMedia || []).length,
+    })));
+  } catch (err) { next(err); }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const brand = await db.getBrandFull(parseInt(req.params.id), req.orgId);
@@ -136,16 +146,16 @@ router.get('/:id', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const { scan_schedule, alerts_enabled, brand_name } = req.body;
+    if (scan_schedule !== undefined && !ALLOWED_SCHEDULES.includes(scan_schedule)) {
+      return res.status(400).json({ error: `Invalid scan schedule. Allowed: ${ALLOWED_SCHEDULES.join(', ')}.` });
+    }
     const updates = {};
     if (scan_schedule !== undefined) updates.scan_schedule = scan_schedule;
     if (alerts_enabled !== undefined) updates.alerts_enabled = alerts_enabled;
     if (brand_name) updates.brand_name = brand_name;
 
-    if (scan_schedule && scan_schedule !== 'manual') {
-      const interval = { daily: 1, weekly: 7, monthly: 30 }[scan_schedule];
-      if (interval) {
-        updates.next_scan = new Date(Date.now() + interval * 24 * 60 * 60 * 1000).toISOString();
-      }
+    if (scan_schedule !== undefined) {
+      updates.next_scan = scan_schedule === 'manual' ? null : nextScanFor(scan_schedule);
     }
 
     const updated = await db.updateBrand(parseInt(req.params.id), updates, req.orgId);
@@ -157,26 +167,30 @@ router.patch('/:id', async (req, res, next) => {
 router.post('/:id/safe', async (req, res, next) => {
   try {
     const { domain } = req.body;
+    const normalized = String(domain || '').trim().toLowerCase();
+    if (!normalized) return res.status(400).json({ error: 'Domain is required' });
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    await db.addSafeEntry(brandId, domain, req.orgId);
-    // Auto-purge any existing threats for this domain on this brand
-    await db.deleteBrandThreatByDomain(brandId, domain, req.orgId);
+    // Scan-created threat domains are lowercase; normalize so the safe entry
+    // and the auto-purge target the same rows.
+    await db.addSafeEntry(brandId, normalized, req.orgId);
+    await db.deleteBrandThreatByDomain(brandId, normalized, req.orgId);
 
-    res.json({ success: true, message: `Added ${domain} to safe list` });
+    res.json({ success: true, message: `Added ${normalized} to safe list` });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/safe', async (req, res, next) => {
   try {
     const { domain } = req.body;
+    const normalized = String(domain || '').trim().toLowerCase();
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    await db.removeSafeEntry(brandId, domain, req.orgId);
+    await db.removeSafeEntry(brandId, normalized, req.orgId);
     res.json({ success: true });
   } catch (err) { next(err); }
 });
