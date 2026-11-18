@@ -261,7 +261,8 @@ router.post('/bulk-scan', async (req, res, next) => {
           spf_record: JSON.stringify(audit.spf),
           dkim_selectors: JSON.stringify(audit.dkim?.selectors || []),
           dmarc_record: JSON.stringify(audit.dmarc),
-          issues: JSON.stringify(audit.issues || [])
+          issues: JSON.stringify(audit.issues || []),
+          score_breakdown: audit.score_breakdown || null
         }, req.orgId);
         results.push({ domain: domain.name, ...audit });
       } catch (error) {
@@ -434,7 +435,8 @@ router.post('/:id/scan', async (req, res) => {
       spf_record: JSON.stringify(audit.spf),
       dkim_selectors: JSON.stringify(audit.dkim?.selectors || []),
       dmarc_record: JSON.stringify(audit.dmarc),
-      issues: JSON.stringify(audit.issues || [])
+      issues: JSON.stringify(audit.issues || []),
+      score_breakdown: audit.score_breakdown || null
     }, req.orgId);
     res.json({ success: true, ...audit });
   } catch (error) {
