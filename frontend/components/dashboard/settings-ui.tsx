@@ -161,7 +161,8 @@ export function SaveTestActions({
         size="sm"
         variant="outline"
         onClick={onTest}
-        disabled={disabled || testing}
+        disabled={disabled || testing || saving}
+        title="Tests the saved configuration"
         className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
       >
         {testing ? (

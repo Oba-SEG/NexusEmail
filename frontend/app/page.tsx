@@ -64,6 +64,7 @@ export default function Dashboard() {
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
   const notificationsRevRef = useRef(0);
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [focusIntegrationsOnMount, setFocusIntegrationsOnMount] = useState(false);
   // Monotonic per-session sequence: a slower earlier /brands response must
   // not overwrite the state from a newer one (e.g. two schedule saves).
@@ -182,6 +183,7 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
+    setConfigLoaded(false);
   };
 
   // Load local session.
@@ -215,6 +217,7 @@ export default function Dashboard() {
       sessionGenRef.current += 1;
       clearStatusQueue();
       setSettings(null);
+      setConfigLoaded(false);
       resetDomainState();
       if (activeTab === 'admin') setActiveTab('domains');
       localStorage.setItem('nexusemail_token', data.token);
@@ -412,8 +415,10 @@ export default function Dashboard() {
     try {
       const res = await apiFetch(`${API_BASE}/settings/config`);
       const data = await res.json();
+      if (!res.ok || !data || typeof data !== 'object' || data.error) return;
       if (gen !== sessionGenRef.current) return;
       setSettings(data);
+      setConfigLoaded(true);
       if (prefsRev === notificationsRevRef.current) setNotifications(data.notifications || {});
     } catch (e) {
       console.error('Failed to load settings:', e);
@@ -421,6 +426,7 @@ export default function Dashboard() {
   };
 
   const saveNotifications = async (key: string, value: boolean) => {
+    const gen = sessionGenRef.current;
     try {
       const current = { ...notifications, [key]: value };
       await apiFetch(`${API_BASE}/settings/notifications`, {
@@ -428,6 +434,9 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(current)
       });
+      // A save from a previous identity must never touch this session's
+      // preferences or invalidate its in-flight config load.
+      if (gen !== sessionGenRef.current) return;
       // Only a saved preference invalidates an in-flight settings response:
       // a failed write must not discard the loaded values.
       notificationsRevRef.current += 1;
@@ -804,6 +813,8 @@ export default function Dashboard() {
                 apiFetch={apiFetch}
                 loadSettings={loadSettings}
                 sessionGenRef={sessionGenRef}
+                configLoaded={configLoaded}
+                canManageSmtp={user?.role === 'owner' || user?.role === 'admin'}
               />
             </TabsContent>
 

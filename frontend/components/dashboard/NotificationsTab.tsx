@@ -14,12 +14,14 @@ interface NotificationsTabProps {
   apiFetch: (url: string, options?: any) => Promise<Response>;
   loadSettings: () => void;
   sessionGenRef: { current: number };
+  configLoaded?: boolean;
+  canManageSmtp?: boolean;
 }
 
 /** Notifications tab: event preferences and every outbound channel
  * (SMTP, Resend, Slack) in one place. Forms live here and unmount with the
  * tab, so no secret survives identity change. */
-export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef }: NotificationsTabProps) {
+export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef, configLoaded = false, canManageSmtp = true }: NotificationsTabProps) {
   const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
@@ -34,7 +36,10 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   // Edits made while a save is in flight keep the form dirty: clearing it on
   // acknowledgment must not let the following settings reload overwrite them.
   const editSeq = useRef({ smtp: 0, slack: 0, resend: 0 });
-  const ready = !!settings;
+  // Only controls backed by a successful config load are editable; a
+  // partial settings object from another action must not unlock the forms.
+  const ready = configLoaded && !!settings;
+  const smtpReady = ready && canManageSmtp;
   const updateSmtp = (patch: Partial<typeof smtpForm>) => {
     dirty.current.smtp = true;
     editSeq.current.smtp += 1;
@@ -197,16 +202,21 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         description="SMTP sends directly; Resend sends over HTTPS where outbound SMTP is blocked. Configure one or both."
       >
         <div className="space-y-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
+            {!canManageSmtp ? (
+              <p className="text-xs text-muted-foreground">Only owners and admins can change SMTP credentials.</p>
+            ) : null}
+          </div>
           <div className="grid sm:grid-cols-2 gap-3">
-            <FormField label="SMTP host" disabled={!ready} value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
-            <FormField label="Port" disabled={!ready} value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
-            <FormField label="Username" disabled={!ready} value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
-            <FormField label="Password" type="password" disabled={!ready} value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
-            <FormField label="From email" className="sm:col-span-2" disabled={!ready} value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
+            <FormField label="SMTP host" disabled={!smtpReady} value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
+            <FormField label="Port" disabled={!smtpReady} value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
+            <FormField label="Username" disabled={!smtpReady} value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
+            <FormField label="Password" type="password" disabled={!smtpReady} value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
+            <FormField label="From email" className="sm:col-span-2" disabled={!smtpReady} value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
             <label className="sm:col-span-2 flex items-center gap-2 text-sm cursor-pointer select-none">
-              <input type="checkbox" disabled={!ready} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
-              <span>Use TLS / SSL</span>
+              <input type="checkbox" disabled={!smtpReady} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
+              <span>Use implicit TLS (port 465) — leave off for STARTTLS, usually port 587</span>
             </label>
           </div>
           <SaveTestActions
@@ -217,7 +227,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             testing={testingSmtp}
             testLabel="Test connection"
             testIcon="zap"
-            disabled={!ready}
+            disabled={!smtpReady}
           />
         </div>
 
