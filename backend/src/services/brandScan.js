@@ -130,18 +130,31 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
         db.getBrandThreats(fresh.id, orgId, tx),
       ]);
       const known = new Set(existing.map((t) => canonicalDomain(t.domain)).filter(Boolean));
-      const added = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
+      const initialAdded = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
 
-      for (const threat of added) {
+      for (const threat of initialAdded) {
         await db.addBrandThreat({ ...threat, notes: 'Detected by brand scan' }, fresh.id, orgId, tx);
       }
-      // Re-read the safe list after inserting: a concurrent safe-list request
-      // may have landed between the earlier read and the insert.
+
+      // Completion snapshot: the same safe list must decide the persisted
+      // threat set, the summary and the alerts. Reconcile against what the
+      // initial read inserted (safe-list adds/removals can land mid-scan).
       const currentSafeList = await db.getBrandSafeList(fresh.id, orgId, tx);
       const safeNow = new Set(currentSafeList.map(canonicalDomain).filter(Boolean));
-      const kept = added.filter((t) => !safeNow.has(t.domain));
-      for (const removedThreat of added.filter((t) => safeNow.has(t.domain))) {
-        await db.deleteBrandThreatByDomain(fresh.id, removedThreat.domain, orgId, tx);
+      const finalEligible = collectThreats(result, current.domain, currentSafeList).filter((t) => !known.has(t.domain));
+      const inserted = new Set(initialAdded.map((t) => t.domain));
+      const kept = finalEligible.filter((t) => !safeNow.has(t.domain));
+      const keptSet = new Set(kept.map((t) => t.domain));
+
+      for (const threat of initialAdded) {
+        if (!keptSet.has(threat.domain)) {
+          await db.deleteBrandThreatByDomain(fresh.id, threat.domain, orgId, tx);
+        }
+      }
+      for (const threat of kept) {
+        if (!inserted.has(threat.domain)) {
+          await db.addBrandThreat({ ...threat, notes: 'Detected by brand scan' }, fresh.id, orgId, tx);
+        }
       }
 
       // The saved snapshot must agree with the completion-time safe list:

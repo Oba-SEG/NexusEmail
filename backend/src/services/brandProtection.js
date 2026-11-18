@@ -62,9 +62,14 @@ function applySafeListToResult(result, safeList = []) {
     out[section.key] = filtered[section.key].slice(0, section.cap);
   }
 
-  const knownIssues = new Set(SUMMARY_SECTIONS.map((s) => s.issue));
+  const knownIssues = new Set([...SUMMARY_SECTIONS.map((s) => s.issue), 'social_media']);
   const knownRecs = new Set(SUMMARY_SECTIONS.map((s) => s.rec).filter(Boolean));
-  out.issues = ((result && result.issues) || []).filter((i) => !knownIssues.has(i && i.type));
+  const priorIssues = (result && result.issues) || [];
+  // Social media is display-capped by the probe; its issue carries the full
+  // found count, so reuse that for the penalty instead of the visible slice.
+  const priorSocial = priorIssues.find((i) => i && i.type === 'social_media');
+  const socialCount = priorSocial ? Number(priorSocial.count) || 0 : ((result && result.socialMedia) || []).length;
+  out.issues = priorIssues.filter((i) => !knownIssues.has(i && i.type));
   out.recommendations = ((result && result.recommendations) || []).filter((r) => !knownRecs.has(r));
 
   let score = 100;
@@ -75,10 +80,19 @@ function applySafeListToResult(result, safeList = []) {
     out.issues.push({ type: section.issue, count, severity: section.severity });
     if (section.rec) out.recommendations.push(section.rec);
   }
-  const socialCount = ((result && result.socialMedia) || []).length;
   score -= socialCount * 8;
   if (socialCount > 0) out.issues.push({ type: 'social_media', count: socialCount, severity: 'medium' });
   out.score = Math.max(0, Math.round(score));
+
+  // New-threat metadata must agree with what persistence will write: drop
+  // entries whose domain was excluded by the completion-time safe list.
+  const eligible = new Set();
+  for (const section of SUMMARY_SECTIONS) {
+    for (const record of filtered[section.key]) eligible.add(canonicalDomain(record && record.domain));
+  }
+  const eligibleEntry = (entry) => !entry || !entry.domain || eligible.has(canonicalDomain(entry.domain));
+  if (Array.isArray(out.newThreats)) out.newThreats = out.newThreats.filter(eligibleEntry);
+  if (Array.isArray(out.alerts)) out.alerts = out.alerts.filter(eligibleEntry);
   return out;
 }
 

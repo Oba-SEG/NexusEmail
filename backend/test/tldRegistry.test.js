@@ -149,3 +149,20 @@ describe('safe-list summary rebuild', () => {
     assert.equal(out.score, 80);
   });
 });
+
+describe('safe-list summary social media', () => {
+  test('uses the full social hit count once, not the display slice', () => {
+    const result = {
+      typosquatting: [], lookalikes: [], impersonation: [], homographs: [],
+      socialMedia: Array.from({ length: 10 }, (_, i) => ({ domain: `fake${i}.example.com` })),
+      score: 100 - 11 * 8,
+      issues: [{ type: 'social_media', count: 11, severity: 'medium' }],
+      recommendations: [],
+    };
+    const out = applySafeListToResult(result, []);
+    const social = out.issues.filter((i) => i.type === 'social_media');
+    assert.equal(social.length, 1);
+    assert.equal(social[0].count, 11);
+    assert.equal(out.score, 100 - 11 * 8);
+  });
+});
