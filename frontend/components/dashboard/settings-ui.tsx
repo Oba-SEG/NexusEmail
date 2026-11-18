@@ -96,7 +96,7 @@ export function ToggleRow({
         <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
       </div>
       <span className="flex items-center gap-3 shrink-0">
-        <span aria-hidden="true" className="min-w-[4.5rem] text-right text-xs font-medium text-muted-foreground">
+        <span role="status" aria-live="polite" className="min-w-[4.5rem] text-right text-xs font-medium text-muted-foreground">
           {pending ? 'Saving…' : on ? onLabel : offLabel}
         </span>
         <button

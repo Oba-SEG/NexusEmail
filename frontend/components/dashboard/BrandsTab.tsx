@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Shield, Search, AlertTriangle, CheckCircle, XCircle, Plus, RefreshCw,
   Zap, Eye, ChevronRight, Bell, Trash2, Save
@@ -66,6 +66,21 @@ export default function BrandsTab({
   const [savingSchedules, setSavingSchedules] = useState<Set<number>>(new Set());
   const [newBrandSchedule, setNewBrandSchedule] = useState('daily');
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const toggleSection = (key: string) => {
+    setExpandedSections((prev) => (prev.includes(key) ? prev.filter((e) => e !== key) : [...prev, key]));
+  };
+  const sectionToggleProps = (key: string) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-expanded': expandedSections.includes(key),
+    onClick: () => toggleSection(key),
+    onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSection(key);
+      }
+    },
+  });
   const [brandToDelete, setBrandToDelete] = useState<any>(null);
   const brandDetailsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const takedownOpenerRef = useRef<HTMLButtonElement | null>(null);
@@ -596,7 +611,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Typosquatting */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('typo') ? expandedSections.filter(e => e !== 'typo') : [...expandedSections, 'typo'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('typo')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Typosquatting
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('typo') ? 'rotate-90' : ''}`} />
@@ -623,7 +638,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Lookalikes */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('lookalike') ? expandedSections.filter(e => e !== 'lookalike') : [...expandedSections, 'lookalike'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('lookalike')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Lookalikes
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('lookalike') ? 'rotate-90' : ''}`} />
@@ -650,7 +665,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Impersonation */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('impersonation') ? expandedSections.filter(e => e !== 'impersonation') : [...expandedSections, 'impersonation'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('impersonation')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Impersonation
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('impersonation') ? 'rotate-90' : ''}`} />
@@ -666,7 +681,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Homographs */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('homograph') ? expandedSections.filter(e => e !== 'homograph') : [...expandedSections, 'homograph'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('homograph')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Homographs
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('homograph') ? 'rotate-90' : ''}`} />
@@ -685,7 +700,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: NS Records */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('ns') ? expandedSections.filter(e => e !== 'ns') : [...expandedSections, 'ns'])}>
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('ns')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   NS Records
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('ns') ? 'rotate-90' : ''}`} />

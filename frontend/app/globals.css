@@ -249,7 +249,9 @@
   }
   @keyframes tab-panel-in {
     from { opacity: 0; transform: translateY(4px); }
-    to { opacity: 1; transform: translateY(0); }
+    /* `none`, not translateY(0): a retained transform makes the panel a
+       containing block for position:fixed drawers inside it. */
+    to { opacity: 1; transform: none; }
   }
 
   /* Press feedback for controls that are not the shared Button (rows,

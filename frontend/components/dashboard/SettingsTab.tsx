@@ -22,10 +22,13 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
   const connected = DNS_PROVIDERS.filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
   // Reflecting the intent immediately keeps the click from feeling dead while
   // the write is in flight; the stored value still wins if it fails.
-  const [pendingToggle, setPendingToggle] = useState<'schedule' | 'remediation' | null>(null);
+  const [pendingToggles, setPendingToggles] = useState({ schedule: false, remediation: false });
+  const setPending = (key: 'schedule' | 'remediation', value: boolean) => {
+    setPendingToggles((cur) => ({ ...cur, [key]: value }));
+  };
 
   const toggleSchedule = async (enabled: boolean) => {
-    setPendingToggle('schedule');
+    setPending('schedule', true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/schedule`, {
         method: 'POST',
@@ -39,12 +42,12 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
     } catch (e) {
       console.error('Failed to toggle schedule:', e);
     } finally {
-      setPendingToggle(null);
+      setPending('schedule', false);
     }
   };
 
   const toggleAutoRemediation = async (enabled: boolean) => {
-    setPendingToggle('remediation');
+    setPending('remediation', true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/auto-remediation`, {
         method: 'POST',
@@ -56,7 +59,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
     } catch (e) {
       console.error('Failed to toggle auto-remediation:', e);
     } finally {
-      setPendingToggle(null);
+      setPending('remediation', false);
     }
   };
 
@@ -89,7 +92,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
           description="Re-scan every domain at 02:00 UTC. (Scans on add always run.)"
           on={!!settings?.scan_schedule?.enabled}
           onClick={() => toggleSchedule(!settings?.scan_schedule?.enabled)}
-          pending={pendingToggle === 'schedule'}
+          pending={pendingToggles.schedule}
         />
       </SettingsSection>
 
@@ -103,7 +106,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
           description="Apply recommended record changes via your DNS provider integration."
           on={!!settings?.auto_remediation}
           onClick={() => toggleAutoRemediation(!settings?.auto_remediation)}
-          pending={pendingToggle === 'remediation'}
+          pending={pendingToggles.remediation}
         />
       </SettingsSection>
     </>

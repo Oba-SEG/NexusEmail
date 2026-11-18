@@ -708,9 +708,14 @@ class BrandProtectionService {
       try { nameservers = await dns.resolveNs(domain); } catch (e) { nameservers = []; }
     }
     if (ips.length === 0 && nameservers.length === 0) return null;
-    let mx = [];
-    try { mx = await dns.resolveMx(domain); } catch (e) { mx = []; }
-    return { ips, nameservers, hasWebsite: ips.length > 0, hasMailServer: mx.length > 0 };
+    let hasMailServer = false;
+    try {
+      const mx = await dns.resolveMx(domain);
+      // RFC 7505 null MX ("MX 0 .") explicitly declines mail; counting the
+      // record itself would report a dead endpoint as mail-capable.
+      hasMailServer = mx.some((record) => record && record.exchange && record.exchange !== '.');
+    } catch (e) {}
+    return { ips, nameservers, hasWebsite: ips.length > 0, hasMailServer };
   }
 
   async checkTypoSquats(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
