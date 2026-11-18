@@ -84,15 +84,12 @@ function applySafeListToResult(result, safeList = []) {
   if (socialCount > 0) out.issues.push({ type: 'social_media', count: socialCount, severity: 'medium' });
   out.score = Math.max(0, Math.round(score));
 
-  // New-threat metadata must agree with what persistence will write: drop
-  // entries whose domain was excluded by the completion-time safe list.
-  const eligible = new Set();
-  for (const section of SUMMARY_SECTIONS) {
-    for (const record of filtered[section.key]) eligible.add(canonicalDomain(record && record.domain));
-  }
-  const eligibleEntry = (entry) => !entry || !entry.domain || eligible.has(canonicalDomain(entry.domain));
-  if (Array.isArray(out.newThreats)) out.newThreats = out.newThreats.filter(eligibleEntry);
-  if (Array.isArray(out.alerts)) out.alerts = out.alerts.filter(eligibleEntry);
+  // New-threat metadata mirrors what persistence will write: drop only
+  // safe-listed domains. Social-media entries have no persisted threat row,
+  // so they must not be filtered out by section membership.
+  const safeEntry = (entry) => !entry || !entry.domain || !safe.has(canonicalDomain(entry.domain));
+  if (Array.isArray(out.newThreats)) out.newThreats = out.newThreats.filter(safeEntry);
+  if (Array.isArray(out.alerts)) out.alerts = out.alerts.filter(safeEntry);
   return out;
 }
 

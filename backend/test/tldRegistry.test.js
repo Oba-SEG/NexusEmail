@@ -166,3 +166,27 @@ describe('safe-list summary social media', () => {
     assert.equal(out.score, 100 - 11 * 8);
   });
 });
+
+describe('safe-list summary new-threat metadata', () => {
+  test('keeps non-safe social entries and drops safe-listed ones', () => {
+    const result = {
+      typosquatting: [{ domain: 'segbvtes.com' }],
+      lookalikes: [], impersonation: [], homographs: [], socialMedia: [],
+      score: 85,
+      issues: [{ type: 'typosquatting', count: 1, severity: 'high' }],
+      recommendations: [],
+      newThreats: [
+        { domain: 'segbvtes.com', threat_type: 'Typosquatting' },
+        { domain: 'fake-segbytes', threat_type: 'Social Media' },
+      ],
+      alerts: [
+        { domain: 'segbvtes.com', type: 'new_threat' },
+        { domain: 'fake-segbytes', type: 'new_threat' },
+      ],
+    };
+    const out = applySafeListToResult(result, ['segbvtes.com']);
+    assert.deepEqual(out.newThreats.map((t) => t.domain), ['fake-segbytes']);
+    assert.deepEqual(out.alerts.map((a) => a.domain), ['fake-segbytes']);
+    assert.equal(out.score, 100);
+  });
+});

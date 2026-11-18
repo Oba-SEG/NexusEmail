@@ -156,10 +156,38 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
           await db.addBrandThreat({ ...threat, notes: 'Detected by brand scan' }, fresh.id, orgId, tx);
         }
       }
+      // Safe-listed domains must not linger as threats from earlier scans
+      // either (e.g. the route's purge failed); compare canonically but
+      // delete using each row's stored spelling.
+      for (const threat of existing) {
+        if (safeNow.has(canonicalDomain(threat.domain))) {
+          await db.deleteBrandThreatByDomain(fresh.id, threat.domain, orgId, tx);
+        }
+      }
 
       // The saved snapshot must agree with the completion-time safe list:
       // rebuild records/counts/score from raw detections before persisting.
       const finalResult = applySafeListToResult(result, currentSafeList);
+
+      // Rebuild new-threat metadata from the completion-time persisted set so
+      // the snapshot matches the threat list and alerts even when safe-list
+      // membership changed mid-scan. Non-safe-listed social entries are kept
+      // (they never persist as threats but are shown in scan results).
+      const socialEntries = (finalResult.newThreats || []).filter(
+        (t) => t && t.threat_type === 'Social Media' && (!t.domain || !safeNow.has(canonicalDomain(t.domain))),
+      );
+      const labels = { typosquatting: 'Typosquatting', lookalike: 'Lookalike', subdomain_abuse: 'Impersonation', homograph: 'Homograph' };
+      const domainEntries = kept.map((t) => ({ domain: t.domain, threat_type: labels[t.threat_type] || t.threat_type }));
+      const metaDomains = new Set([...socialEntries, ...domainEntries].map((t) => canonicalDomain(t.domain)).filter(Boolean));
+      finalResult.newThreats = [...socialEntries, ...domainEntries];
+      const existingAlerts = (finalResult.alerts || []).filter(
+        (a) => !a || !a.domain || metaDomains.has(canonicalDomain(a.domain)),
+      );
+      const alertedDomains = new Set(existingAlerts.map((a) => canonicalDomain(a && a.domain)).filter(Boolean));
+      finalResult.alerts = [
+        ...existingAlerts,
+        ...alertsForThreats(kept.filter((t) => !alertedDomains.has(t.domain))),
+      ];
 
       await db.updateBrand(fresh.id, {
         last_scan: scannedAt,

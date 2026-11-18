@@ -197,13 +197,16 @@ router.delete('/:id/safe', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
     // Remove every stored spelling that matches canonically (legacy unicode
-    // entries were saved before canonicalization).
-    const entries = await db.getBrandSafeList(brandId, req.orgId);
-    for (const entry of entries) {
-      if (canonicalDomain(entry) === normalized) {
-        await db.removeSafeEntry(brandId, entry, req.orgId);
+    // entries were saved before canonicalization), atomically so a partial
+    // failure can't leave one spelling still suppressing the domain.
+    await db.withTransaction(async (tx) => {
+      const entries = await db.getBrandSafeList(brandId, req.orgId, tx);
+      for (const entry of entries) {
+        if (canonicalDomain(entry) === normalized) {
+          await db.removeSafeEntry(brandId, entry, req.orgId, tx);
+        }
       }
-    }
+    });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
