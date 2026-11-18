@@ -245,7 +245,10 @@
   /* Content hand-off when a tab becomes active: short fade + 4px rise.
      Radix mounts only the active panel, so this plays on every switch. */
   .tab-panel-enter {
-    animation: tab-panel-in var(--motion-base) var(--ease-out-quart) both;
+    /* No fill-mode: Chrome keeps the final keyframe's identity matrix under
+       `both`, and a retained transform turns the panel into a containing
+       block for position:fixed drawers rendered inside it. */
+    animation: tab-panel-in var(--motion-base) var(--ease-out-quart);
   }
   @keyframes tab-panel-in {
     from { opacity: 0; transform: translateY(4px); }
