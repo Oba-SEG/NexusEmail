@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Mail, MessageSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
 import { FormField, SaveTestActions, SettingsSection, TabHeader, ToggleRow } from "@/components/dashboard/settings-ui";
 
@@ -15,13 +16,15 @@ interface NotificationsTabProps {
   loadSettings: () => void;
   sessionGenRef: { current: number };
   configLoaded?: boolean;
+  configError?: string;
+  onRetryConfig?: () => void;
   canManageSmtp?: boolean;
 }
 
 /** Notifications tab: event preferences and every outbound channel
  * (SMTP, Resend, Slack) in one place. Forms live here and unmount with the
  * tab, so no secret survives identity change. */
-export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef, configLoaded = false, canManageSmtp = true }: NotificationsTabProps) {
+export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef, configLoaded = false, configError = '', onRetryConfig, canManageSmtp = true }: NotificationsTabProps) {
   const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
@@ -173,6 +176,17 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         title="How we reach you"
         description="Pick which events trigger an alert, and configure every outbound channel in one place."
       />
+
+      {!ready ? (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+          <p className="text-sm text-muted-foreground">
+            {configError || 'Loading your saved delivery settings…'}
+          </p>
+          <Button size="sm" variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onRetryConfig} disabled={!onRetryConfig}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
 
       <SettingsSection
         title="Notification preferences"

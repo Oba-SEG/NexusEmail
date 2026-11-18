@@ -156,12 +156,15 @@ router.post('/smtp', requireRole('owner', 'admin'), async (req, res, next) => {
     // password must never be sent to a different server the tenant picks.
     const stored = JSON.parse((await db.getOrgSetting('smtp_config', req.orgId)) || '{}');
     const nextPort = parseInt(port) || 587;
+    // A blank or masked field is a reuse request, never a real password.
     if (typeof pass !== 'string' || pass === '' || /\*{4}$/.test(pass)) {
       const endpointUnchanged = stored.host === host && Number(stored.port) === nextPort && stored.user === user;
       if (endpointUnchanged) {
         pass = stored.pass;
-      } else if (user && !pass) {
+      } else if (user) {
         return res.status(400).json({ error: 'Enter the password for this SMTP account' });
+      } else {
+        pass = '';
       }
     }
     const config = { host, port: nextPort, secure: !!secure, user, pass, from };
