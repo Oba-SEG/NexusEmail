@@ -20,6 +20,14 @@ import {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+const ISSUE_LABELS: Record<string, string> = {
+  typosquatting: 'Typosquatting',
+  lookalike: 'Lookalike domains',
+  subdomain_abuse: 'Subdomain abuse',
+  homograph: 'Homographs',
+  social_media: 'Social media profiles',
+};
+
 interface BrandsTabProps {
   brands: any[];
   domains: any[];
@@ -580,6 +588,12 @@ export default function BrandsTab({
                 <p className="text-muted-foreground">DNS Provider</p>
                 <p className="font-medium">{brandScanResult.dns_provider?.name || 'Unknown'}</p>
               </div>
+              <div className="p-2 bg-muted rounded">
+                <p className="text-muted-foreground">TLD coverage</p>
+                <p className="font-medium tabular-nums">
+                  {brandScanResult.tld_count ? `${brandScanResult.tld_count} TLDs checked` : 'Pending'}
+                </p>
+              </div>
 
               {/* Clickable: Typosquatting */}
               <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('typo') ? expandedSections.filter(e => e !== 'typo') : [...expandedSections, 'typo'])}>
@@ -589,11 +603,21 @@ export default function BrandsTab({
                 </p>
                 <p className="font-medium">{brandScanResult.typosquatting?.length || 0} found</p>
                 {expandedSections.includes('typo') && brandScanResult.typosquatting?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.typosquatting.slice(0, 10).map((t: any, i: number) => (
-                      <div key={i} className="p-1 bg-background rounded truncate">{t.domain}</div>
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.typosquatting.map((t: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5 p-1 bg-background rounded">
+                        <span className="truncate flex-1" title={t.domain}>{t.domain}</span>
+                        {String(t.type || '').startsWith('same_name') && (
+                          <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">same name</Badge>
+                        )}
+                        {String(t.type || '').endsWith('_with_email') && (
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">email</Badge>
+                        )}
+                        {t.hasWebsite === false && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">parked</Badge>
+                        )}
+                      </div>
                     ))}
-                    {brandScanResult.typosquatting.length > 10 && <p className="text-muted-foreground">+{brandScanResult.typosquatting.length - 10} more</p>}
                   </div>
                 )}
               </div>
@@ -606,9 +630,20 @@ export default function BrandsTab({
                 </p>
                 <p className="font-medium">{brandScanResult.lookalikes?.length || 0} found</p>
                 {expandedSections.includes('lookalike') && brandScanResult.lookalikes?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.lookalikes.slice(0, 10).map((l: any, i: number) => (
-                      <div key={i} className="p-1 bg-background rounded truncate">{l.domain}</div>
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.lookalikes.map((l: any, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5 p-1 bg-background rounded">
+                        <span className="truncate flex-1" title={l.domain}>{l.domain}</span>
+                        {l.type && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">{l.type}</Badge>
+                        )}
+                        {l.hasMailServer && (
+                          <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">email</Badge>
+                        )}
+                        {l.hasWebsite === false && (
+                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">parked</Badge>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -622,11 +657,29 @@ export default function BrandsTab({
                 </p>
                 <p className="font-medium">{brandScanResult.impersonation?.length || 0} found</p>
                 {expandedSections.includes('impersonation') && brandScanResult.impersonation?.length > 0 && (
-                  <div className="mt-2 text-xs space-y-1">
-                    {brandScanResult.impersonation.slice(0, 10).map((imp: any, i: number) => (
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.impersonation.map((imp: any, i: number) => (
                       <div key={i} className="p-1 bg-background rounded truncate">{imp.domain}</div>
                     ))}
-                    {brandScanResult.impersonation.length > 10 && <p className="text-muted-foreground">+{brandScanResult.impersonation.length - 10} more</p>}
+                  </div>
+                )}
+              </div>
+
+              {/* Clickable: Homographs */}
+              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" onClick={() => setExpandedSections(expandedSections.includes('homograph') ? expandedSections.filter(e => e !== 'homograph') : [...expandedSections, 'homograph'])}>
+                <p className="text-muted-foreground flex items-center gap-1">
+                  Homographs
+                  <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('homograph') ? 'rotate-90' : ''}`} />
+                </p>
+                <p className="font-medium">{brandScanResult.homographs?.length || 0} found</p>
+                {expandedSections.includes('homograph') && brandScanResult.homographs?.length > 0 && (
+                  <div className="mt-2 text-xs space-y-1 max-h-48 overflow-y-auto pr-1">
+                    {brandScanResult.homographs.map((h: any, i: number) => (
+                      <div key={i} className="p-1 bg-background rounded">
+                        <p className="truncate" title={h.domain}>{h.unicode || h.domain}</p>
+                        {h.punycode && <p className="truncate text-muted-foreground">{h.punycode}</p>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -654,7 +707,7 @@ export default function BrandsTab({
                 {brandScanResult.issues.map((issue: any, i: number) => (
                   <div key={i} className="flex items-center gap-2 text-sm">
                     <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    <span>{issue.type}: {issue.count} issues</span>
+                    <span>{ISSUE_LABELS[issue.type] || issue.type}: {issue.count} {issue.count === 1 ? 'issue' : 'issues'}</span>
                   </div>
                 ))}
               </div>
@@ -788,6 +841,7 @@ export default function BrandsTab({
                   <span className="text-muted-foreground">{new Date(scan.scanned_at).toLocaleString()}</span>
                   <span className="tabular-nums">
                     Score {scan.score}/100 · typo {scan.typosquatting} · lookalike {scan.lookalikes} · subdomain {scan.impersonation} · homograph {scan.homographs}
+                    {scan.tld_count ? ` · ${scan.tld_count} TLDs` : ''}
                   </span>
                 </div>
               ))}

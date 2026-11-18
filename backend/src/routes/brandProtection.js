@@ -127,6 +127,7 @@ router.get('/:id/history', async (req, res, next) => {
       id: s.id,
       scanned_at: s.scanned_at,
       score: s.score,
+      tld_count: s.tld_count || null,
       typosquatting: (s.typosquatting || []).length,
       lookalikes: (s.lookalikes || []).length,
       impersonation: (s.impersonation || []).length,
