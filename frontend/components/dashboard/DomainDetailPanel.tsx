@@ -83,17 +83,19 @@ export default function DomainDetailPanel({
       if (data.error) {
         setSelectorResults((r) => [{ selector, found: false, text: data.error }, ...r]);
       } else if (data.found) {
-        setSelectorResults((r) => [{
-          selector: data.selector,
-          found: true,
-          text: `Valid DKIM key — ${data.keySize || 'unknown size'} ${data.algorithm || ''}`.trim(),
-        }, ...r]);
+        const errText = Array.isArray(data.errors) && data.errors.length ? ` — ${data.errors[0]}` : '';
+        const text = data.valid
+          ? `Valid DKIM key — ${data.keySize || 'unknown size'} ${data.algorithm || ''}`.trim()
+          : `DKIM record published but the key is not valid${errText}`;
+        // Replace any earlier row for this selector — a re-check updates
+        // its row (also keeps React sibling keys unique).
+        setSelectorResults((r) => [{ selector: data.selector, found: data.valid, text }, ...r.filter((x) => x.selector !== data.selector)]);
         setSelectorInput('');
       } else {
-        setSelectorResults((r) => [{ selector, found: false, text: data.message || 'Not published' }, ...r]);
+        setSelectorResults((r) => [{ selector, found: false, text: data.message || data.error || 'Not published' }, ...r.filter((x) => x.selector !== selector)]);
       }
     } catch {
-      setSelectorResults((r) => [{ selector, found: false, text: 'The check could not be run — try again.' }, ...r]);
+      setSelectorResults((r) => [{ selector, found: false, text: 'The check could not be run — try again.' }, ...r.filter((x) => x.selector !== selector)]);
     } finally {
       setCheckingSelector(false);
     }

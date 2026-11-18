@@ -242,8 +242,8 @@ export interface ScoreRow {
 const SCORE_HINTS: Record<string, string> = {
   spf: '≤35 — hardfail (-all) 35, softfail (~all) 25, present 10',
   dkim: '≤30 — 20 for a valid key, +10 for a 2048-bit key',
-  dmarc: '≤35 — reject 35, quarantine 25, p=none 10, minus impersonation penalties',
-  mta_sts: 'Informational — recorded, not scored',
+  dmarc: '≤35 — reject 35, quarantine 25, p=none 10',
+  mta_sts: '≤15 — valid enforce policy with max_age ≥ 86400',
   tls_rpt: '≤5 — rua reporting address present',
 };
 

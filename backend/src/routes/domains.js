@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const dns = require('dns').promises;
 const { EmailSecurityAuditor } = require('../services/auditEngine');
 const { DkimAnalyzer } = require('../services/dkimAnalyzer');
 const { DomainVerificationService } = require('../services/domainVerification');
@@ -341,36 +342,64 @@ router.get('/:id/dmarc-reports', async (req, res) => {
 // selectors, but a customer often knows theirs (e.g. resend, google,
 // selector1). Validates the selector shape, probes DNS live, returns the
 // parsed key data or a friendly not-published message.
+// On-demand DKIM selector check: the default sweep only probes common
+// selectors, but a customer often knows theirs (e.g. resend, google,
+// selector1). Distinguishes a confirmed-absent record from a DNS lookup
+// failure (retryable) so "not published" is never a lie.
 router.post('/:id/dkim-check', async (req, res, next) => {
   try {
     const domain = await db.getDomain(parseInt(req.params.id, 10), req.orgId);
     if (!domain) return res.status(404).json({ error: 'Domain not found' });
 
     const selector = String(req.body?.selector || '').trim().toLowerCase();
-    if (!/^[a-z0-9]([a-z0-9_-]{0,62})$/.test(selector)) {
+    // Dot-separated selectors are valid (e.g. "2023.azure", "k1.sep").
+    if (!/^[a-z0-9]([a-z0-9_-]{0,62})(\.[a-z0-9]([a-z0-9_-]{0,62}))*$/.test(selector)) {
       return res.status(400).json({
-        error: 'Invalid selector — letters, digits, dashes or underscores, max 63 chars (e.g. resend, google, selector1).',
+        error: 'Invalid selector — letters, digits, dashes, underscores and dots, max 63 chars per label (e.g. resend, google, selector1).',
       });
     }
 
-    const analyzer = new DkimAnalyzer({ selectors: [selector] });
-    const r = await analyzer.analyze(domain.name);
-    const sel = r.selectors[0] || null;
-    if (!sel) {
+    const analyzer = new DkimAnalyzer({ selectors: [] });
+    const hostname = `${selector}._domainkey.${domain.name}`;
+    let records;
+    try {
+      records = await dns.resolveTxt(hostname);
+    } catch (e) {
+      const code = e.code || '';
+      if (/ENOTFOUND|ENODATA|NXDOMAIN/.test(code)) {
+        return res.json({
+          found: false,
+          selector,
+          query: hostname,
+          message: `No ${hostname} record published. If this is the right selector, publish it at your DNS provider, then re-check.`,
+        });
+      }
+      // ESERVFAIL / ETIMEDOUT / network trouble — absence was NOT proven.
+      return res.status(503).json({
+        error: `DNS lookup for ${hostname} failed (${code || 'unknown error'}). This is not proof the record is missing — try again shortly.`,
+      });
+    }
+
+    const candidates = records.map((chunks) => (chunks || []).map(String).join(''));
+    const record = candidates.find((r) => analyzer.isDkimRecord(r));
+    if (!record) {
       return res.json({
         found: false,
         selector,
-        query: `${selector}._domainkey.${domain.name}`,
-        message: `No ${selector}._domainkey.${domain.name} record published. If this is the right selector, publish it at your DNS provider, then re-check.`,
+        query: hostname,
+        message: `A record exists at ${hostname} but it is not a DKIM key (missing v=DKIM1 or p= tag).`,
       });
     }
+
+    const sel = analyzer.analyzeSelector(selector, record);
     res.json({
       found: true,
       selector: sel.selector,
-      valid: sel.valid,
+      valid: !!sel.valid,
       keySize: sel.keySize,
       algorithm: sel.algorithm,
       record: sel.record,
+      errors: sel.errors || [],
       warnings: sel.warnings || [],
     });
   } catch (err) { next(err); }
