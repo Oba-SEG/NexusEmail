@@ -167,26 +167,30 @@ router.patch('/:id', async (req, res, next) => {
 router.post('/:id/safe', async (req, res, next) => {
   try {
     const { domain } = req.body;
+    const normalized = String(domain || '').trim().toLowerCase();
+    if (!normalized) return res.status(400).json({ error: 'Domain is required' });
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    await db.addSafeEntry(brandId, domain, req.orgId);
-    // Auto-purge any existing threats for this domain on this brand
-    await db.deleteBrandThreatByDomain(brandId, domain, req.orgId);
+    // Scan-created threat domains are lowercase; normalize so the safe entry
+    // and the auto-purge target the same rows.
+    await db.addSafeEntry(brandId, normalized, req.orgId);
+    await db.deleteBrandThreatByDomain(brandId, normalized, req.orgId);
 
-    res.json({ success: true, message: `Added ${domain} to safe list` });
+    res.json({ success: true, message: `Added ${normalized} to safe list` });
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/safe', async (req, res, next) => {
   try {
     const { domain } = req.body;
+    const normalized = String(domain || '').trim().toLowerCase();
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
-    await db.removeSafeEntry(brandId, domain, req.orgId);
+    await db.removeSafeEntry(brandId, normalized, req.orgId);
     res.json({ success: true });
   } catch (err) { next(err); }
 });

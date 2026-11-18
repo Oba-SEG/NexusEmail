@@ -63,6 +63,9 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  // Monotonic per-session sequence: a slower earlier /brands response must
+  // not overwrite the state from a newer one (e.g. two schedule saves).
+  const brandsLoadSeqRef = useRef(0);
   // Domain selection generation — same pattern as the brand details:
   // every open bumps it so an overlapping load or a slow upload refresh
   // for an earlier domain can't overwrite the newer selection. Declared
@@ -276,9 +279,11 @@ export default function Dashboard() {
   }
 
   const loadBrands = async (gen: number = sessionGenRef.current) => {
+    const seq = ++brandsLoadSeqRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
       if (gen !== sessionGenRef.current) return;
+      if (seq !== brandsLoadSeqRef.current) return;
       if (res.status === 401) {
         handleAuthFailure();
         return;
@@ -289,6 +294,7 @@ export default function Dashboard() {
       }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
+      if (seq !== brandsLoadSeqRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load brands: API returned non-array', data);
         return;

@@ -70,10 +70,13 @@ export default function BrandsTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const alertsLoadSeqRef = useRef(0);
   const loadAlerts = async (gen: number = sessionGenRef.current) => {
+    const seq = ++alertsLoadSeqRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
       if (gen !== sessionGenRef.current) return;
+      if (seq !== alertsLoadSeqRef.current) return;
       if (res.status === 401) {
         onAuthFailure();
         return;
@@ -84,6 +87,7 @@ export default function BrandsTab({
       }
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
+      if (seq !== alertsLoadSeqRef.current) return;
       if (!Array.isArray(data)) {
         console.error('Failed to load alerts: API returned non-array', data);
         return;

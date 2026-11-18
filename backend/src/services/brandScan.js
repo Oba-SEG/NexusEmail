@@ -132,7 +132,7 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
 
       if (current.alerts_enabled) {
         for (const alert of alertsForThreats(kept)) {
-          await db.addBrandAlert({ ...alert, brand_id: fresh.id, brand_name: current.domain }, orgId, tx);
+          await db.addBrandAlert({ ...alert, alert_type: alert.type, brand_id: fresh.id, brand_name: current.domain }, orgId, tx);
         }
       }
 
