@@ -8,6 +8,8 @@ const DEFAULT_SELECTORS = [
   'dkim', 'dkim1', 'dkim2', 'smtp', 'mx', 's1', 's2',
   'k1', 'k2', 'brevo1', 'brevo2', 'sendgrid', 'mandrill', 'mailgun',
   'zoho', 'mte1', 'mte2', 'smtp2go', 'svc',
+  // Resend (this product's own delivery provider) runs on Amazon SES.
+  'resend', 'ses',
 ];
 
 /**

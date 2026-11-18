@@ -359,3 +359,10 @@ describe('DkimAnalyzer — selector probing', () => {
     assert.equal(r.found, false);
   });
 });
+
+// Resend is this product's own delivery provider (segbytes.xyz sends via
+// Resend on Amazon SES) — the default selector sweep must cover it.
+test('default selectors include resend and ses', () => {
+  assert.ok(DEFAULT_SELECTORS.includes('resend'), 'resend selector missing');
+  assert.ok(DEFAULT_SELECTORS.includes('ses'), 'ses selector missing');
+});
