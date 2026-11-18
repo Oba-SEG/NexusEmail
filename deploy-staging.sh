@@ -20,6 +20,7 @@ CR=$(cat "$SECRETS_DIR/cron-secret")
 PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
 EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
+DCK=$(cat /Users/ob/segkeys/domainscoza/api-key 2>/dev/null || true)
 if [ -z "$EK" ]; then
   # A fresh key here would leave existing encrypted settings undecryptable,
   # so the remote key is recovered first. An SSH/lookup failure must abort —
@@ -95,6 +96,7 @@ echo "==> Writing .env (chmod 600, secrets sent via SSH stdin, not argv)"
   printf 'SEED_ADMIN_PASSWORD=%s\n' "$PW"
   printf 'POSTGRES_PASSWORD=%s\n' "$PGPW"
   printf 'NEXUSEMAIL_ENCRYPTION_KEY=%s\n' "$EK"
+  printf 'DOMAINSCOZA_API_KEY=%s\n' "$DCK"
 } | sshr "umask 077 && cat > $REMOTE_DIR/.env && chmod 600 $REMOTE_DIR/.env"
 
 echo "==> Building and starting stack"

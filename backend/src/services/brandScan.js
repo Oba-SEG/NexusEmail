@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const db = require('../db/database');
 const { BrandProtectionService } = require('./brandProtection');
+const { getScanTlds } = require('./tldRegistry');
 
 // Shared brand-scan pipeline used by the manual routes and the scheduled
 // scanner. Persists everything a reload needs: the snapshot (brand_scans
@@ -81,7 +82,8 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
     }
 
     const service = new BrandProtectionService();
-    const result = await service.checkBrandProtection(fresh.domain, fresh.last_results);
+    const tlds = await getScanTlds(orgId);
+    const result = await service.checkBrandProtection(fresh.domain, fresh.last_results, { tlds });
 
     // The service reports partial failures as result.error instead of
     // throwing. Never record those as successful scans or advance the
