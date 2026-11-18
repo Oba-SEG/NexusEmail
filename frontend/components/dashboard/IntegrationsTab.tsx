@@ -119,6 +119,7 @@ const testProviderConnection = async (provider: any) => {
     <>
             <TabHeader
               headingRef={integrationsHeadingRef}
+              headingId="integrations-heading"
               title="DNS providers"
               description="Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API."
             />

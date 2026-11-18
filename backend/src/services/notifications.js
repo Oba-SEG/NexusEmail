@@ -46,6 +46,26 @@ class NotificationService {
     return this.slackWebhook;
   }
 
+  // Build an SMTP-only instance from stored settings. Channel tests must
+  // exercise the channel they name: a saved Resend key must not shadow the
+  // SMTP transport (createForOrg prefers Resend).
+  static async createSmtpForOrg(orgId) {
+    const svc = new NotificationService();
+    const smtpRaw = await db.getSetting('smtp_config', orgId);
+    if (smtpRaw) {
+      try {
+        const smtp = JSON.parse(smtpRaw);
+        if (smtp.host && smtp.host.trim()) {
+          svc.configureSMTP({
+            ...smtp,
+            auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined
+          });
+        }
+      } catch (e) { captureException(e); }
+    }
+    return svc;
+  }
+
   // Build an instance pre-configured from the org's stored settings.
   // Prefers Resend for email when configured, falls back to SMTP.
   static async createForOrg(orgId) {

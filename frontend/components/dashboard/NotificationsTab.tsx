@@ -30,12 +30,17 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   const [testingSlack, setTestingSlack] = useState(false);
   const [savingResend, setSavingResend] = useState(false);
   const [testingResend, setTestingResend] = useState(false);
-  const dirty = useRef({ slack: false, resend: false });
+  const dirty = useRef({ smtp: false, slack: false, resend: false });
+  const updateSmtp = (patch: Partial<typeof smtpForm>) => {
+    dirty.current.smtp = true;
+    setSmtpForm((form) => ({ ...form, ...patch }));
+  };
 
   // Sync delivery forms from the server config. Deps are the sub-objects,
   // not `settings` itself. Dirty forms are never overwritten: saving the
   // Slack webhook must not clobber an unsaved Resend draft.
   useEffect(() => {
+    if (dirty.current.smtp) return;
     const smtp = settings?.smtp_config;
     setSmtpForm(smtp ? {
       host: smtp.host || '', port: String(smtp.port || 587), secure: smtp.secure || false,
@@ -63,6 +68,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
     successMessage: string,
     failureMessage: string,
     setSaving: (value: boolean) => void,
+    onSaved?: () => void,
   ) => {
     const gen = sessionGenRef.current;
     setSaving(true);
@@ -72,11 +78,14 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) {
-        notify(failureMessage, 'error', describeApiError(data.error || `HTTP ${res.status}`));
+      // A save is only confirmed by the API's success acknowledgment; a body
+      // that failed to arrive is not a successful save.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.success !== true || data.error) {
+        notify(failureMessage, 'error', describeApiError((data && data.error) || `HTTP ${res.status}`));
         return;
       }
+      onSaved?.();
       notify(successMessage, 'success');
       if (gen === sessionGenRef.current) loadSettings();
     } catch (e) {
@@ -113,11 +122,11 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
     }
   };
 
-  const saveSmtp = () => saveChannel('/settings/smtp', smtpForm, 'SMTP settings saved.', 'SMTP settings couldn\'t be saved.', setSavingSmtp);
+  const saveSmtp = () => saveChannel('/settings/smtp', smtpForm, 'SMTP settings saved.', 'SMTP settings couldn\'t be saved.', setSavingSmtp, () => { dirty.current.smtp = false; });
   const testSmtp = () => testChannel('/settings/smtp/test', undefined, 'SMTP connection successful.', 'SMTP connection failed.', setTestingSmtp);
-  const saveSlack = () => saveChannel('/settings/slack', slackForm, 'Slack webhook saved.', 'Slack webhook couldn\'t be saved.', setSavingSlack);
+  const saveSlack = () => saveChannel('/settings/slack', slackForm, 'Slack webhook saved.', 'Slack webhook couldn\'t be saved.', setSavingSlack, () => { dirty.current.slack = false; });
   const testSlack = () => testChannel('/settings/slack/test', undefined, 'Slack test message sent.', 'Slack test failed.', setTestingSlack);
-  const saveResend = () => saveChannel('/settings/resend', resendForm, 'Resend settings saved.', 'Resend settings couldn\'t be saved.', setSavingResend);
+  const saveResend = () => saveChannel('/settings/resend', resendForm, 'Resend settings saved.', 'Resend settings couldn\'t be saved.', setSavingResend, () => { dirty.current.resend = false; });
   const testResend = () => {
     if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
     testChannel('/settings/resend/test', { to: testEmailTo }, 'Test email sent. Check the inbox — and the spam folder.', 'Test email failed.', setTestingResend);
@@ -159,13 +168,13 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         <div className="space-y-3">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
           <div className="grid sm:grid-cols-2 gap-3">
-            <FormField label="SMTP host" value={smtpForm.host} onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })} placeholder="smtp.example.com" />
-            <FormField label="Port" value={smtpForm.port} onChange={(e) => setSmtpForm({ ...smtpForm, port: e.target.value })} placeholder="587" />
-            <FormField label="Username" value={smtpForm.user} onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })} placeholder="user@example.com" />
-            <FormField label="Password" type="password" value={smtpForm.pass} onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })} placeholder="••••••••" />
-            <FormField label="From email" className="sm:col-span-2" value={smtpForm.from} onChange={(e) => setSmtpForm({ ...smtpForm, from: e.target.value })} placeholder="noreply@yourdomain.com" />
+            <FormField label="SMTP host" value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
+            <FormField label="Port" value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
+            <FormField label="Username" value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
+            <FormField label="Password" type="password" value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
+            <FormField label="From email" className="sm:col-span-2" value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
             <label className="sm:col-span-2 flex items-center gap-2 text-sm cursor-pointer select-none">
-              <input type="checkbox" checked={smtpForm.secure} onChange={(e) => setSmtpForm({ ...smtpForm, secure: e.target.checked })} className="accent-emerald-500" />
+              <input type="checkbox" checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
               <span>Use TLS / SSL</span>
             </label>
           </div>
@@ -188,8 +197,8 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             Works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="API key" value={resendForm.api_key} onChange={(e) => setResendForm({ ...resendForm, api_key: e.target.value })} placeholder="re_xxxxxxxx" />
-            <FormField label="From address" value={resendForm.from} onChange={(e) => setResendForm({ ...resendForm, from: e.target.value })} placeholder="noreply@segbytes.xyz" />
+            <FormField label="API key" value={resendForm.api_key} onChange={(e) => { dirty.current.resend = true; setResendForm({ ...resendForm, api_key: e.target.value }); }} placeholder="re_xxxxxxxx" />
+            <FormField label="From address" value={resendForm.from} onChange={(e) => { dirty.current.resend = true; setResendForm({ ...resendForm, from: e.target.value }); }} placeholder="noreply@segbytes.xyz" />
             <FormField label="Send test email to" className="sm:col-span-2" value={testEmailTo} onChange={(e) => setTestEmailTo(e.target.value)} placeholder="you@company.com" />
           </div>
           <SaveTestActions
@@ -214,7 +223,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         <FormField
           label="Webhook URL"
           value={slackForm.webhook_url}
-          onChange={(e) => setSlackForm({ ...slackForm, webhook_url: e.target.value })}
+          onChange={(e) => { dirty.current.slack = true; setSlackForm({ ...slackForm, webhook_url: e.target.value }); }}
           placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
         />
         <p className="text-xs text-muted-foreground">

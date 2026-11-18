@@ -1,6 +1,6 @@
 "use client";
 
-import type { InputHTMLAttributes, ReactNode, RefObject } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode, type RefObject } from "react";
 import { RefreshCw, Save, Send, Zap, type LucideIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,17 +14,19 @@ export function TabHeader({
   title,
   description,
   headingRef,
+  headingId,
   action,
 }: {
   title: string;
   description: string;
   headingRef?: RefObject<HTMLHeadingElement | null>;
+  headingId?: string;
   action?: ReactNode;
 }) {
   return (
     <div className="flex items-start justify-between gap-4 flex-wrap">
       <div>
-        <h2 ref={headingRef} className="font-display text-2xl font-bold tracking-tight mb-1">{title}</h2>
+        <h2 id={headingId} ref={headingRef} tabIndex={headingId ? -1 : undefined} className="font-display text-2xl font-bold tracking-tight mb-1">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
       {action}
@@ -81,15 +83,18 @@ export function ToggleRow({
   onLabel?: string;
   offLabel?: string;
 }) {
+  const labelId = useId();
   return (
     <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
       <div>
-        <p className="font-medium text-sm">{label}</p>
+        <p id={labelId} className="font-medium text-sm">{label}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
       </div>
       <Button
         variant="ghost"
         size="sm"
+        aria-labelledby={labelId}
+        aria-pressed={on}
         className={`min-w-[78px] shrink-0 ${on ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30" : "text-muted-foreground border border-white/10 hover:bg-white/5"}`}
         onClick={onClick}
       >
@@ -102,12 +107,16 @@ export function ToggleRow({
 export function FormField({
   label,
   className,
+  id,
   ...props
 }: { label: string } & InputHTMLAttributes<HTMLInputElement>) {
+  const generatedId = useId();
+  const inputId = id || generatedId;
   return (
     <div className={className}>
-      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
+      <label htmlFor={inputId} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
       <Input
+        id={inputId}
         {...props}
         className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
       />

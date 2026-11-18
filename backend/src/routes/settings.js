@@ -168,7 +168,8 @@ router.post('/smtp', async (req, res, next) => {
 // Test SMTP — always tests the stored config (survives restarts)
 router.post('/smtp/test', async (req, res, next) => {
   try {
-    const svc = await NotificationService.createForOrg(req.orgId);
+    // Test the SMTP channel specifically, even when Resend is also saved.
+    const svc = await NotificationService.createSmtpForOrg(req.orgId);
     const result = await svc.testConnection();
     res.json(result);
   } catch (err) { next(err); }

@@ -63,6 +63,7 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  const notificationsRevRef = useRef(0);
   // Monotonic per-session sequence: a slower earlier /brands response must
   // not overwrite the state from a newer one (e.g. two schedule saves).
   const brandsLoadSeqRef = useRef(0);
@@ -404,12 +405,15 @@ export default function Dashboard() {
     // auth failure, or a new login happens while it is in flight, the
     // response is stale and must not touch the new identity's state.
     const gen = sessionGenRef.current;
+    // Preference writes are independent of settings reloads: a GET that
+    // started before a toggle was saved must not resurrect the old values.
+    const prefsRev = notificationsRevRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/settings/config`);
       const data = await res.json();
       if (gen !== sessionGenRef.current) return;
       setSettings(data);
-      setNotifications(data.notifications || {});
+      if (prefsRev === notificationsRevRef.current) setNotifications(data.notifications || {});
     } catch (e) {
       console.error('Failed to load settings:', e);
     }
@@ -418,6 +422,7 @@ export default function Dashboard() {
   const saveNotifications = async (key: string, value: boolean) => {
     try {
       const current = { ...notifications, [key]: value };
+      notificationsRevRef.current += 1;
       await apiFetch(`${API_BASE}/settings/notifications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -806,7 +811,14 @@ export default function Dashboard() {
                 settings={settings}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
-                onGoToIntegrations={() => setActiveTab('integrations')}
+                onGoToIntegrations={() => {
+                  setActiveTab('integrations');
+                  // Two frames: the Integrations panel mounts before focus
+                  // moves, so keyboard users land on that tab, not the body.
+                  requestAnimationFrame(() => requestAnimationFrame(() => {
+                    document.getElementById('integrations-heading')?.focus();
+                  }));
+                }}
               />
             </TabsContent>
 
