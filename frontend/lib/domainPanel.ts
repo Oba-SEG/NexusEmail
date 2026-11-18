@@ -156,7 +156,9 @@ export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: 
 
   if (status === 'FOUND' || status === 'pass') {
     if (key === 'dkim') return { label: selectors.length ? `${selectors.length} selector${selectors.length === 1 ? '' : 's'}` : 'Found', tone: 'pass' };
-    if (policy) return { label: String(policy), tone: enforcing ? 'pass' : 'warn' };
+    // "Found · p=none" not bare "none" — the bare policy read as "record
+    // missing" (operators asked where the DMARC record was).
+    if (policy) return { label: `Found · ${key === 'dmarc' ? 'p=' + policy : policy}`, tone: enforcing ? 'pass' : 'warn' };
     return { label: 'Found', tone: 'warn' };
   }
   if (status === 'NOT_FOUND') return { label: 'Not found', tone: 'fail' };
@@ -225,4 +227,39 @@ export function dnsEvidence(scan: any, domain: string): DnsEvidenceRow[] {
     found: !/No _smtp._tls/i.test(tlsIssue),
   });
   return rows;
+}
+
+// --- Score explanation rows: make the health number auditable ---
+
+export interface ScoreRow {
+  key: string;
+  label: string;
+  got: number;
+  max: number;
+  hint: string;
+}
+
+const SCORE_HINTS: Record<string, string> = {
+  spf: '≤35 — hardfail (-all) 35, softfail (~all) 25, present 10',
+  dkim: '≤30 — 20 for a valid key, +10 for a 2048-bit key',
+  dmarc: '≤35 — reject 35, quarantine 25, p=none 10',
+  mta_sts: '≤15 — valid enforce policy with max_age ≥ 86400',
+  tls_rpt: '≤5 — rua reporting address present',
+};
+
+export function scoreBreakdownRows(breakdown: any): { total: number; rows: ScoreRow[] } | null {
+  if (!breakdown || typeof breakdown !== 'object') return null;
+  const order = ['spf', 'dkim', 'dmarc', 'mta_sts', 'tls_rpt'];
+  const rows: ScoreRow[] = order
+    .filter((k) => breakdown[k] !== undefined)
+    .map((k) => ({
+      key: k,
+      label: k === 'mta_sts' ? 'MTA-STS' : k === 'tls_rpt' ? 'TLS-RPT' : k.toUpperCase(),
+      got: breakdown[k] || 0,
+      max: breakdown.max?.[k] ?? 0,
+      hint: SCORE_HINTS[k] || '',
+    }));
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + r.got, 0);
+  return { total, rows };
 }

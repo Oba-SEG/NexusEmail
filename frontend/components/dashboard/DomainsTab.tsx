@@ -489,6 +489,8 @@ export default function DomainsTab({
     <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] drawer-backdrop" onClick={onClosePanel} />
     <div ref={drawerRef} onKeyDown={trapDrawerTab} className="absolute inset-y-0 right-0 w-full max-w-xl bg-background border-l border-white/10 shadow-2xl overflow-y-auto drawer-slide-in">
       <DomainDetailPanel
+        key={selectedDomain.id}
+        apiFetch={apiFetch}
         selectedDomain={selectedDomain}
         fixRecommendations={fixRecommendations}
         detailRefreshing={detailRefreshing}
