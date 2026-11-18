@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, dnsEvidence, recordState, type DomainPanelState } from './domainPanel';
+import { applyDomainList, applyDomainSelection, clearedDomainPanel, runDomainListLoad, dnsEvidence, recordState, scoreBreakdownRows, type DomainPanelState } from './domainPanel';
 
 describe('identity switch: user A -> user B', () => {
   test("A's domains must not survive a switch even when B's load fails", () => {
@@ -371,7 +371,7 @@ describe('selection and upload refresh association', () => {
         errors: ['DMARC policy is "none" - no action taken on failures'],
       }),
     };
-    expect(recordState(scan, 'dmarc').label).toBe('none');
+    expect(recordState(scan, 'dmarc').label).toBe('Found · p=none');
     expect(recordState(scan, 'dmarc').tone).toBe('warn');
   });
 
@@ -452,4 +452,14 @@ describe('selection and upload refresh association', () => {
     expect(panel.shownId).toBe(2);
     expect(panel.showDetails).toBe(true);
   });
+});
+
+// Score breakdown helper
+test('scoreBreakdownRows maps check contributions with maxima', () => {
+  const bd = { spf: 25, dkim: 20, dmarc: 10, mta_sts: 0, tls_rpt: 5, max: { spf: 35, dkim: 30, dmarc: 35, mta_sts: 0, tls_rpt: 5 } };
+  const r = scoreBreakdownRows(bd);
+  expect(r?.total).toBe(60);
+  expect(r?.rows.map((x) => x.key)).toEqual(['spf', 'dkim', 'dmarc', 'mta_sts', 'tls_rpt']);
+  expect(r?.rows[0]).toMatchObject({ label: 'SPF', got: 25, max: 35 });
+  expect(scoreBreakdownRows(null)).toBeNull();
 });

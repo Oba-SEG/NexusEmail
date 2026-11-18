@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
 const { EmailSecurityAuditor } = require('../services/auditEngine');
+const { DkimAnalyzer } = require('../services/dkimAnalyzer');
 const { DomainVerificationService } = require('../services/domainVerification');
 const { DmarcReportIngestor } = require('../services/dmarcReportParser');
 const { captureException } = require('../capture');
@@ -336,6 +337,45 @@ router.get('/:id/dmarc-reports', async (req, res) => {
 });
 
 // Scan single domain
+// On-demand DKIM selector check: the default sweep only probes common
+// selectors, but a customer often knows theirs (e.g. resend, google,
+// selector1). Validates the selector shape, probes DNS live, returns the
+// parsed key data or a friendly not-published message.
+router.post('/:id/dkim-check', async (req, res, next) => {
+  try {
+    const domain = await db.getDomain(parseInt(req.params.id, 10), req.orgId);
+    if (!domain) return res.status(404).json({ error: 'Domain not found' });
+
+    const selector = String(req.body?.selector || '').trim().toLowerCase();
+    if (!/^[a-z0-9]([a-z0-9_-]{0,62})$/.test(selector)) {
+      return res.status(400).json({
+        error: 'Invalid selector — letters, digits, dashes or underscores, max 63 chars (e.g. resend, google, selector1).',
+      });
+    }
+
+    const analyzer = new DkimAnalyzer({ selectors: [selector] });
+    const r = await analyzer.analyze(domain.name);
+    const sel = r.selectors[0] || null;
+    if (!sel) {
+      return res.json({
+        found: false,
+        selector,
+        query: `${selector}._domainkey.${domain.name}`,
+        message: `No ${selector}._domainkey.${domain.name} record published. If this is the right selector, publish it at your DNS provider, then re-check.`,
+      });
+    }
+    res.json({
+      found: true,
+      selector: sel.selector,
+      valid: sel.valid,
+      keySize: sel.keySize,
+      algorithm: sel.algorithm,
+      record: sel.record,
+      warnings: sel.warnings || [],
+    });
+  } catch (err) { next(err); }
+});
+
 router.post('/:id/scan', async (req, res) => {
   const domain = await db.getDomain(parseInt(req.params.id), req.orgId);
   if (!domain) return res.status(404).json({ error: 'Domain not found' });

@@ -59,6 +59,20 @@ class EmailSecurityAuditor {
       // Calculate score
       results.score = this.calculateHealthScore(spf, dkim, dmarc, mta_sts, tls_rpt);
 
+      // Score explanation (weights documented where each check scores):
+      // SPF ≤35 (hardfail 35 / softfail 25 / present 10), DKIM ≤30
+      // (20 base + 10 strong key), DMARC ≤35 (reject 35 / quarantine 25 /
+      // present 10, minus impersonation penalties), TLS-RPT ≤5 (rua),
+      // MTA-STS informational (0). Total clamped to 100.
+      results.score_breakdown = {
+        spf: spf?.score || 0,
+        dkim: dkim?.score || 0,
+        dmarc: dmarc?.score || 0,
+        mta_sts: mta_sts?.score || 0,
+        tls_rpt: tls_rpt?.score || 0,
+        max: { spf: 35, dkim: 30, dmarc: 35, mta_sts: 0, tls_rpt: 5 },
+      };
+
       // Collect issues
       results.issues = this.collectIssues(spf, dkim, dmarc, mta_sts, tls_rpt, impersonation);
 

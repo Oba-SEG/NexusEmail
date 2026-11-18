@@ -5,7 +5,10 @@ import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide
 import CopyButton from "@/components/dashboard/CopyButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { recordState, recordToneClass, dnsEvidence } from "@/lib/domainPanel";
+import { Input } from "@/components/ui/input";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+import { recordState, recordToneClass, dnsEvidence, scoreBreakdownRows } from "@/lib/domainPanel";
 
 /** Dedupe key: report IDs are only unique per reporter, so the key is
  * reporter-scoped; fallback keys live in a separate namespace. */
@@ -32,6 +35,7 @@ function failingSources(r: any): { ip: string; count: number }[] {
 }
 
 interface DomainDetailPanelProps {
+  apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
   selectedDomain: any;
   fixRecommendations: any;
   detailRefreshing: boolean;
@@ -49,6 +53,7 @@ interface DomainDetailPanelProps {
  * and request generation guards live in the Dashboard (they are part of
  * the domain-selection state machine covered by lib/domainPanel tests). */
 export default function DomainDetailPanel({
+  apiFetch,
   selectedDomain,
   fixRecommendations,
   detailRefreshing,
@@ -61,6 +66,38 @@ export default function DomainDetailPanel({
   onClose,
 }: DomainDetailPanelProps) {
   const [openIssues, setOpenIssues] = useState<Set<string>>(new Set());
+  const [selectorInput, setSelectorInput] = useState('');
+  const [checkingSelector, setCheckingSelector] = useState(false);
+  const [selectorResults, setSelectorResults] = useState<{ selector: string; found: boolean; text: string }[]>([]);
+  const checkDkimSelector = async () => {
+    const selector = selectorInput.trim();
+    if (!selector || !apiFetch) return;
+    setCheckingSelector(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/domains/${selectedDomain.id}/dkim-check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selector }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setSelectorResults((r) => [{ selector, found: false, text: data.error }, ...r]);
+      } else if (data.found) {
+        setSelectorResults((r) => [{
+          selector: data.selector,
+          found: true,
+          text: `Valid DKIM key — ${data.keySize || 'unknown size'} ${data.algorithm || ''}`.trim(),
+        }, ...r]);
+        setSelectorInput('');
+      } else {
+        setSelectorResults((r) => [{ selector, found: false, text: data.message || 'Not published' }, ...r]);
+      }
+    } catch {
+      setSelectorResults((r) => [{ selector, found: false, text: 'The check could not be run — try again.' }, ...r]);
+    } finally {
+      setCheckingSelector(false);
+    }
+  };
   const fixSectionRef = useRef<HTMLDivElement>(null);
   const prevFixRef = useRef<any>(null);
   // Fresh fix records appear below the fold — scroll them into view once
@@ -122,6 +159,44 @@ export default function DomainDetailPanel({
         );
       })()}
 
+      {/* Health score breakdown — makes the number auditable */}
+      {(() => {
+        const bd = scoreBreakdownRows(selectedDomain.latest_scan?.score_breakdown);
+        if (!bd) return null;
+        return (
+          <div className="mb-4 p-4 rounded-lg border bg-background">
+            <div className="flex items-baseline justify-between mb-3">
+              <p className="font-medium text-sm">Health score</p>
+              <p className="font-display text-2xl font-bold tabular-nums">{bd.total}<span className="text-sm text-muted-foreground font-normal">/100</span></p>
+            </div>
+            <div className="space-y-2">
+              {bd.rows.map((r) => (
+                <div key={r.key} title={r.hint}>
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="font-medium">{r.label}</span>
+                    <span className="text-muted-foreground tabular-nums">{r.got}{r.max > 0 ? ` / ${r.max}` : ' (not scored)'}</span>
+                  </div>
+                  {r.max > 0 && (
+                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${r.got >= r.max * 0.7 ? 'bg-emerald-500' : r.got > 0 ? 'bg-amber-500' : 'bg-red-500/60'}`}
+                        style={{ width: `${Math.min(100, Math.round((r.got / r.max) * 100))}%` }}
+                      />
+                    </div>
+                  )}
+                  {r.max === 0 && (
+                    <p className="text-[11px] text-muted-foreground">{r.hint}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+              Score = SPF + DKIM + DMARC (incl. impersonation penalties) + TLS-RPT, clamped to 100. Hover a row for its weight; the fixes below raise the corresponding bar.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* DNS evidence — shows exactly what the scanner queried and what
           came back, so an all-red result is visibly live-DNS truth, not a
           scanner failure. */}
@@ -156,6 +231,25 @@ export default function DomainDetailPanel({
                 ))}
               </tbody>
             </table>
+            <div className="mt-3 pt-3 border-t border-border/60">
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-8 text-xs bg-background/50 border-white/10 flex-1"
+                  placeholder="Check a specific DKIM selector (e.g. resend, google, selector1)"
+                  value={selectorInput}
+                  onChange={(e) => setSelectorInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && checkDkimSelector()}
+                />
+                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={checkDkimSelector} disabled={checkingSelector || !selectorInput.trim()}>
+                  {checkingSelector ? 'Checking…' : 'Check selector'}
+                </Button>
+              </div>
+              {selectorResults.map((r) => (
+                <p key={r.selector + r.text} className={`text-xs mt-2 ${r.found ? 'text-emerald-300' : 'text-muted-foreground'}`}>
+                  <span className="font-mono">{r.selector}</span> — {r.text}
+                </p>
+              ))}
+            </div>
           </div>
         );
       })()}
