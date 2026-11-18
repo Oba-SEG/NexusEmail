@@ -1,6 +1,7 @@
 const dns = require('dns').promises;
 const https = require('https');
 const { escapeHtml } = require('../utils/html');
+const { domainToASCII } = require('url');
 
 // TLD coverage for typo / homograph / lookalike probing. The brand's own TLD
 // is prepended at scan time. Phishing registrations cluster on the cheap
@@ -18,12 +19,24 @@ const MAX_LOOKALIKE_RECORDS = 25;
 const MAX_TYPO_PROBES = 20000;
 const MAX_LOOKALIKE_PROBES = 6000;
 const PROBE_CONCURRENCY = 48;
+// Raw detections kept for persistence (bounded against wildcard-TLD blowups)
+// are separate from the display-capped `records` arrays.
+const MAX_DETECTIONS = 1000;
 
 // Brand TLD first (typos usually keep the original suffix), then the rest.
 // `tlds` comes from the registry when configured (see tldRegistry.js).
 function orderedTlds(brandTld, tlds = SCAN_TLDS) {
   const tld = String(brandTld || '').toLowerCase();
   return [...new Set([tld, ...tlds].map((t) => String(t || '').toLowerCase()).filter(Boolean))];
+}
+
+// Canonical DNS form (IDNA/punycode, lowercase) so a safe-listed unicode
+// homograph matches its ASCII probe result and vice versa.
+function canonicalDomain(domain) {
+  const raw = String(domain || '').trim().toLowerCase().replace(/\.$/, '');
+  if (!raw) return '';
+  const ascii = domainToASCII(raw);
+  return (ascii || raw).toLowerCase();
 }
 
 function normalizeTldList(tlds) {
@@ -143,8 +156,9 @@ class BrandProtectionService {
   async checkBrandProtection(mainDomain, previousResults = null, options = {}) {
     const baseName = mainDomain.split('.')[0];
     const scanTlds = normalizeTldList(options.tlds);
-    const safeDomains = new Set((Array.isArray(options.safeList) ? options.safeList : []).map((d) => String(d || '').toLowerCase()).filter(Boolean));
-    const isSafe = (domain) => !safeDomains.has(String(domain || '').toLowerCase());
+    const safeDomains = new Set((Array.isArray(options.safeList) ? options.safeList : []).map(canonicalDomain).filter(Boolean));
+    const isSafe = (domain) => !safeDomains.has(canonicalDomain(domain));
+    const detections = { typosquatting: [], lookalikes: [], impersonation: [], homographs: [] };
     const results = {
       domain: mainDomain,
       timestamp: new Date().toISOString(),
@@ -180,6 +194,7 @@ class BrandProtectionService {
       results.progress.push({ step: 'typosquatting', label: `Checking typosquatting across ${scanTlds.length} TLDs...`, done: false, complete: false });
       const typos = await this.checkTypoSquats(baseName, mainDomain, scanTlds, isSafe);
       results.typosquatting = typos.records;
+      detections.typosquatting = typos.all || typos.records;
       results.progress[2].done = true;
       results.progress[2].complete = true;
       if (typos.found > 0) {
@@ -191,6 +206,7 @@ class BrandProtectionService {
       results.progress.push({ step: 'lookalikes', label: 'Checking lookalike domains...', done: false, complete: false });
       const lookalikes = await this.checkLookalikes(baseName, mainDomain, scanTlds, isSafe);
       results.lookalikes = lookalikes.records;
+      detections.lookalikes = lookalikes.all || lookalikes.records;
       results.progress[3].done = true;
       results.progress[3].complete = true;
       if (lookalikes.found > 0) {
@@ -202,6 +218,7 @@ class BrandProtectionService {
       results.progress.push({ step: 'subdomain_abuse', label: 'Checking subdomain abuse...', done: false, complete: false });
       const subdomains = await this.checkSubdomainAbuse(mainDomain);
       results.impersonation = subdomains.records;
+      detections.impersonation = subdomains.all || subdomains.records;
       results.progress[4].done = true;
       results.progress[4].complete = true;
       if (subdomains.found > 0) {
@@ -222,6 +239,7 @@ class BrandProtectionService {
       results.progress.push({ step: 'homograph', label: 'Checking homograph attacks...', done: false, complete: false });
       const homographs = await this.checkHomographs(baseName, mainDomain, scanTlds, isSafe);
       results.homographs = homographs.records;
+      detections.homographs = homographs.all || homographs.records;
       results.progress[6].done = true;
       results.progress[6].complete = true;
       if (homographs.found > 0) {
@@ -240,6 +258,9 @@ class BrandProtectionService {
       results.error = error.message;
     }
 
+    // Non-enumerable: available to the persistence transaction in-process,
+    // never serialized into last_results/history payloads.
+    Object.defineProperty(results, 'detections', { value: detections, enumerable: false });
     return results;
   }
 
@@ -569,9 +590,14 @@ class BrandProtectionService {
 
     const uniqueRecords = probes
       .filter(Boolean)
-      .filter((r) => isSafe(r.domain))
       .filter((r, i, arr) => arr.findIndex((x) => x.domain === r.domain) === i);
-    return { records: uniqueRecords.slice(0, MAX_TYPO_RECORDS), found: uniqueRecords.length, tlds_checked: tldList.length };
+    const actionable = uniqueRecords.filter((r) => isSafe(r.domain));
+    return {
+      records: actionable.slice(0, MAX_TYPO_RECORDS),
+      found: actionable.length,
+      all: uniqueRecords.slice(0, MAX_DETECTIONS),
+      tlds_checked: tldList.length,
+    };
   }
 
   async checkLookalikes(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
@@ -597,8 +623,9 @@ class BrandProtectionService {
       }
     });
 
-    const records = hits.filter(Boolean).filter((r) => isSafe(r.domain));
-    return { records: records.slice(0, MAX_LOOKALIKE_RECORDS), found: records.length };
+    const all = hits.filter(Boolean).slice(0, MAX_DETECTIONS);
+    const actionable = all.filter((r) => isSafe(r.domain));
+    return { records: actionable.slice(0, MAX_LOOKALIKE_RECORDS), found: actionable.length, all };
   }
 
   async checkSubdomainAbuse(mainDomain) {
@@ -628,7 +655,7 @@ class BrandProtectionService {
       }
     }
 
-    return { records, found: records.length };
+    return { records, found: records.length, all: records };
   }
 
   async checkSocialMedia(baseName, mainDomain) {
@@ -680,10 +707,12 @@ class BrandProtectionService {
           return null;
         }
       });
-      records.push(...hits.filter(Boolean).filter((r) => isSafe(r.domain)));
+      records.push(...hits.filter(Boolean));
     }
 
-    return { records: records.slice(0, 25), found: records.length };
+    const all = records.slice(0, MAX_DETECTIONS);
+    const actionable = all.filter((r) => isSafe(r.domain));
+    return { records: actionable.slice(0, 25), found: actionable.length, all };
   }
 
   async addBrandMonitoring(brandDomain, brandName) {
@@ -703,4 +732,4 @@ class BrandProtectionService {
   }
 }
 
-module.exports = { BrandProtectionService, SCAN_TLDS, orderedTlds, normalizeTldList, typoVariants, mapLimit };
+module.exports = { BrandProtectionService, SCAN_TLDS, orderedTlds, normalizeTldList, typoVariants, mapLimit, canonicalDomain };

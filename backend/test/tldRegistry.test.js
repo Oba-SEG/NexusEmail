@@ -1,7 +1,8 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { parseTldResponse, cleanTlds } = require('../src/services/tldRegistry');
-const { orderedTlds, normalizeTldList, typoVariants, SCAN_TLDS } = require('../src/services/brandProtection');
+const { orderedTlds, normalizeTldList, typoVariants, canonicalDomain, SCAN_TLDS } = require('../src/services/brandProtection');
+const { collectThreats } = require('../src/services/brandScan');
 
 describe('tld registry parsing', () => {
   test('parseTldResponse extracts, lowercases and dedupes the TLD map keys', () => {
@@ -59,5 +60,45 @@ describe('scan tld selection', () => {
     assert.ok(variants.includes('zegbytes'), 's→z keyboard substitution survives the table extraction');
     assert.ok(variants.includes('seg-bytes'), 'dash insertion');
     assert.ok(!variants.includes('segbytes'), 'does not include the base name');
+  });
+});
+
+describe('canonical threat domains', () => {
+  test('canonicalDomain produces lowercase punycode', () => {
+    assert.equal(canonicalDomain('ExAmple.COM.'), 'example.com');
+    assert.equal(canonicalDomain('\u0455egbytes.com'), 'xn--egbytes-iog.com');
+    assert.equal(canonicalDomain(''), '');
+    assert.equal(canonicalDomain(null), '');
+  });
+
+  test('collectThreats prefers raw detections over display-capped records', () => {
+    const result = {
+      typosquatting: [{ domain: 'known-search-hit.com' }],
+      lookalikes: [{ domain: 'visible.com' }],
+      impersonation: [],
+      homographs: [],
+    };
+    Object.defineProperty(result, 'detections', {
+      value: {
+        typosquatting: [{ domain: 'known-search-hit.com' }, { domain: 'only-in-detections.net' }],
+        lookalikes: [],
+        impersonation: [],
+        homographs: [],
+      },
+      enumerable: false,
+    });
+    const threats = collectThreats(result, 'segbytes.com', []);
+    assert.deepEqual(threats.map((t) => t.domain).sort(), ['known-search-hit.com', 'only-in-detections.net']);
+  });
+
+  test('collectThreats matches safe-list entries canonically', () => {
+    const unicode = '\u0455egbytes.com';
+    const result = {
+      typosquatting: [{ domain: unicode }],
+      lookalikes: [],
+      impersonation: [],
+      homographs: [],
+    };
+    assert.equal(collectThreats(result, 'segbytes.com', [canonicalDomain(unicode)]).length, 0);
   });
 });

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const db = require('../db/database');
-const { BrandProtectionService } = require('./brandProtection');
+const { BrandProtectionService, canonicalDomain } = require('./brandProtection');
 const { getScanTlds } = require('./tldRegistry');
 
 // Shared brand-scan pipeline used by the manual routes and the scheduled
@@ -35,11 +35,15 @@ const THREAT_SECTIONS = [
 ];
 
 function collectThreats(result, brandDomain, safeList = []) {
-  const safe = new Set([brandDomain, ...safeList].map((d) => String(d).toLowerCase()));
+  const safe = new Set([brandDomain, ...safeList].map(canonicalDomain).filter(Boolean));
+  const detections = result && result.detections;
   const byDomain = new Map();
   for (const section of THREAT_SECTIONS) {
-    for (const record of result[section.key] || []) {
-      const domain = String(record && record.domain || '').toLowerCase();
+    // Raw (display-uncapped) detections win: caps are presentation-only and
+    // must never hide a threat from persistence.
+    const source = (detections && detections[section.key]) || result[section.key] || [];
+    for (const record of source) {
+      const domain = canonicalDomain(record && record.domain);
       if (!domain || safe.has(domain) || byDomain.has(domain)) continue;
       byDomain.set(domain, {
         domain,
@@ -70,6 +74,13 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
   const claimed = await db.claimBrandScan(brand.id, orgId, claim);
   if (!claimed) return { skipped: 'already_running', domain: brand.domain, brand_id: brand.id };
 
+  // Long TLD-wide probes can exceed claimBrandScan's 30-minute stale window;
+  // keep the claim fresh so our own completion write can't lose the race.
+  const heartbeat = setInterval(() => {
+    db.refreshBrandScanClaim(brand.id, orgId, claim).catch(() => {});
+  }, 5 * 60 * 1000);
+  if (heartbeat.unref) heartbeat.unref();
+
   try {
     // Re-read under the claim: schedule/alerts/status may have changed since
     // the caller loaded the row (e.g. user switched to Manual mid-flight).
@@ -86,7 +97,9 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
     // the transaction re-reads the safe list to catch concurrent additions.
     const [tlds, safeList] = await Promise.all([
       getScanTlds(orgId),
-      db.getBrandSafeList(fresh.id, orgId),
+      // Best effort: a transient read failure only affects display filtering;
+      // persistence filters against the transaction's mandatory read.
+      db.getBrandSafeList(fresh.id, orgId).catch(() => []),
     ]);
     const result = await service.checkBrandProtection(fresh.domain, fresh.last_results, { tlds, safeList });
 
@@ -116,7 +129,7 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
         db.getBrandSafeList(fresh.id, orgId, tx),
         db.getBrandThreats(fresh.id, orgId, tx),
       ]);
-      const known = new Set(existing.map((t) => String(t.domain).toLowerCase()));
+      const known = new Set(existing.map((t) => canonicalDomain(t.domain)).filter(Boolean));
       const added = collectThreats(result, current.domain, safeList).filter((t) => !known.has(t.domain));
 
       for (const threat of added) {
@@ -124,7 +137,7 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
       }
       // Re-read the safe list after inserting: a concurrent safe-list request
       // may have landed between the earlier read and the insert.
-      const safeNow = new Set((await db.getBrandSafeList(fresh.id, orgId, tx)).map((d) => String(d).toLowerCase()));
+      const safeNow = new Set((await db.getBrandSafeList(fresh.id, orgId, tx)).map(canonicalDomain).filter(Boolean));
       const kept = added.filter((t) => !safeNow.has(t.domain));
       for (const removedThreat of added.filter((t) => safeNow.has(t.domain))) {
         await db.deleteBrandThreatByDomain(fresh.id, removedThreat.domain, orgId, tx);
@@ -155,6 +168,7 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
       threats_persisted: outcome.added.length,
     };
   } finally {
+    clearInterval(heartbeat);
     await db.releaseBrandScan(brand.id, claim).catch(() => {});
   }
 }

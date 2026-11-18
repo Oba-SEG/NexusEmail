@@ -69,14 +69,12 @@ function refreshTlds(orgId) {
       if (!apiKey) throw new Error('no Domains.co.za API key configured');
       const tlds = await fetchTlds(apiKey);
       const at = Date.now();
-      // Serve the fetched list even if persisting it fails — a cache write
-      // error must not discard a valid registrar response.
+      // Serve the validated list immediately; persistence is fire-and-forget
+      // so a slow (or failing) cache write can't degrade this scan's coverage.
       memory = { orgId, tlds, at };
-      try {
-        await db.setSetting(CACHE_KEY, JSON.stringify({ tlds, fetched_at: at }), orgId);
-      } catch (err) {
+      db.setSetting(CACHE_KEY, JSON.stringify({ tlds, fetched_at: at }), orgId).catch((err) => {
         console.warn('[tldRegistry] TLD cache write failed:', err.message);
-      }
+      });
       return tlds;
     } finally {
       inflight.delete(orgId);
@@ -102,6 +100,12 @@ async function getScanTlds(orgId) {
   }
   const cachedTlds = cleanTlds(cached && cached.tlds);
   const fetchedAt = Number(cached && cached.fetched_at) || 0;
+
+  // A concurrent scan may have published a fresh list while this one was
+  // reading settings — never replace it with the older row.
+  if (memory.orgId === orgId && memory.tlds && memory.at > fetchedAt && now - memory.at < CACHE_TTL_MS) {
+    return memory.tlds;
+  }
 
   if (cachedTlds.length && now - fetchedAt < CACHE_TTL_MS) {
     memory = { orgId, tlds: cachedTlds, at: fetchedAt };

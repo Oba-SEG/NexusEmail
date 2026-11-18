@@ -823,6 +823,17 @@ async function verifyScanClaim(brandId, orgId, token, tx) {
   return !!row;
 }
 
+// Heartbeat for long scans: extends this claim's stale window without
+// touching a claim that was re-taken by another scan.
+async function refreshBrandScanClaim(brandId, orgId, token) {
+  if (!brandId || !orgId || !token) return false;
+  const result = await q(
+    'UPDATE brands SET scan_claimed_at = $3 WHERE id = $1 AND org_id = $2 AND scan_claim = $3',
+    [brandId, orgId, token, now()]
+  );
+  return result.rowCount > 0;
+}
+
 async function releaseBrandScan(brandId, token) {
   if (!brandId || !token) return;
   await q('UPDATE brands SET scan_claim = NULL, scan_claimed_at = NULL WHERE id = $1 AND scan_claim = $2', [brandId, token]);
@@ -1075,7 +1086,7 @@ module.exports = {
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,
-  claimBrandScan, releaseBrandScan,
+  claimBrandScan, releaseBrandScan, refreshBrandScanClaim,
   verifyScanClaim,
   getBrandAlerts, addBrandAlert, deleteBrandAlert, clearBrandAlerts,
 };
