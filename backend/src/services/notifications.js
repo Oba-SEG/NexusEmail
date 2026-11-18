@@ -1,7 +1,85 @@
+const dns = require('dns').promises;
+const net = require('net');
 const nodemailer = require('nodemailer');
 const { captureException } = require('../capture');
 const db = require('../db/database');
 const { escapeHtml } = require('../utils/html');
+
+// SMTP destinations must not be usable as an SSRF pivot (loopback, RFC1918,
+// link-local, CGNAT, cloud metadata, ULA). Self-hosters running a LAN mail
+// relay can opt out explicitly.
+function normalizeAddress(address) {
+  const value = String(address || '').trim().toLowerCase();
+  // IPv4-mapped IPv6 (::ffff:192.168.0.1 and ::ffff:c0a8:1) classifies by the
+  // embedded IPv4 value instead of slipping past the IPv6 prefixes.
+  const mapped = value.match(/^::ffff:(?:(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/);
+  if (mapped) {
+    if (mapped[1]) return mapped[1];
+    const hi = parseInt(mapped[2], 16);
+    const lo = parseInt(mapped[3], 16);
+    return `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
+  return value;
+}
+
+function isPrivateAddress(address) {
+  const value = normalizeAddress(address);
+  if (net.isIPv4(value)) {
+    const [a, b] = value.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127);
+  }
+  if (value === '::1' || value === '::') return true;
+  const firstGroup = parseInt(value.split(':')[0] || '0', 16);
+  if (Number.isFinite(firstGroup)) {
+    if ((firstGroup & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
+    if ((firstGroup & 0xfe00) === 0xfc00) return true; // unique-local fc00::/7
+  }
+  return false;
+}
+
+function policyError(message) {
+  const error = new Error(message);
+  error.code = 'ESMTPPOLICY';
+  return error;
+}
+
+// Resolve once and return the address Nodemailer must connect to, so a
+// second DNS answer cannot bypass the policy. Null means the private-host
+// opt-out is enabled and the hostname is used as-is.
+async function resolveSmtpConnectAddress(host) {
+  if (process.env.ALLOW_PRIVATE_SMTP_HOSTS === 'true') return null;
+  const resolved = await dns.lookup(host, { all: true });
+  if (!resolved.length) throw policyError('SMTP host did not resolve');
+  if (resolved.some((entry) => isPrivateAddress(entry.address))) {
+    throw policyError('SMTP host resolves to a private or local address');
+  }
+  return resolved[0].address;
+}
+
+// Connection errors must not echo raw Nodemailer internals to API callers.
+function describeSmtpError(error) {
+  switch (error && error.code) {
+    case 'EAUTH':
+      return 'SMTP authentication failed. Check the username and password.';
+    case 'ENOTFOUND':
+    case 'EDNS':
+      return 'SMTP host did not resolve.';
+    case 'ETIMEDOUT':
+    case 'ECONNECTION':
+    case 'ESOCKET':
+      return 'SMTP connection failed. Check host, port, and TLS settings.';
+    case 'ETLS':
+      return 'SMTP server rejected the TLS upgrade. Check the port and TLS mode.';
+    case 'ESMTPPOLICY':
+      return error.message;
+    default:
+      return 'SMTP connection failed.';
+  }
+}
 
 const DEFAULT_RESEND_API_BASE = 'https://api.resend.com';
 const DEFAULT_FROM = 'Nexus Brand Protection <noreply@brandprotection.segbytes.co.za>';
@@ -12,21 +90,29 @@ class NotificationService {
     this.transporter = null;
     this.resend = null;
     this.slackWebhook = null;
+    this.smtpConfigError = null;
   }
 
   // Configure SMTP
   configureSMTP(config) {
+    // Connect to the pre-validated address (SSRF pinning) while keeping the
+    // original hostname for certificate verification. Credentialed sessions
+    // always verify the peer certificate.
+    const tlsOptions = { ...(config.tls || {}) };
+    if (config.auth) tlsOptions.rejectUnauthorized = true;
+    if (config.connectAddress) tlsOptions.servername = config.host;
     this.transporter = nodemailer.createTransport({
-      host: config.host,
+      host: config.connectAddress || config.host,
       port: config.port,
       secure: config.secure,
+      // With credentials configured, refuse to send them over a plaintext
+      // connection: fail instead of silently skipping STARTTLS.
+      requireTLS: !!config.auth,
       auth: config.auth ? {
         user: config.auth.user,
         pass: config.auth.pass
       } : undefined,
-      tls: config.tls ? {
-        rejectUnauthorized: false
-      } : undefined
+      tls: Object.keys(tlsOptions).length ? tlsOptions : undefined
     });
     this.config = config;
     return this.transporter;
@@ -46,6 +132,31 @@ class NotificationService {
     return this.slackWebhook;
   }
 
+  // Build an SMTP-only instance from stored settings. Channel tests must
+  // exercise the channel they name: a saved Resend key must not shadow the
+  // SMTP transport (createForOrg prefers Resend).
+  static async createSmtpForOrg(orgId) {
+    const svc = new NotificationService();
+    const smtpRaw = await db.getSetting('smtp_config', orgId);
+    if (smtpRaw) {
+      try {
+        const smtp = JSON.parse(smtpRaw);
+        if (smtp.host && smtp.host.trim()) {
+          const connectAddress = await resolveSmtpConnectAddress(smtp.host);
+          svc.configureSMTP({
+            ...smtp,
+            connectAddress,
+            auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined
+          });
+        }
+      } catch (e) {
+        captureException(e);
+        svc.smtpConfigError = describeSmtpError(e);
+      }
+    }
+    return svc;
+  }
+
   // Build an instance pre-configured from the org's stored settings.
   // Prefers Resend for email when configured, falls back to SMTP.
   static async createForOrg(orgId) {
@@ -62,8 +173,10 @@ class NotificationService {
       try {
         const smtp = JSON.parse(smtpRaw);
         if (smtp.host && smtp.host.trim()) {
+          const connectAddress = await resolveSmtpConnectAddress(smtp.host);
           svc.configureSMTP({
             ...smtp,
+            connectAddress,
             auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined
           });
         }
@@ -76,14 +189,17 @@ class NotificationService {
   // Test SMTP connection
   async testConnection() {
     try {
+      if (this.smtpConfigError) {
+        return { success: false, error: this.smtpConfigError };
+      }
       if (!this.transporter) {
         return { success: false, error: 'SMTP not configured' };
       }
-      const result = await this.transporter.verify();
+      await this.transporter.verify();
       return { success: true, message: 'SMTP connection successful' };
     } catch (error) {
       captureException(error);
-      return { success: false, error: error.message };
+      return { success: false, error: describeSmtpError(error) };
     }
   }
 
@@ -154,6 +270,14 @@ class NotificationService {
       captureException(error);
       return { success: false, error: error.message };
     }
+  }
+
+  // Build a Slack-only instance: the webhook test must not wait on SMTP DNS.
+  static async createSlackForOrg(orgId) {
+    const svc = new NotificationService();
+    const slackWebhook = await db.getSetting('slack_webhook', orgId);
+    if (slackWebhook) svc.configureSlack(slackWebhook);
+    return svc;
   }
 
   // Test Slack — sends a real message to the webhook

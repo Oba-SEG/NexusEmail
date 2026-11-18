@@ -4,6 +4,7 @@ const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
+const { requireRole } = require('../auth');
 
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
@@ -144,19 +145,29 @@ router.post('/providers/test', async (req, res) => {
   }
 });
 
-// SMTP Config
-router.post('/smtp', async (req, res, next) => {
+// SMTP Config — delivery credentials and connection tests are owner/admin
+// only: the test opens a real outbound connection with the saved credentials.
+router.post('/smtp', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
     const { host, port, secure, user, from } = req.body;
     let { pass } = req.body;
-    const stored = JSON.parse(await db.getSetting('smtp_config', req.orgId) || '{}');
-    // The GET view never returns the password (it masks it, and the UI form
-    // prefills empty). An unchanged/blank password must preserve the stored
-    // one instead of wiping it.
+    // Preserve a stored password only from this tenant's own row, and only
+    // when the endpoint and account are unchanged: a global deployment
+    // password must never be sent to a different server the tenant picks.
+    const stored = JSON.parse((await db.getOrgSetting('smtp_config', req.orgId)) || '{}');
+    const nextPort = parseInt(port) || 587;
+    // A blank or masked field is a reuse request, never a real password.
     if (typeof pass !== 'string' || pass === '' || /\*{4}$/.test(pass)) {
-      pass = stored.pass;
+      const endpointUnchanged = stored.host === host && Number(stored.port) === nextPort && stored.user === user;
+      if (endpointUnchanged) {
+        pass = stored.pass;
+      } else if (user) {
+        return res.status(400).json({ error: 'Enter the password for this SMTP account' });
+      } else {
+        pass = '';
+      }
     }
-    const config = { host, port: parseInt(port) || 587, secure: !!secure, user, pass, from };
+    const config = { host, port: nextPort, secure: !!secure, user, pass, from };
     // Persist only: senders build their transport per operation via
     // NotificationService.createForOrg (DB-backed), so a restart loses nothing
     // and one org's SMTP settings can never leak into another org's sends.
@@ -166,9 +177,10 @@ router.post('/smtp', async (req, res, next) => {
 });
 
 // Test SMTP — always tests the stored config (survives restarts)
-router.post('/smtp/test', async (req, res, next) => {
+router.post('/smtp/test', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
-    const svc = await NotificationService.createForOrg(req.orgId);
+    // Test the SMTP channel specifically, even when Resend is also saved.
+    const svc = await NotificationService.createSmtpForOrg(req.orgId);
     const result = await svc.testConnection();
     res.json(result);
   } catch (err) { next(err); }
@@ -223,7 +235,8 @@ router.post('/slack', async (req, res, next) => {
 // Test Slack — posts a real message to the stored webhook
 router.post('/slack/test', async (req, res, next) => {
   try {
-    const svc = await NotificationService.createForOrg(req.orgId);
+    // Slack-only: a stalled SMTP/DNS lookup must not delay a webhook test.
+    const svc = await NotificationService.createSlackForOrg(req.orgId);
     const result = await svc.testSlack();
     res.json(result);
   } catch (err) { next(err); }

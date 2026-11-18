@@ -63,6 +63,10 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  const notificationsRevRef = useRef(0);
+  const [configLoaded, setConfigLoaded] = useState(false);
+  const [configError, setConfigError] = useState('');
+  const [focusIntegrationsOnMount, setFocusIntegrationsOnMount] = useState(false);
   // Monotonic per-session sequence: a slower earlier /brands response must
   // not overwrite the state from a newer one (e.g. two schedule saves).
   const brandsLoadSeqRef = useRef(0);
@@ -180,6 +184,8 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
+    setConfigLoaded(false);
+    setConfigError('');
   };
 
   // Load local session.
@@ -213,6 +219,8 @@ export default function Dashboard() {
       sessionGenRef.current += 1;
       clearStatusQueue();
       setSettings(null);
+      setConfigLoaded(false);
+      setConfigError('');
       resetDomainState();
       if (activeTab === 'admin') setActiveTab('domains');
       localStorage.setItem('nexusemail_token', data.token);
@@ -404,28 +412,57 @@ export default function Dashboard() {
     // auth failure, or a new login happens while it is in flight, the
     // response is stale and must not touch the new identity's state.
     const gen = sessionGenRef.current;
+    // Preference writes are independent of settings reloads: a GET that
+    // started before a toggle was saved must not resurrect the old values.
+    const prefsRev = notificationsRevRef.current;
+    setConfigError('');
     try {
       const res = await apiFetch(`${API_BASE}/settings/config`);
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
       if (gen !== sessionGenRef.current) return;
+      if (!res.ok || !data || typeof data !== 'object' || data.error) {
+        setConfigError('Settings couldn\'t be loaded.');
+        return;
+      }
       setSettings(data);
-      setNotifications(data.notifications || {});
+      setConfigLoaded(true);
+      if (prefsRev === notificationsRevRef.current) setNotifications(data.notifications || {});
     } catch (e) {
+      if (gen === sessionGenRef.current) setConfigError('Settings couldn\'t be loaded.');
       console.error('Failed to load settings:', e);
     }
   };
 
   const saveNotifications = async (key: string, value: boolean) => {
+    const gen = sessionGenRef.current;
     try {
       const current = { ...notifications, [key]: value };
-      await apiFetch(`${API_BASE}/settings/notifications`, {
+      const res = await apiFetch(`${API_BASE}/settings/notifications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(current)
       });
+      const data = await res.json().catch(() => null);
+      // A save from a previous identity must never touch this session's
+      // preferences or invalidate its in-flight config load.
+      if (gen !== sessionGenRef.current) return;
+      if (!res.ok || !data || data.success !== true) {
+        // The write outcome is unknown (the multi-key endpoint can fail after
+        // saving one key): re-read stored values instead of guessing.
+        notify('Preference couldn\'t be saved.', 'error', describeApiError((data && data.error) || `HTTP ${res.status}`));
+        loadSettings();
+        return;
+      }
+      // Only a saved preference invalidates an in-flight settings response:
+      // a failed write must not discard the loaded values.
+      notificationsRevRef.current += 1;
       setNotifications(current);
     } catch (e) {
-      console.error('Failed to save notifications:', e);
+      if (gen !== sessionGenRef.current) return;
+      // The connection may have dropped after the server stored the value:
+      // report the uncertainty and re-read instead of repeating the POST.
+      notify('Preference couldn\'t be confirmed.', 'error', describeError(e, 'The save outcome is unknown.'));
+      loadSettings();
     }
   };
 
@@ -783,6 +820,8 @@ export default function Dashboard() {
                 loadSettings={loadSettings}
                 sessionGenRef={sessionGenRef}
                 apiFetch={apiFetch}
+                focusHeadingOnMount={focusIntegrationsOnMount}
+                onFocusConsumed={() => setFocusIntegrationsOnMount(false)}
               />
             </TabsContent>
 
@@ -794,6 +833,10 @@ export default function Dashboard() {
                 apiFetch={apiFetch}
                 loadSettings={loadSettings}
                 sessionGenRef={sessionGenRef}
+                configLoaded={configLoaded}
+                configError={configError}
+                onRetryConfig={loadSettings}
+                canManageSmtp={user?.role === 'owner' || user?.role === 'admin'}
               />
             </TabsContent>
 
@@ -806,8 +849,12 @@ export default function Dashboard() {
                 settings={settings}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
-                loadSettings={loadSettings}
-                sessionGenRef={sessionGenRef}
+                onGoToIntegrations={() => {
+                  // One-time request consumed by Integrations on mount, so
+                  // ordinary tab switches never move focus.
+                  setFocusIntegrationsOnMount(true);
+                  setActiveTab('integrations');
+                }}
               />
             </TabsContent>
 

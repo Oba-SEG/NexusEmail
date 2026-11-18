@@ -383,9 +383,7 @@ async function deleteIntegration(id, orgId) {
   else await q('DELETE FROM integrations WHERE id = $1', [id]);
 }
 
-async function getSetting(key, orgId) {
-  const row = (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]))
-    || (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', ['global', key]));
+function decodeSettingRow(row, key) {
   if (!row) return undefined;
   if (isSecretKey(key)) {
     // Fail closed in production: an encrypted row that cannot be decrypted
@@ -401,6 +399,19 @@ async function getSetting(key, orgId) {
     return row.value;
   }
   return row.value;
+}
+
+async function getSetting(key, orgId) {
+  const row = (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]))
+    || (await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', ['global', key]));
+  return decodeSettingRow(row, key);
+}
+
+// Read only the tenant's own row (no global fallback). Credential handlers
+// must not adopt deployment-wide secrets when the tenant has no row.
+async function getOrgSetting(key, orgId) {
+  const row = await one('SELECT value FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]);
+  return decodeSettingRow(row, key);
 }
 async function setSetting(key, value, orgId, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
@@ -1074,7 +1085,7 @@ module.exports = {
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   addDmarcReport, getDmarcReports,
   mergeSetting, removeSettingKey, parseField, withTransaction,
-  getSetting, setSetting, deleteSetting, addReport, getReports,
+  getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports,
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,

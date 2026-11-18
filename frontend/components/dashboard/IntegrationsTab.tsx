@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Settings, X, Zap, Plug, CheckCircle } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import ProviderModal from "@/components/dashboard/ProviderModal";
 import { dialogFocusReturn } from "@/components/ui/dialog";
 import { DNS_PROVIDERS, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
+import { TabHeader } from "@/components/dashboard/settings-ui";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -16,13 +17,15 @@ interface IntegrationsTabProps {
   loadSettings: () => void;
   sessionGenRef: { current: number };
   apiFetch: (url: string, options?: any) => Promise<Response>;
+  focusHeadingOnMount?: boolean;
+  onFocusConsumed?: () => void;
 }
 
 /** Integrations tab: provider grid, connection summary, configure-provider
  * modal and all provider-credential state. The whole tab unmounts on tab
  * switch and identity change, which is the state reset (no secrets or
  * busy flags survive). */
-export default function IntegrationsTab({ settings, loadSettings, sessionGenRef, apiFetch }: IntegrationsTabProps) {
+export default function IntegrationsTab({ settings, loadSettings, sessionGenRef, apiFetch, focusHeadingOnMount, onFocusConsumed }: IntegrationsTabProps) {
   const [showProviderModal, setShowProviderModal] = useState(false);
   const providerOpenerRef = useRef<HTMLButtonElement | null>(null);
   // a save flips Configure -> Reconfigure (the opener unmounts), so the
@@ -31,6 +34,13 @@ export default function IntegrationsTab({ settings, loadSettings, sessionGenRef,
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerCreds, setProviderCreds] = useState<any>({});
   const [savingProvider, setSavingProvider] = useState(false);
+
+  // Consume the Settings shortcut's one-time focus request on mount.
+  useEffect(() => {
+    if (!focusHeadingOnMount) return;
+    integrationsHeadingRef.current?.focus();
+    onFocusConsumed?.();
+  }, [focusHeadingOnMount, onFocusConsumed]);
 
 const openProviderModal = (provider: any) => {
   setSelectedProvider(provider);
@@ -116,12 +126,12 @@ const testProviderConnection = async (provider: any) => {
 
   return (
     <>
-            <div>
-              <h2 ref={integrationsHeadingRef} className="font-display text-2xl font-bold tracking-tight mb-1">DNS providers</h2>
-              <p className="text-sm text-muted-foreground">
-                Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API.
-              </p>
-            </div>
+            <TabHeader
+              headingRef={integrationsHeadingRef}
+              headingId="integrations-heading"
+              title="DNS providers"
+              description="Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API."
+            />
 
             {/* T164 — Connection summary strip: how much of the integration surface is configured */}
             {(() => {

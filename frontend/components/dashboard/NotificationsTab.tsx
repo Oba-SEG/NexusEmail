@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, BarChart3, CheckCircle, MessageSquare, Mail, Save, Send } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Mail, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { notify, describeError, describeApiError } from "@/components/ui/status";
+import { FormField, SaveTestActions, SettingsSection, TabHeader, ToggleRow } from "@/components/dashboard/settings-ui";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -16,24 +15,63 @@ interface NotificationsTabProps {
   apiFetch: (url: string, options?: any) => Promise<Response>;
   loadSettings: () => void;
   sessionGenRef: { current: number };
+  configLoaded?: boolean;
+  configError?: string;
+  onRetryConfig?: () => void;
+  canManageSmtp?: boolean;
 }
 
-/** Notifications tab: event preferences + Slack / Resend delivery. Forms
- * live here and unmount with the tab (no webhook URL or API key survives
- * identity change). */
-export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef }: NotificationsTabProps) {
+/** Notifications tab: event preferences and every outbound channel
+ * (SMTP, Resend, Slack) in one place. Forms live here and unmount with the
+ * tab, so no secret survives identity change. */
+export default function NotificationsTab({ notifications, settings, onSavePref, apiFetch, loadSettings, sessionGenRef, configLoaded = false, configError = '', onRetryConfig, canManageSmtp = true }: NotificationsTabProps) {
+  const [smtpForm, setSmtpForm] = useState({ host: '', port: '587', secure: false, user: '', pass: '', from: '' });
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
   const [testEmailTo, setTestEmailTo] = useState('');
+  const [savingSmtp, setSavingSmtp] = useState(false);
+  const [testingSmtp, setTestingSmtp] = useState(false);
   const [savingSlack, setSavingSlack] = useState(false);
   const [testingSlack, setTestingSlack] = useState(false);
   const [savingResend, setSavingResend] = useState(false);
   const [testingResend, setTestingResend] = useState(false);
-  const dirty = useRef({ slack: false, resend: false });
+  const dirty = useRef({ smtp: false, slack: false, resend: false });
+  // Edits made while a save is in flight keep the form dirty: clearing it on
+  // acknowledgment must not let the following settings reload overwrite them.
+  const editSeq = useRef({ smtp: 0, slack: 0, resend: 0 });
+  // Only controls backed by a successful config load are editable; a
+  // partial settings object from another action must not unlock the forms.
+  const ready = configLoaded && !!settings;
+  const smtpReady = ready && canManageSmtp;
+  const updateSmtp = (patch: Partial<typeof smtpForm>) => {
+    dirty.current.smtp = true;
+    editSeq.current.smtp += 1;
+    setSmtpForm((form) => ({ ...form, ...patch }));
+  };
+  const updateSlack = (patch: Partial<typeof slackForm>) => {
+    dirty.current.slack = true;
+    editSeq.current.slack += 1;
+    setSlackForm((form) => ({ ...form, ...patch }));
+  };
+  const updateResend = (patch: Partial<typeof resendForm>) => {
+    dirty.current.resend = true;
+    editSeq.current.resend += 1;
+    setResendForm((form) => ({ ...form, ...patch }));
+  };
 
   // Sync delivery forms from the server config. Deps are the sub-objects,
-  // not `settings` itself. A dirty form is never overwritten: saving the
+  // not `settings` itself. Dirty forms are never overwritten: saving the
   // Slack webhook must not clobber an unsaved Resend draft.
+  useEffect(() => {
+    if (dirty.current.smtp) return;
+    const smtp = settings?.smtp_config;
+    setSmtpForm(smtp ? {
+      host: smtp.host || '', port: String(smtp.port || 587), secure: smtp.secure || false,
+      user: smtp.user || '', pass: '', from: smtp.from || ''
+    } : { host: '', port: '587', secure: false, user: '', pass: '', from: '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings?.smtp_config]);
+
   useEffect(() => {
     if (!dirty.current.slack) setSlackForm({ webhook_url: settings?.slack_webhook || '' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -43,214 +81,228 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
     if (dirty.current.resend) return;
     const r = settings?.resend_config;
     setResendForm({ api_key: r?.api_key || '', from: r?.from || '' });
-    if (r?.from) setTestEmailTo(r.from);
+    if (r?.from) setTestEmailTo((current) => current || r.from);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings?.resend_config]);
 
+  const saveChannel = async (
+    path: string,
+    body: any,
+    successMessage: string,
+    failureMessage: string,
+    setSaving: (value: boolean) => void,
+    onSaved?: () => void,
+  ) => {
+    const gen = sessionGenRef.current;
+    setSaving(true);
+    try {
+      const res = await apiFetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      // A save is only confirmed by the API's success acknowledgment; a body
+      // that failed to arrive is not a successful save.
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data || data.success !== true || data.error) {
+        notify(failureMessage, 'error', describeApiError((data && data.error) || `HTTP ${res.status}`));
+        return;
+      }
+      onSaved?.();
+      notify(successMessage, 'success');
+      if (gen === sessionGenRef.current) loadSettings();
+    } catch (e) {
+      notify(failureMessage, 'error', describeError(e, 'The request failed.'));
+    } finally {
+      setSaving(false);
+    }
+  };
 
-const saveSlack = async () => {
-const gen = sessionGenRef.current;
-setSavingSlack(true);
-try {
-  const res = await apiFetch(`${API_BASE}/settings/slack`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(slackForm)
-  });
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    notify('Slack webhook couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
-    return;
-  }
-  notify('Slack webhook saved.', 'success');
-  if (gen === sessionGenRef.current) loadSettings();
-} catch (e) {
-  notify('Slack webhook couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-} finally {
-  setSavingSlack(false);
-}
-};
+  const testChannel = async (
+    path: string,
+    body: any,
+    successMessage: string,
+    failureMessage: string,
+    setTesting: (value: boolean) => void,
+  ) => {
+    setTesting(true);
+    try {
+      const res = await apiFetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json().catch(() => ({}));
+      notify(
+        data.success ? successMessage : failureMessage,
+        data.success ? 'success' : 'error',
+        data.success ? undefined : describeApiError(data.error),
+      );
+    } catch (e) {
+      notify(failureMessage, 'error', describeError(e, 'The test could not be run.'));
+    } finally {
+      setTesting(false);
+    }
+  };
 
-const testSlack = async () => {
-setTestingSlack(true);
-try {
-  const res = await apiFetch(`${API_BASE}/settings/slack/test`, { method: 'POST' });
-  const data = await res.json();
-  notify(data.success ? 'Slack test message sent.' : 'Slack test failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
-} catch (e) {
-  notify('Slack test failed.', 'error', describeError(e, 'The test could not be run.'));
-} finally {
-  setTestingSlack(false);
-}
-};
-
-const saveResend = async () => {
-const gen = sessionGenRef.current;
-setSavingResend(true);
-try {
-  const res = await apiFetch(`${API_BASE}/settings/resend`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(resendForm)
-  });
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    notify('Resend settings couldn\'t be saved.', 'error', describeApiError(data.error || `HTTP ${res.status}`));
-    return;
-  }
-  notify('Resend settings saved.', 'success');
-  if (gen === sessionGenRef.current) loadSettings();
-} catch (e) {
-  notify('Resend settings couldn\'t be saved.', 'error', describeError(e, 'The request failed.'));
-} finally {
-  setSavingResend(false);
-}
-};
-
-const testResend = async () => {
-if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
-setTestingResend(true);
-try {
-  const res = await apiFetch(`${API_BASE}/settings/resend/test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ to: testEmailTo })
-  });
-  const data = await res.json();
-  notify(data.success ? 'Test email sent. Check the inbox — and the spam folder.' : 'Test email failed.', data.success ? 'success' : 'error', data.success ? undefined : describeApiError(data.error));
-} catch (e) {
-  notify('Test email failed.', 'error', describeError(e, 'The test could not be run.'));
-} finally {
-  setTestingResend(false);
-}
-};
+  const saveSmtp = () => {
+    const seq = editSeq.current.smtp;
+    return saveChannel('/settings/smtp', smtpForm, 'SMTP settings saved.', 'SMTP settings couldn\'t be saved.', setSavingSmtp, () => {
+      if (editSeq.current.smtp === seq) dirty.current.smtp = false;
+    });
+  };
+  const testSmtp = () => testChannel('/settings/smtp/test', undefined, 'SMTP connection successful.', 'SMTP connection failed.', setTestingSmtp);
+  const saveSlack = () => {
+    const seq = editSeq.current.slack;
+    return saveChannel('/settings/slack', slackForm, 'Slack webhook saved.', 'Slack webhook couldn\'t be saved.', setSavingSlack, () => {
+      if (editSeq.current.slack === seq) dirty.current.slack = false;
+    });
+  };
+  const testSlack = () => testChannel('/settings/slack/test', undefined, 'Slack test message sent.', 'Slack test failed.', setTestingSlack);
+  const saveResend = () => {
+    const seq = editSeq.current.resend;
+    return saveChannel('/settings/resend', resendForm, 'Resend settings saved.', 'Resend settings couldn\'t be saved.', setSavingResend, () => {
+      if (editSeq.current.resend === seq) dirty.current.resend = false;
+    });
+  };
+  const testResend = () => {
+    if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
+    testChannel('/settings/resend/test', { to: testEmailTo }, 'Test email sent. Check the inbox — and the spam folder.', 'Test email failed.', setTestingResend);
+  };
 
   return (
     <>
-            <div>
-              <h2 className="font-display text-2xl font-bold tracking-tight mb-1">How we reach you</h2>
-              <p className="text-sm text-muted-foreground">
-                Pick which events trigger an email and where they get delivered. SMTP delivery is configured in Settings.
-              </p>
-            </div>
+      <TabHeader
+        title="How we reach you"
+        description="Pick which events trigger an alert, and configure every outbound channel in one place."
+      />
 
-            <Card className="premium-surface premium-card">
-              <CardHeader>
-                <CardTitle className="font-display tracking-tight">Notification preferences</CardTitle>
-                <CardDescription>Toggle which events generate an outbound email.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {[
-                  { key: 'scan_completed', label: 'Scan completed', desc: 'Get notified when a domain scan finishes.', icon: CheckCircle },
-                  { key: 'critical_alerts', label: 'Critical alerts', desc: 'Immediate emails for high-severity issues.', icon: AlertTriangle },
-                  { key: 'weekly_report', label: 'Weekly summary', desc: 'A digest of every domain\u2019s posture each week.', icon: BarChart3 },
-                ].map((pref) => {
-                  const on = !!notifications[pref.key];
-                  return (
-                    <div key={pref.key} className="flex items-center justify-between p-4 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-                      <div className="flex items-start gap-3">
-                        <div>
-                          <p className="font-medium text-sm">{pref.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{pref.desc}</p>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={`min-w-[70px] ${on ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30' : 'text-muted-foreground border border-white/10 hover:bg-white/5'}`}
-                        onClick={() => onSavePref(pref.key, !on)}
-                      >
-                        {on ? 'On' : 'Off'}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
+      {!ready || configError ? (
+        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+          <p className="text-sm text-muted-foreground">
+            {configError
+              ? ready
+                ? "Preferences couldn't be refreshed — showing the last values loaded."
+                : "Settings couldn't be loaded. Delivery controls stay locked until a retry succeeds."
+              : 'Loading your saved delivery settings…'}
+          </p>
+          {configError ? (
+            <Button size="sm" variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onRetryConfig} disabled={!onRetryConfig}>
+              Retry
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
-            <Card className="premium-surface premium-card">
-              <CardHeader>
-                <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-emerald-400" /> Slack
-                </CardTitle>
-                <CardDescription>Paste a Slack Incoming Webhook URL — alerts land in that channel.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Webhook URL</label>
-                  <Input
-                    value={slackForm.webhook_url}
-                    onChange={(e) => setSlackForm({ ...slackForm, webhook_url: e.target.value })}
-                    placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
-                    className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
-                  />
-                  <p className="text-xs text-muted-foreground mt-1.5">
-                    Slack &rarr; your workspace &rarr; Apps &rarr; Incoming Webhooks &rarr; create for a channel. <a href="https://my.slack.com/apps/A0F7XDUAZ-incoming-webhooks" target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">Open Slack Webhooks</a>
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={saveSlack} disabled={savingSlack} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
-                    <Save className="w-4 h-4 mr-2" /> {savingSlack ? 'Saving…' : 'Save Slack'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={testSlack} disabled={testingSlack} className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5">
-                    <Send className="w-4 h-4 mr-2" /> {testingSlack ? 'Sending…' : 'Send test message'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+      <SettingsSection
+        title="Notification preferences"
+        description="Toggle which events generate an outbound alert."
+      >
+        {[
+          { key: 'scan_completed', label: 'Scan completed', desc: 'Get notified when a domain scan finishes.' },
+          { key: 'critical_alerts', label: 'Critical alerts', desc: 'Immediate emails for high-severity issues.' },
+          { key: 'weekly_report', label: 'Weekly summary', desc: 'A digest of every domain\u2019s posture each week.' },
+        ].map((pref) => (
+          <ToggleRow
+            key={pref.key}
+            label={pref.label}
+            description={pref.desc}
+            on={!!notifications[pref.key]}
+            onClick={() => onSavePref(pref.key, !notifications[pref.key])}
+            onLabel="On"
+            offLabel="Off"
+            disabled={!ready}
+          />
+        ))}
+      </SettingsSection>
 
-            <Card className="premium-surface premium-card">
-              <CardHeader>
-                <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-emerald-400" /> Email delivery (Resend)
-                </CardTitle>
-                <CardDescription>
-                  HTTP-based sending that works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">API key</label>
-                    <Input
-                      value={resendForm.api_key}
-                      onChange={(e) => setResendForm({ ...resendForm, api_key: e.target.value })}
-                      placeholder="re_xxxxxxxx"
-                      className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">From address</label>
-                    <Input
-                      value={resendForm.from}
-                      onChange={(e) => setResendForm({ ...resendForm, from: e.target.value })}
-                      placeholder="noreply@segbytes.xyz"
-                      className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Send test email to</label>
-                  <Input
-                    value={testEmailTo}
-                    onChange={(e) => setTestEmailTo(e.target.value)}
-                    placeholder="you@company.com"
-                    className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={saveResend} disabled={savingResend} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
-                    <Save className="w-4 h-4 mr-2" /> {savingResend ? 'Saving…' : 'Save Resend'}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={testResend} disabled={testingResend} className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5">
-                    <Send className="w-4 h-4 mr-2" /> {testingResend ? 'Sending…' : 'Send test email'}
-                  </Button>
-                </div>
-                <div className="text-xs text-muted-foreground p-3 rounded-md bg-white/[0.03] border border-white/5 leading-relaxed">
-                  Until your own domain is verified in Resend, test emails can be sent from <code className="text-emerald-300">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-emerald-300">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
-                </div>
-              </CardContent>
-            </Card>
+      <SettingsSection
+        icon={Mail}
+        title="Email delivery"
+        description="SMTP sends directly; Resend sends over HTTPS where outbound SMTP is blocked. Configure one or both."
+      >
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
+            {!canManageSmtp ? (
+              <p className="text-xs text-muted-foreground">Only owners and admins can change SMTP credentials.</p>
+            ) : null}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <FormField label="SMTP host" disabled={!smtpReady} value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
+            <FormField label="Port" disabled={!smtpReady} value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
+            <FormField label="Username" disabled={!smtpReady} value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
+            <FormField label="Password" type="password" disabled={!smtpReady} value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
+            <FormField label="From email" className="sm:col-span-2" disabled={!smtpReady} value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
+            <label className="sm:col-span-2 flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" disabled={!smtpReady} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
+              <span>Use implicit TLS (port 465) — leave off for STARTTLS, usually port 587</span>
+            </label>
+          </div>
+          <SaveTestActions
+            onSave={saveSmtp}
+            saving={savingSmtp}
+            saveLabel="Save SMTP"
+            onTest={testSmtp}
+            testing={testingSmtp}
+            testLabel="Test connection"
+            testIcon="zap"
+            disabled={!smtpReady}
+          />
+        </div>
+
+        <div className="hairline" />
+
+        <div className="space-y-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resend (HTTP API)</h4>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <FormField label="API key" disabled={!ready} value={resendForm.api_key} onChange={(e) => updateResend({ api_key: e.target.value })} placeholder="re_xxxxxxxx" />
+            <FormField label="From address" disabled={!ready} value={resendForm.from} onChange={(e) => updateResend({ from: e.target.value })} placeholder="noreply@segbytes.xyz" />
+            <FormField label="Send test email to" className="sm:col-span-2" disabled={!ready} value={testEmailTo} onChange={(e) => setTestEmailTo(e.target.value)} placeholder="you@company.com" />
+          </div>
+          <SaveTestActions
+            onSave={saveResend}
+            saving={savingResend}
+            saveLabel="Save Resend"
+            onTest={testResend}
+            testing={testingResend}
+            testLabel="Send test email"
+            disabled={!ready}
+          />
+          <div className="text-xs text-muted-foreground p-3 rounded-md bg-white/[0.03] border border-white/5 leading-relaxed">
+            Until your own domain is verified in Resend, test emails can be sent from <code className="text-emerald-300">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-emerald-300">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
+          </div>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
+        icon={MessageSquare}
+        title="Slack"
+        description="Paste a Slack Incoming Webhook URL — alerts land in that channel."
+      >
+        <FormField
+          label="Webhook URL"
+          disabled={!ready}
+          value={slackForm.webhook_url}
+          onChange={(e) => updateSlack({ webhook_url: e.target.value })}
+          placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
+        />
+        <p className="text-xs text-muted-foreground">
+          Slack &rarr; your workspace &rarr; Apps &rarr; Incoming Webhooks &rarr; create for a channel. <a href="https://my.slack.com/apps/A0F7XDUAZ-incoming-webhooks" target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">Open Slack Webhooks</a>
+        </p>
+        <SaveTestActions
+          onSave={saveSlack}
+          saving={savingSlack}
+          saveLabel="Save Slack"
+          onTest={testSlack}
+          testing={testingSlack}
+          testLabel="Send test message"
+          disabled={!ready}
+        />
+      </SettingsSection>
     </>
   );
 }
