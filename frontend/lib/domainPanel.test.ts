@@ -362,6 +362,31 @@ describe('selection and upload refresh association', () => {
     expect(failed.domains).toEqual(panel.domains);
   });
 
+  test('a FOUND record with advisory-only errors is FOUND, not ERROR', () => {
+    const scan = {
+      dmarc_record: JSON.stringify({
+        found: true,
+        record: 'v=DMARC1; p=none; rua=mailto:dmarc-reports@segbytes.xyz;',
+        policy: 'none',
+        errors: ['DMARC policy is "none" - no action taken on failures'],
+      }),
+    };
+    expect(recordState(scan, 'dmarc').label).toBe('none');
+    expect(recordState(scan, 'dmarc').tone).toBe('warn');
+  });
+
+  test('dnsEvidence renders selector objects by name', () => {
+    const scan = {
+      spf_record: JSON.stringify({ found: false }),
+      dkim_selectors: JSON.stringify([{ selector: 'resend', record: 'p=MIGf…', valid: true }]),
+      dmarc_record: JSON.stringify({ found: false }),
+      issues: '[]',
+    };
+    const rows = dnsEvidence(scan, 'a.test');
+    expect(rows[1].result).toBe('Selectors: resend');
+    expect(rows[1].found).toBe(true);
+  });
+
   test('friendly "published yet" DNS errors are NOT_FOUND, not ERROR', () => {
     const scan = {
       dmarc_record: JSON.stringify({

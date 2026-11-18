@@ -126,7 +126,11 @@ export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: 
     const msgs = [obj.error, ...(Array.isArray(obj.errors) ? obj.errors : [])].filter(Boolean).join(' ');
     // NOT_FOUND also matches the friendly wording emitted by the backend
     // (friendlyDnsError): "No _dmarc.<domain> record published yet".
+    // A FOUND record whose errors[] carry only advisory warnings (e.g.
+    // p=none) stays FOUND — the policy-based tone below renders it amber,
+    // and "Error" would mislabel a live, valid record.
     if (!obj.found && /ENOTFOUND|NXDOMAIN|No (?:SPF|DMARC) record found|record published yet/i.test(msgs)) status = 'NOT_FOUND';
+    else if (obj.found) status = 'FOUND';
     else status = 'ERROR';
   } else if (obj.found) status = 'FOUND';
   else status = 'NOT_FOUND';
@@ -180,7 +184,9 @@ export function dnsEvidence(scan: any, domain: string): DnsEvidenceRow[] {
     result: spfObj?.found && spfObj.record ? String(spfObj.record) : 'No v=spf1 record published',
     found: !!spfObj?.found,
   });
-  const selList = Array.isArray(selectors) ? selectors : [];
+  const selList = (Array.isArray(selectors) ? selectors : [])
+    .map((s: any) => (typeof s === 'string' ? s : s?.selector))
+    .filter(Boolean);
   rows.push({
     check: 'DKIM',
     query: `${domain} · TXT (common selectors)`,
