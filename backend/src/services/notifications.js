@@ -1,7 +1,51 @@
+const dns = require('dns').promises;
+const net = require('net');
 const nodemailer = require('nodemailer');
 const { captureException } = require('../capture');
 const db = require('../db/database');
 const { escapeHtml } = require('../utils/html');
+
+// SMTP destinations must not be usable as an SSRF pivot (loopback, RFC1918,
+// link-local, CGNAT, cloud metadata, ULA). Self-hosters running a LAN mail
+// relay can opt out explicitly.
+function isPrivateAddress(address) {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168)
+      || (a === 100 && b >= 64 && b <= 127);
+  }
+  const v6 = String(address).toLowerCase();
+  return v6 === '::1' || v6 === '::' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80');
+}
+
+async function assertSmtpHostAllowed(host) {
+  if (process.env.ALLOW_PRIVATE_SMTP_HOSTS === 'true') return;
+  const resolved = await dns.lookup(host, { all: true });
+  if (!resolved.length) throw new Error('SMTP host did not resolve');
+  if (resolved.some((entry) => isPrivateAddress(entry.address))) {
+    throw new Error('SMTP host resolves to a private or local address');
+  }
+}
+
+// Connection errors must not echo raw Nodemailer internals to API callers.
+function describeSmtpError(error) {
+  switch (error && error.code) {
+    case 'EAUTH':
+      return 'SMTP authentication failed. Check the username and password.';
+    case 'ENOTFOUND':
+    case 'EDNS':
+      return 'SMTP host did not resolve.';
+    case 'ETIMEDOUT':
+    case 'ECONNECTION':
+    case 'ESOCKET':
+      return 'SMTP connection failed. Check host, port, and TLS settings.';
+    default:
+      return 'SMTP connection failed.';
+  }
+}
 
 const DEFAULT_RESEND_API_BASE = 'https://api.resend.com';
 const DEFAULT_FROM = 'Nexus Brand Protection <noreply@brandprotection.segbytes.co.za>';
@@ -12,6 +56,7 @@ class NotificationService {
     this.transporter = null;
     this.resend = null;
     this.slackWebhook = null;
+    this.smtpConfigError = null;
   }
 
   // Configure SMTP
@@ -20,6 +65,9 @@ class NotificationService {
       host: config.host,
       port: config.port,
       secure: config.secure,
+      // With credentials configured, refuse to send them over a plaintext
+      // connection: fail instead of silently skipping STARTTLS.
+      requireTLS: !!config.auth,
       auth: config.auth ? {
         user: config.auth.user,
         pass: config.auth.pass
@@ -56,12 +104,16 @@ class NotificationService {
       try {
         const smtp = JSON.parse(smtpRaw);
         if (smtp.host && smtp.host.trim()) {
+          await assertSmtpHostAllowed(smtp.host);
           svc.configureSMTP({
             ...smtp,
             auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined
           });
         }
-      } catch (e) { captureException(e); }
+      } catch (e) {
+        captureException(e);
+        svc.smtpConfigError = e.message;
+      }
     }
     return svc;
   }
@@ -82,6 +134,7 @@ class NotificationService {
       try {
         const smtp = JSON.parse(smtpRaw);
         if (smtp.host && smtp.host.trim()) {
+          await assertSmtpHostAllowed(smtp.host);
           svc.configureSMTP({
             ...smtp,
             auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined
@@ -96,14 +149,17 @@ class NotificationService {
   // Test SMTP connection
   async testConnection() {
     try {
+      if (this.smtpConfigError) {
+        return { success: false, error: this.smtpConfigError };
+      }
       if (!this.transporter) {
         return { success: false, error: 'SMTP not configured' };
       }
-      const result = await this.transporter.verify();
+      await this.transporter.verify();
       return { success: true, message: 'SMTP connection successful' };
     } catch (error) {
       captureException(error);
-      return { success: false, error: error.message };
+      return { success: false, error: describeSmtpError(error) };
     }
   }
 

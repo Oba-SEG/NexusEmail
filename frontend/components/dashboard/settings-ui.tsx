@@ -75,6 +75,7 @@ export function ToggleRow({
   onClick,
   onLabel = "Enabled",
   offLabel = "Disabled",
+  disabled = false,
 }: {
   label: string;
   description: string;
@@ -82,6 +83,7 @@ export function ToggleRow({
   onClick: () => void;
   onLabel?: string;
   offLabel?: string;
+  disabled?: boolean;
 }) {
   const labelId = useId();
   return (
@@ -95,6 +97,7 @@ export function ToggleRow({
         size="sm"
         aria-labelledby={labelId}
         aria-pressed={on}
+        disabled={disabled}
         className={`min-w-[78px] shrink-0 ${on ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30" : "text-muted-foreground border border-white/10 hover:bg-white/5"}`}
         onClick={onClick}
       >
@@ -134,6 +137,7 @@ export function SaveTestActions({
   testLabel,
   testingLabel,
   testIcon = "send",
+  disabled = false,
 }: {
   onSave?: () => void;
   saving?: boolean;
@@ -144,11 +148,12 @@ export function SaveTestActions({
   testLabel: string;
   testingLabel?: string;
   testIcon?: "send" | "zap";
+  disabled?: boolean;
 }) {
   return (
     <div className="flex gap-2">
       {onSave ? (
-        <Button size="sm" onClick={onSave} disabled={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
+        <Button size="sm" onClick={onSave} disabled={disabled || saving} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
           <Save className="w-4 h-4 mr-2" /> {saving ? savingLabel : saveLabel}
         </Button>
       ) : null}
@@ -156,7 +161,7 @@ export function SaveTestActions({
         size="sm"
         variant="outline"
         onClick={onTest}
-        disabled={testing}
+        disabled={disabled || testing}
         className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
       >
         {testing ? (

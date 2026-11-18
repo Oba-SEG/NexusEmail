@@ -31,9 +31,24 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   const [savingResend, setSavingResend] = useState(false);
   const [testingResend, setTestingResend] = useState(false);
   const dirty = useRef({ smtp: false, slack: false, resend: false });
+  // Edits made while a save is in flight keep the form dirty: clearing it on
+  // acknowledgment must not let the following settings reload overwrite them.
+  const editSeq = useRef({ smtp: 0, slack: 0, resend: 0 });
+  const ready = !!settings;
   const updateSmtp = (patch: Partial<typeof smtpForm>) => {
     dirty.current.smtp = true;
+    editSeq.current.smtp += 1;
     setSmtpForm((form) => ({ ...form, ...patch }));
+  };
+  const updateSlack = (patch: Partial<typeof slackForm>) => {
+    dirty.current.slack = true;
+    editSeq.current.slack += 1;
+    setSlackForm((form) => ({ ...form, ...patch }));
+  };
+  const updateResend = (patch: Partial<typeof resendForm>) => {
+    dirty.current.resend = true;
+    editSeq.current.resend += 1;
+    setResendForm((form) => ({ ...form, ...patch }));
   };
 
   // Sync delivery forms from the server config. Deps are the sub-objects,
@@ -58,7 +73,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
     if (dirty.current.resend) return;
     const r = settings?.resend_config;
     setResendForm({ api_key: r?.api_key || '', from: r?.from || '' });
-    if (r?.from) setTestEmailTo(r.from);
+    if (r?.from) setTestEmailTo((current) => current || r.from);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings?.resend_config]);
 
@@ -122,11 +137,26 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
     }
   };
 
-  const saveSmtp = () => saveChannel('/settings/smtp', smtpForm, 'SMTP settings saved.', 'SMTP settings couldn\'t be saved.', setSavingSmtp, () => { dirty.current.smtp = false; });
+  const saveSmtp = () => {
+    const seq = editSeq.current.smtp;
+    return saveChannel('/settings/smtp', smtpForm, 'SMTP settings saved.', 'SMTP settings couldn\'t be saved.', setSavingSmtp, () => {
+      if (editSeq.current.smtp === seq) dirty.current.smtp = false;
+    });
+  };
   const testSmtp = () => testChannel('/settings/smtp/test', undefined, 'SMTP connection successful.', 'SMTP connection failed.', setTestingSmtp);
-  const saveSlack = () => saveChannel('/settings/slack', slackForm, 'Slack webhook saved.', 'Slack webhook couldn\'t be saved.', setSavingSlack, () => { dirty.current.slack = false; });
+  const saveSlack = () => {
+    const seq = editSeq.current.slack;
+    return saveChannel('/settings/slack', slackForm, 'Slack webhook saved.', 'Slack webhook couldn\'t be saved.', setSavingSlack, () => {
+      if (editSeq.current.slack === seq) dirty.current.slack = false;
+    });
+  };
   const testSlack = () => testChannel('/settings/slack/test', undefined, 'Slack test message sent.', 'Slack test failed.', setTestingSlack);
-  const saveResend = () => saveChannel('/settings/resend', resendForm, 'Resend settings saved.', 'Resend settings couldn\'t be saved.', setSavingResend, () => { dirty.current.resend = false; });
+  const saveResend = () => {
+    const seq = editSeq.current.resend;
+    return saveChannel('/settings/resend', resendForm, 'Resend settings saved.', 'Resend settings couldn\'t be saved.', setSavingResend, () => {
+      if (editSeq.current.resend === seq) dirty.current.resend = false;
+    });
+  };
   const testResend = () => {
     if (!testEmailTo) { notify('Enter a test email address first.', 'info'); return; }
     testChannel('/settings/resend/test', { to: testEmailTo }, 'Test email sent. Check the inbox — and the spam folder.', 'Test email failed.', setTestingResend);
@@ -156,6 +186,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             onClick={() => onSavePref(pref.key, !notifications[pref.key])}
             onLabel="On"
             offLabel="Off"
+            disabled={!ready}
           />
         ))}
       </SettingsSection>
@@ -168,13 +199,13 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         <div className="space-y-3">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
           <div className="grid sm:grid-cols-2 gap-3">
-            <FormField label="SMTP host" value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
-            <FormField label="Port" value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
-            <FormField label="Username" value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
-            <FormField label="Password" type="password" value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
-            <FormField label="From email" className="sm:col-span-2" value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
+            <FormField label="SMTP host" disabled={!ready} value={smtpForm.host} onChange={(e) => updateSmtp({ host: e.target.value })} placeholder="smtp.example.com" />
+            <FormField label="Port" disabled={!ready} value={smtpForm.port} onChange={(e) => updateSmtp({ port: e.target.value })} placeholder="587" />
+            <FormField label="Username" disabled={!ready} value={smtpForm.user} onChange={(e) => updateSmtp({ user: e.target.value })} placeholder="user@example.com" />
+            <FormField label="Password" type="password" disabled={!ready} value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
+            <FormField label="From email" className="sm:col-span-2" disabled={!ready} value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
             <label className="sm:col-span-2 flex items-center gap-2 text-sm cursor-pointer select-none">
-              <input type="checkbox" checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
+              <input type="checkbox" disabled={!ready} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
               <span>Use TLS / SSL</span>
             </label>
           </div>
@@ -186,6 +217,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             testing={testingSmtp}
             testLabel="Test connection"
             testIcon="zap"
+            disabled={!ready}
           />
         </div>
 
@@ -197,9 +229,9 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             Works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FormField label="API key" value={resendForm.api_key} onChange={(e) => { dirty.current.resend = true; setResendForm({ ...resendForm, api_key: e.target.value }); }} placeholder="re_xxxxxxxx" />
-            <FormField label="From address" value={resendForm.from} onChange={(e) => { dirty.current.resend = true; setResendForm({ ...resendForm, from: e.target.value }); }} placeholder="noreply@segbytes.xyz" />
-            <FormField label="Send test email to" className="sm:col-span-2" value={testEmailTo} onChange={(e) => setTestEmailTo(e.target.value)} placeholder="you@company.com" />
+            <FormField label="API key" disabled={!ready} value={resendForm.api_key} onChange={(e) => updateResend({ api_key: e.target.value })} placeholder="re_xxxxxxxx" />
+            <FormField label="From address" disabled={!ready} value={resendForm.from} onChange={(e) => updateResend({ from: e.target.value })} placeholder="noreply@segbytes.xyz" />
+            <FormField label="Send test email to" className="sm:col-span-2" disabled={!ready} value={testEmailTo} onChange={(e) => setTestEmailTo(e.target.value)} placeholder="you@company.com" />
           </div>
           <SaveTestActions
             onSave={saveResend}
@@ -208,6 +240,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             onTest={testResend}
             testing={testingResend}
             testLabel="Send test email"
+            disabled={!ready}
           />
           <div className="text-xs text-muted-foreground p-3 rounded-md bg-white/[0.03] border border-white/5 leading-relaxed">
             Until your own domain is verified in Resend, test emails can be sent from <code className="text-emerald-300">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-emerald-300">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
@@ -222,8 +255,9 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
       >
         <FormField
           label="Webhook URL"
+          disabled={!ready}
           value={slackForm.webhook_url}
-          onChange={(e) => { dirty.current.slack = true; setSlackForm({ ...slackForm, webhook_url: e.target.value }); }}
+          onChange={(e) => updateSlack({ webhook_url: e.target.value })}
           placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
         />
         <p className="text-xs text-muted-foreground">
@@ -236,6 +270,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
           onTest={testSlack}
           testing={testingSlack}
           testLabel="Send test message"
+          disabled={!ready}
         />
       </SettingsSection>
     </>

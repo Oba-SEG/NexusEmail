@@ -64,6 +64,7 @@ export default function Dashboard() {
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
   const notificationsRevRef = useRef(0);
+  const [focusIntegrationsOnMount, setFocusIntegrationsOnMount] = useState(false);
   // Monotonic per-session sequence: a slower earlier /brands response must
   // not overwrite the state from a newer one (e.g. two schedule saves).
   const brandsLoadSeqRef = useRef(0);
@@ -422,12 +423,14 @@ export default function Dashboard() {
   const saveNotifications = async (key: string, value: boolean) => {
     try {
       const current = { ...notifications, [key]: value };
-      notificationsRevRef.current += 1;
       await apiFetch(`${API_BASE}/settings/notifications`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(current)
       });
+      // Only a saved preference invalidates an in-flight settings response:
+      // a failed write must not discard the loaded values.
+      notificationsRevRef.current += 1;
       setNotifications(current);
     } catch (e) {
       console.error('Failed to save notifications:', e);
@@ -788,6 +791,8 @@ export default function Dashboard() {
                 loadSettings={loadSettings}
                 sessionGenRef={sessionGenRef}
                 apiFetch={apiFetch}
+                focusHeadingOnMount={focusIntegrationsOnMount}
+                onFocusConsumed={() => setFocusIntegrationsOnMount(false)}
               />
             </TabsContent>
 
@@ -812,12 +817,10 @@ export default function Dashboard() {
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
                 onGoToIntegrations={() => {
+                  // One-time request consumed by Integrations on mount, so
+                  // ordinary tab switches never move focus.
+                  setFocusIntegrationsOnMount(true);
                   setActiveTab('integrations');
-                  // Two frames: the Integrations panel mounts before focus
-                  // moves, so keyboard users land on that tab, not the body.
-                  requestAnimationFrame(() => requestAnimationFrame(() => {
-                    document.getElementById('integrations-heading')?.focus();
-                  }));
                 }}
               />
             </TabsContent>

@@ -4,6 +4,7 @@ const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
+const { requireRole } = require('../auth');
 
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
@@ -144,8 +145,9 @@ router.post('/providers/test', async (req, res) => {
   }
 });
 
-// SMTP Config
-router.post('/smtp', async (req, res, next) => {
+// SMTP Config — delivery credentials and connection tests are owner/admin
+// only: the test opens a real outbound connection with the saved credentials.
+router.post('/smtp', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
     const { host, port, secure, user, from } = req.body;
     let { pass } = req.body;
@@ -166,7 +168,7 @@ router.post('/smtp', async (req, res, next) => {
 });
 
 // Test SMTP — always tests the stored config (survives restarts)
-router.post('/smtp/test', async (req, res, next) => {
+router.post('/smtp/test', requireRole('owner', 'admin'), async (req, res, next) => {
   try {
     // Test the SMTP channel specifically, even when Resend is also saved.
     const svc = await NotificationService.createSmtpForOrg(req.orgId);
