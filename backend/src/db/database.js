@@ -828,7 +828,7 @@ async function verifyScanClaim(brandId, orgId, token, tx) {
 async function refreshBrandScanClaim(brandId, orgId, token) {
   if (!brandId || !orgId || !token) return false;
   const result = await q(
-    'UPDATE brands SET scan_claimed_at = $3 WHERE id = $1 AND org_id = $2 AND scan_claim = $3',
+    'UPDATE brands SET scan_claimed_at = $4 WHERE id = $1 AND org_id = $2 AND scan_claim = $3',
     [brandId, orgId, token, now()]
   );
   return result.rowCount > 0;

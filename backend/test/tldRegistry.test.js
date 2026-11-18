@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { parseTldResponse, cleanTlds } = require('../src/services/tldRegistry');
 const { orderedTlds, normalizeTldList, typoVariants, canonicalDomain, SCAN_TLDS } = require('../src/services/brandProtection');
 const { collectThreats } = require('../src/services/brandScan');
+const { applySafeListToResult } = require('../src/services/brandProtection');
 
 describe('tld registry parsing', () => {
   test('parseTldResponse extracts, lowercases and dedupes the TLD map keys', () => {
@@ -100,5 +101,51 @@ describe('canonical threat domains', () => {
       homographs: [],
     };
     assert.equal(collectThreats(result, 'segbytes.com', [canonicalDomain(unicode)]).length, 0);
+  });
+});
+
+describe('safe-list summary rebuild', () => {
+  test('applySafeListToResult rebuilds records, counts, score and issues', () => {
+    const result = {
+      typosquatting: [{ domain: 'segbvtes.com' }, { domain: 'safe.example.com' }],
+      lookalikes: [{ domain: 'mailsegbytes.net' }],
+      impersonation: [],
+      homographs: [],
+      socialMedia: [{ platform: 'Twitter/X', handle: 'segbytes' }],
+      score: 100 - 2 * 15 - 1 * 10 - 1 * 8,
+      issues: [
+        { type: 'typosquatting', count: 2, severity: 'high' },
+        { type: 'lookalike', count: 1, severity: 'medium' },
+        { type: 'social_media', count: 1, severity: 'medium' },
+      ],
+      recommendations: ['Consider registering common typosquatting domains to prevent abuse'],
+    };
+    Object.defineProperty(result, 'detections', {
+      value: {
+        typosquatting: [{ domain: 'segbvtes.com' }, { domain: 'safe.example.com' }, { domain: 'only-raw.com' }],
+        lookalikes: [{ domain: 'mailsegbytes.net' }],
+        impersonation: [],
+        homographs: [],
+      },
+      enumerable: false,
+    });
+
+    const out = applySafeListToResult(result, ['safe.example.com']);
+    assert.deepEqual(out.typosquatting.map((r) => r.domain), ['segbvtes.com', 'only-raw.com']);
+    assert.equal(out.issues.find((i) => i.type === 'typosquatting').count, 2);
+    assert.equal(out.score, 100 - 2 * 15 - 1 * 10 - 1 * 8);
+    assert.ok(!('detections' in out) || out.detections === undefined);
+    assert.equal(result.typosquatting.length, 2, 'original result not mutated');
+  });
+
+  test('applySafeListToResult with a removal keeps previously hidden hits', () => {
+    const result = { typosquatting: [], lookalikes: [{ domain: 'mailsegbytes.net' }], impersonation: [], homographs: [], socialMedia: [], score: 100, issues: [], recommendations: [] };
+    Object.defineProperty(result, 'detections', {
+      value: { typosquatting: [], lookalikes: [{ domain: 'mailsegbytes.net' }, { domain: 'safe.example.com' }], impersonation: [], homographs: [] },
+      enumerable: false,
+    });
+    const out = applySafeListToResult(result, []);
+    assert.deepEqual(out.lookalikes.map((r) => r.domain), ['mailsegbytes.net', 'safe.example.com']);
+    assert.equal(out.score, 80);
   });
 });

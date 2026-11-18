@@ -39,6 +39,49 @@ function canonicalDomain(domain) {
   return (ascii || raw).toLowerCase();
 }
 
+// Rebuild a scan summary against the completion-time safe list so the saved
+// snapshot (records, counts, score, issues) agrees with what was persisted.
+const SUMMARY_SECTIONS = [
+  { key: 'typosquatting', cap: MAX_TYPO_RECORDS, penalty: 15, issue: 'typosquatting', severity: 'high', rec: 'Consider registering common typosquatting domains to prevent abuse' },
+  { key: 'lookalikes', cap: MAX_LOOKALIKE_RECORDS, penalty: 10, issue: 'lookalike', severity: 'medium', rec: 'Monitor or register lookalike domains that could be used for phishing' },
+  { key: 'impersonation', cap: Infinity, penalty: 5, issue: 'subdomain_abuse', severity: 'low' },
+  { key: 'homographs', cap: 25, penalty: 12, issue: 'homograph', severity: 'high' },
+];
+
+function applySafeListToResult(result, safeList = []) {
+  const safe = new Set(safeList.map(canonicalDomain).filter(Boolean));
+  const detections = (result && result.detections) || {};
+  const filtered = {};
+  for (const section of SUMMARY_SECTIONS) {
+    const source = detections[section.key] || (result && result[section.key]) || [];
+    filtered[section.key] = source.filter((r) => !safe.has(canonicalDomain(r && r.domain)));
+  }
+
+  const out = { ...result };
+  for (const section of SUMMARY_SECTIONS) {
+    out[section.key] = filtered[section.key].slice(0, section.cap);
+  }
+
+  const knownIssues = new Set(SUMMARY_SECTIONS.map((s) => s.issue));
+  const knownRecs = new Set(SUMMARY_SECTIONS.map((s) => s.rec).filter(Boolean));
+  out.issues = ((result && result.issues) || []).filter((i) => !knownIssues.has(i && i.type));
+  out.recommendations = ((result && result.recommendations) || []).filter((r) => !knownRecs.has(r));
+
+  let score = 100;
+  for (const section of SUMMARY_SECTIONS) {
+    const count = filtered[section.key].length;
+    if (count === 0) continue;
+    score -= count * section.penalty;
+    out.issues.push({ type: section.issue, count, severity: section.severity });
+    if (section.rec) out.recommendations.push(section.rec);
+  }
+  const socialCount = ((result && result.socialMedia) || []).length;
+  score -= socialCount * 8;
+  if (socialCount > 0) out.issues.push({ type: 'social_media', count: socialCount, severity: 'medium' });
+  out.score = Math.max(0, Math.round(score));
+  return out;
+}
+
 function normalizeTldList(tlds) {
   if (!Array.isArray(tlds)) return SCAN_TLDS;
   const clean = [...new Set(tlds.map((t) => String(t || '').toLowerCase()).filter((t) => t && t.length <= 63))];
@@ -732,4 +775,4 @@ class BrandProtectionService {
   }
 }
 
-module.exports = { BrandProtectionService, SCAN_TLDS, orderedTlds, normalizeTldList, typoVariants, mapLimit, canonicalDomain };
+module.exports = { BrandProtectionService, SCAN_TLDS, orderedTlds, normalizeTldList, typoVariants, mapLimit, canonicalDomain, applySafeListToResult };

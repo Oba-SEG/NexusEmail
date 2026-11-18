@@ -18,8 +18,27 @@ const PROBE_SLD = 'nexusemailtldprobe';
 
 const TLD_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
 
-let memory = { orgId: null, tlds: null, at: 0 };
+// Per-organization memory cache (bounded) so a fetch by one org never
+// evicts another org's fresher list.
+const MEMORY_LIMIT = 50;
+const memory = new Map();
 const inflight = new Map();
+
+function remember(orgId, tlds, at) {
+  memory.delete(orgId);
+  memory.set(orgId, { tlds, at });
+  while (memory.size > MEMORY_LIMIT) {
+    const oldest = memory.keys().next().value;
+    memory.delete(oldest);
+  }
+}
+
+function rememberFresh(orgId, tlds, at) {
+  const existing = memory.get(orgId);
+  if (existing && existing.at > at) return existing.tlds;
+  remember(orgId, tlds, at);
+  return tlds;
+}
 
 function cleanTlds(list) {
   if (!Array.isArray(list)) return [];
@@ -71,7 +90,7 @@ function refreshTlds(orgId) {
       const at = Date.now();
       // Serve the validated list immediately; persistence is fire-and-forget
       // so a slow (or failing) cache write can't degrade this scan's coverage.
-      memory = { orgId, tlds, at };
+      remember(orgId, tlds, at);
       db.setSetting(CACHE_KEY, JSON.stringify({ tlds, fetched_at: at }), orgId).catch((err) => {
         console.warn('[tldRegistry] TLD cache write failed:', err.message);
       });
@@ -87,10 +106,9 @@ function refreshTlds(orgId) {
 // Returns the TLD universe to scan. Never throws: stale cache first, then
 // (blocking only when no cache exists) the API, then the bundled fallback.
 async function getScanTlds(orgId) {
-  const now = Date.now();
-  if (memory.orgId === orgId && memory.tlds && now - memory.at < CACHE_TTL_MS) {
-    return memory.tlds;
-  }
+  const startedAt = Date.now();
+  const fresh = memory.get(orgId);
+  if (fresh && startedAt - fresh.at < CACHE_TTL_MS) return fresh.tlds;
 
   let cached = null;
   try {
@@ -98,25 +116,27 @@ async function getScanTlds(orgId) {
   } catch (e) {
     cached = null;
   }
+  // Age is measured after the read: a slow settings read can't make an
+  // expired entry look fresh.
+  const now = Date.now();
   const cachedTlds = cleanTlds(cached && cached.tlds);
   const fetchedAt = Number(cached && cached.fetched_at) || 0;
 
   // A concurrent scan may have published a fresh list while this one was
   // reading settings — never replace it with the older row.
-  if (memory.orgId === orgId && memory.tlds && memory.at > fetchedAt && now - memory.at < CACHE_TTL_MS) {
-    return memory.tlds;
+  const concurrent = memory.get(orgId);
+  if (concurrent && concurrent.at > fetchedAt && now - concurrent.at < CACHE_TTL_MS) {
+    return concurrent.tlds;
   }
 
   if (cachedTlds.length && now - fetchedAt < CACHE_TTL_MS) {
-    memory = { orgId, tlds: cachedTlds, at: fetchedAt };
-    return cachedTlds;
+    return rememberFresh(orgId, cachedTlds, fetchedAt);
   }
   if (cachedTlds.length && now - fetchedAt < CACHE_STALE_MS) {
     refreshTlds(orgId).catch((err) => {
       console.warn('[tldRegistry] background TLD refresh failed:', err.message);
     });
-    memory = { orgId, tlds: cachedTlds, at: fetchedAt };
-    return cachedTlds;
+    return rememberFresh(orgId, cachedTlds, fetchedAt);
   }
 
   const job = refreshTlds(orgId).catch((err) => {

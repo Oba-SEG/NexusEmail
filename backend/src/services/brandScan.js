@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const db = require('../db/database');
-const { BrandProtectionService, canonicalDomain } = require('./brandProtection');
+const { BrandProtectionService, canonicalDomain, applySafeListToResult } = require('./brandProtection');
 const { getScanTlds } = require('./tldRegistry');
 
 // Shared brand-scan pipeline used by the manual routes and the scheduled
@@ -137,18 +137,23 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
       }
       // Re-read the safe list after inserting: a concurrent safe-list request
       // may have landed between the earlier read and the insert.
-      const safeNow = new Set((await db.getBrandSafeList(fresh.id, orgId, tx)).map(canonicalDomain).filter(Boolean));
+      const currentSafeList = await db.getBrandSafeList(fresh.id, orgId, tx);
+      const safeNow = new Set(currentSafeList.map(canonicalDomain).filter(Boolean));
       const kept = added.filter((t) => !safeNow.has(t.domain));
       for (const removedThreat of added.filter((t) => safeNow.has(t.domain))) {
         await db.deleteBrandThreatByDomain(fresh.id, removedThreat.domain, orgId, tx);
       }
 
+      // The saved snapshot must agree with the completion-time safe list:
+      // rebuild records/counts/score from raw detections before persisting.
+      const finalResult = applySafeListToResult(result, currentSafeList);
+
       await db.updateBrand(fresh.id, {
         last_scan: scannedAt,
         next_scan: nextScan,
-        last_results: result,
+        last_results: finalResult,
       }, orgId, tx);
-      await db.addBrandScan({ brand_id: fresh.id, scanned_at: scannedAt, ...result }, orgId, tx);
+      await db.addBrandScan({ brand_id: fresh.id, scanned_at: scannedAt, ...finalResult }, orgId, tx);
 
       if (current.alerts_enabled) {
         for (const alert of alertsForThreats(kept)) {
@@ -156,14 +161,14 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
         }
       }
 
-      return { nextScan, added: kept };
+      return { nextScan, added: kept, finalResult };
     });
 
     if (outcome.skipped) {
       return { skipped: outcome.skipped, domain: brand.domain, brand_id: brand.id };
     }
     return {
-      ...result,
+      ...outcome.finalResult,
       next_scan: outcome.nextScan,
       threats_persisted: outcome.added.length,
     };
