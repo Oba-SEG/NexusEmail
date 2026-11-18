@@ -110,7 +110,7 @@ function StatusCard({ item }: { item: StatusItem }) {
       className={cn(
         "group pointer-events-auto relative flex items-start gap-3 rounded-lg border p-4 shadow-lg",
         "bg-popover text-popover-foreground border-border",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=open]:slide-in-from-bottom-2 data-[state=closed]:slide-out-to-right-full"
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[swipe=end]:animate-out data-[state=closed]:fade-out-80 data-[state=open]:slide-in-from-bottom-2 data-[state=closed]:slide-out-to-right-full duration-200 ease-out-quart"
       )}
     >
       <span className={iconClass} aria-hidden="true">{icon}</span>

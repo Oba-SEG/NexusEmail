@@ -29,6 +29,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   const [slackForm, setSlackForm] = useState({ webhook_url: '' });
   const [resendForm, setResendForm] = useState({ api_key: '', from: '' });
   const [testEmailTo, setTestEmailTo] = useState('');
+  const [pendingPrefs, setPendingPrefs] = useState<Record<string, boolean>>({});
   const [savingSmtp, setSavingSmtp] = useState(false);
   const [testingSmtp, setTestingSmtp] = useState(false);
   const [savingSlack, setSavingSlack] = useState(false);
@@ -41,6 +42,19 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   const editSeq = useRef({ smtp: 0, slack: 0, resend: 0 });
   // Only controls backed by a successful config load are editable; a
   // partial settings object from another action must not unlock the forms.
+  const togglePref = async (key: string) => {
+    setPendingPrefs((p) => ({ ...p, [key]: true }));
+    try {
+      await onSavePref(key, !notifications[key]);
+    } finally {
+      setPendingPrefs((p) => {
+        const next = { ...p };
+        delete next[key];
+        return next;
+      });
+    }
+  };
+
   const ready = configLoaded && !!settings;
   const smtpReady = ready && canManageSmtp;
   const updateSmtp = (patch: Partial<typeof smtpForm>) => {
@@ -208,10 +222,11 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             label={pref.label}
             description={pref.desc}
             on={!!notifications[pref.key]}
-            onClick={() => onSavePref(pref.key, !notifications[pref.key])}
+            onClick={() => togglePref(pref.key)}
             onLabel="On"
             offLabel="Off"
             disabled={!ready}
+            pending={!!pendingPrefs[pref.key]}
           />
         ))}
       </SettingsSection>

@@ -5,6 +5,7 @@ import { RefreshCw, Save, Send, Zap, type LucideIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 /** Shared chrome for the settings-style tabs (Integrations, Notifications,
  * Settings) so section headers, toggle rows and save/test actions stay
@@ -76,6 +77,7 @@ export function ToggleRow({
   onLabel = "Enabled",
   offLabel = "Disabled",
   disabled = false,
+  pending = false,
 }: {
   label: string;
   description: string;
@@ -84,6 +86,7 @@ export function ToggleRow({
   onLabel?: string;
   offLabel?: string;
   disabled?: boolean;
+  pending?: boolean;
 }) {
   const labelId = useId();
   return (
@@ -92,17 +95,37 @@ export function ToggleRow({
         <p id={labelId} className="font-medium text-sm">{label}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
+      <span className="flex items-center gap-3 shrink-0">
+        <span aria-hidden="true" className="min-w-[4.5rem] text-right text-xs font-medium text-muted-foreground">
+          {pending ? 'Saving…' : on ? onLabel : offLabel}
+        </span>
+        <button
+        type="button"
+        role="switch"
+        aria-checked={on}
         aria-labelledby={labelId}
-        aria-pressed={on}
-        disabled={disabled}
-        className={`min-w-[78px] shrink-0 ${on ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200 border border-emerald-500/30" : "text-muted-foreground border border-white/10 hover:bg-white/5"}`}
+        aria-busy={pending}
+        disabled={disabled || pending}
         onClick={onClick}
+        className={cn(
+          "pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border px-1",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "disabled:pointer-events-none disabled:opacity-50",
+          on
+            ? "border-emerald-400/50 bg-emerald-500/30 shadow-[0_0_14px_-4px_rgba(16,185,129,0.55)]"
+            : "border-white/15 bg-white/10 hover:bg-white/15"
+        )}
       >
-        {on ? onLabel : offLabel}
-      </Button>
+        <span
+          className={cn(
+            "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out-quart",
+            on ? "translate-x-5" : "translate-x-0",
+            pending && "animate-pulse"
+          )}
+        />
+        <span className="sr-only">{on ? onLabel : offLabel}</span>
+        </button>
+      </span>
     </div>
   );
 }
@@ -153,8 +176,9 @@ export function SaveTestActions({
   return (
     <div className="flex gap-2">
       {onSave ? (
-        <Button size="sm" onClick={onSave} disabled={disabled || saving} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
-          <Save className="w-4 h-4 mr-2" /> {saving ? savingLabel : saveLabel}
+        <Button size="sm" onClick={onSave} disabled={disabled || saving} aria-busy={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? savingLabel : saveLabel}
         </Button>
       ) : null}
       <Button
@@ -166,9 +190,9 @@ export function SaveTestActions({
         className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
       >
         {testing ? (
-          <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> {testingLabel || `${testLabel.replace(/^Send /, "Sending ").replace(/^Test /, "Testing ")}…`}</>
+          <><RefreshCw className="w-4 h-4 animate-spin" /> {testingLabel || `${testLabel.replace(/^Send /, "Sending ").replace(/^Test /, "Testing ")}…`}</>
         ) : (
-          <>{testIcon === "zap" ? <Zap className="w-4 h-4 mr-2" /> : <Send className="w-4 h-4 mr-2" />} {testLabel}</>
+          <>{testIcon === "zap" ? <Zap className="w-4 h-4" /> : <Send className="w-4 h-4" />} {testLabel}</>
         )}
       </Button>
     </div>

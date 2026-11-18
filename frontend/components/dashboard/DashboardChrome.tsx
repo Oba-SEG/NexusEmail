@@ -59,7 +59,7 @@ export default function DashboardChrome({
           className={
             compact
               ? "gap-2 px-3 py-2 text-sm data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-300 data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground whitespace-nowrap"
-              : "group relative w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground data-[state=active]:bg-white/[0.05] data-[state=active]:text-foreground data-[state=active]:border-white/10 border border-transparent hover:bg-white/[0.03] hover:text-foreground transition-colors"
+              : "group relative w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground data-[state=active]:bg-white/[0.05] data-[state=active]:text-foreground data-[state=active]:border-white/10 border border-transparent hover:bg-white/[0.03] hover:text-foreground transition-[background-color,color,border-color,transform] duration-150 ease-out-quart motion-safe:active:scale-[0.98]"
           }
         >
           {!compact && (
