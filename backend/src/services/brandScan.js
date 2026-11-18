@@ -82,8 +82,13 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
     }
 
     const service = new BrandProtectionService();
-    const tlds = await getScanTlds(orgId);
-    const result = await service.checkBrandProtection(fresh.domain, fresh.last_results, { tlds });
+    // Pre-filter against the safe list so caps apply to actionable records;
+    // the transaction re-reads the safe list to catch concurrent additions.
+    const [tlds, safeList] = await Promise.all([
+      getScanTlds(orgId),
+      db.getBrandSafeList(fresh.id, orgId),
+    ]);
+    const result = await service.checkBrandProtection(fresh.domain, fresh.last_results, { tlds, safeList });
 
     // The service reports partial failures as result.error instead of
     // throwing. Never record those as successful scans or advance the

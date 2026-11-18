@@ -13,6 +13,7 @@ const API_KEY_SETTING = 'domainscoza_api_key';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_TIMEOUT_MS = 180000;
+const COLD_WAIT_MS = 30000;
 const PROBE_SLD = 'nexusemailtldprobe';
 
 const TLD_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/;
@@ -68,8 +69,14 @@ function refreshTlds(orgId) {
       if (!apiKey) throw new Error('no Domains.co.za API key configured');
       const tlds = await fetchTlds(apiKey);
       const at = Date.now();
-      await db.setSetting(CACHE_KEY, JSON.stringify({ tlds, fetched_at: at }), orgId);
+      // Serve the fetched list even if persisting it fails — a cache write
+      // error must not discard a valid registrar response.
       memory = { orgId, tlds, at };
+      try {
+        await db.setSetting(CACHE_KEY, JSON.stringify({ tlds, fetched_at: at }), orgId);
+      } catch (err) {
+        console.warn('[tldRegistry] TLD cache write failed:', err.message);
+      }
       return tlds;
     } finally {
       inflight.delete(orgId);
@@ -104,15 +111,23 @@ async function getScanTlds(orgId) {
     refreshTlds(orgId).catch((err) => {
       console.warn('[tldRegistry] background TLD refresh failed:', err.message);
     });
-    memory = { orgId, tlds: cachedTlds, at: now };
+    memory = { orgId, tlds: cachedTlds, at: fetchedAt };
     return cachedTlds;
   }
 
-  try {
-    return await refreshTlds(orgId);
-  } catch (err) {
-    console.warn('[tldRegistry] using fallback TLD list:', err.message);
-  }
+  const job = refreshTlds(orgId).catch((err) => {
+    console.warn('[tldRegistry] TLD refresh failed:', err.message);
+    return null;
+  });
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(null), COLD_WAIT_MS);
+    if (timer.unref) timer.unref();
+  });
+  const fetched = await Promise.race([job, timeout]);
+  clearTimeout(timer);
+  if (fetched && fetched.length) return fetched;
+  if (!fetched) console.warn('[tldRegistry] registrar slow/unavailable; scanning with fallback list while refresh continues');
   return cachedTlds.length ? cachedTlds : SCAN_TLDS;
 }
 

@@ -56,6 +56,7 @@ describe('scan tld selection', () => {
     const variants = [...typoVariants('segbytes')];
     assert.ok(variants.includes('segbyte'), 'single-character deletion');
     assert.ok(variants.includes('aegbytes'), 'keyboard-adjacent substitution');
+    assert.ok(variants.includes('zegbytes'), 's→z keyboard substitution survives the table extraction');
     assert.ok(variants.includes('seg-bytes'), 'dash insertion');
     assert.ok(!variants.includes('segbytes'), 'does not include the base name');
   });

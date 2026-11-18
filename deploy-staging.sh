@@ -20,7 +20,14 @@ CR=$(cat "$SECRETS_DIR/cron-secret")
 PW=$(cat "$SECRETS_DIR/admin-password")
 PGPW=$(cat "$SECRETS_DIR/postgres-password")
 EK=$(cat "$SECRETS_DIR/encryption-key" 2>/dev/null || true)
-DCK=$(cat /Users/ob/segkeys/domainscoza/api-key 2>/dev/null || true)
+DCK_FILE=/Users/ob/segkeys/domainscoza/api-key
+if [ -e "$DCK_FILE" ]; then
+  # A read failure must abort (set -e): writing an empty value would wipe a
+  # working key from the remote .env.
+  DCK=$(cat "$DCK_FILE")
+else
+  DCK=$(sshr "grep -s '^DOMAINSCOZA_API_KEY=' $REMOTE_DIR/.env | cut -d= -f2-" || true)
+fi
 if [ -z "$EK" ]; then
   # A fresh key here would leave existing encrypted settings undecryptable,
   # so the remote key is recovered first. An SSH/lookup failure must abort —

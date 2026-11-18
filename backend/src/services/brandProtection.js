@@ -54,7 +54,7 @@ function typoVariants(baseName) {
     'g': ['f', 't', 'y', 'h', 'b', 'v'], 'h': ['g', 'y', 'u', 'j', 'n', 'b'], 'i': ['u', 'j', 'k', 'o'],
     'j': ['h', 'u', 'i', 'k', 'm', 'n'], 'k': ['j', 'i', 'o', 'l', 'm'], 'l': ['k', 'o', 'p'],
     'm': ['n', 'j', 'k'], 'n': ['b', 'h', 'j', 'm'], 'o': ['i', 'k', 'l', 'p'], 'p': ['o', 'l'],
-    'q': ['w', 'a'], 'r': ['e', 'd', 'f', 't'], 's': ['a', 'w', 'e', 'd', 'x'], 't': ['r', 'f', 'g', 'y'],
+    'q': ['w', 'a'], 'r': ['e', 'd', 'f', 't'], 's': ['a', 'w', 'e', 'd', 'x', 'z'], 't': ['r', 'f', 'g', 'y'],
     'u': ['y', 'h', 'j', 'i'], 'v': ['c', 'f', 'g', 'b'], 'w': ['q', 'a', 's', 'e'],
     'x': ['z', 's', 'd', 'c'], 'y': ['t', 'g', 'h', 'u'], 'z': ['a', 's', 'x'],
   };
@@ -143,6 +143,8 @@ class BrandProtectionService {
   async checkBrandProtection(mainDomain, previousResults = null, options = {}) {
     const baseName = mainDomain.split('.')[0];
     const scanTlds = normalizeTldList(options.tlds);
+    const safeDomains = new Set((Array.isArray(options.safeList) ? options.safeList : []).map((d) => String(d || '').toLowerCase()).filter(Boolean));
+    const isSafe = (domain) => !safeDomains.has(String(domain || '').toLowerCase());
     const results = {
       domain: mainDomain,
       timestamp: new Date().toISOString(),
@@ -176,7 +178,7 @@ class BrandProtectionService {
 
       results.tld_count = scanTlds.length;
       results.progress.push({ step: 'typosquatting', label: `Checking typosquatting across ${scanTlds.length} TLDs...`, done: false, complete: false });
-      const typos = await this.checkTypoSquats(baseName, mainDomain, scanTlds);
+      const typos = await this.checkTypoSquats(baseName, mainDomain, scanTlds, isSafe);
       results.typosquatting = typos.records;
       results.progress[2].done = true;
       results.progress[2].complete = true;
@@ -187,7 +189,7 @@ class BrandProtectionService {
       }
 
       results.progress.push({ step: 'lookalikes', label: 'Checking lookalike domains...', done: false, complete: false });
-      const lookalikes = await this.checkLookalikes(baseName, mainDomain, scanTlds);
+      const lookalikes = await this.checkLookalikes(baseName, mainDomain, scanTlds, isSafe);
       results.lookalikes = lookalikes.records;
       results.progress[3].done = true;
       results.progress[3].complete = true;
@@ -218,7 +220,7 @@ class BrandProtectionService {
       }
 
       results.progress.push({ step: 'homograph', label: 'Checking homograph attacks...', done: false, complete: false });
-      const homographs = await this.checkHomographs(baseName, mainDomain, scanTlds);
+      const homographs = await this.checkHomographs(baseName, mainDomain, scanTlds, isSafe);
       results.homographs = homographs.records;
       results.progress[6].done = true;
       results.progress[6].complete = true;
@@ -531,7 +533,7 @@ class BrandProtectionService {
     });
   }
 
-  async checkTypoSquats(baseName, mainDomain, tlds = SCAN_TLDS) {
+  async checkTypoSquats(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
     const tld = mainDomain.split('.').slice(1).join('.') || 'com';
     const tldList = orderedTlds(tld, tlds);
     const variants = [...typoVariants(baseName)].slice(0, MAX_TYPO_VARIANTS);
@@ -567,11 +569,12 @@ class BrandProtectionService {
 
     const uniqueRecords = probes
       .filter(Boolean)
+      .filter((r) => isSafe(r.domain))
       .filter((r, i, arr) => arr.findIndex((x) => x.domain === r.domain) === i);
     return { records: uniqueRecords.slice(0, MAX_TYPO_RECORDS), found: uniqueRecords.length, tlds_checked: tldList.length };
   }
 
-  async checkLookalikes(baseName, mainDomain, tlds = SCAN_TLDS) {
+  async checkLookalikes(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
     const tld = mainDomain.split('.').slice(1).join('.') || 'com';
     const tldList = orderedTlds(tld, tlds);
     const prefixes = ['mail', 'web', 'www', 'ftp', 'secure', 'login', 'account', 'admin', 'support', 'smtp', 'webmail'];
@@ -594,7 +597,7 @@ class BrandProtectionService {
       }
     });
 
-    const records = hits.filter(Boolean);
+    const records = hits.filter(Boolean).filter((r) => isSafe(r.domain));
     return { records: records.slice(0, MAX_LOOKALIKE_RECORDS), found: records.length };
   }
 
@@ -648,7 +651,7 @@ class BrandProtectionService {
     return { records: records.slice(0, 10), found: records.length };
   }
 
-  async checkHomographs(baseName, mainDomain, tlds = SCAN_TLDS) {
+  async checkHomographs(baseName, mainDomain, tlds = SCAN_TLDS, isSafe = () => true) {
     const records = [];
     const tld = mainDomain.split('.').slice(1).join('.') || 'com';
     
@@ -677,7 +680,7 @@ class BrandProtectionService {
           return null;
         }
       });
-      records.push(...hits.filter(Boolean));
+      records.push(...hits.filter(Boolean).filter((r) => isSafe(r.domain)));
     }
 
     return { records: records.slice(0, 25), found: records.length };
