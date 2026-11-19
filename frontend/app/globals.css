@@ -9,26 +9,26 @@
 
 @layer base {
   :root {
-    --background: 240 6% 6%;
-    --foreground: 40 12% 93%;
-    --card: 240 6% 8%;
-    --card-foreground: 40 12% 93%;
+    --background: 240 7% 5%;
+    --foreground: 40 14% 94%;
+    --card: 240 6% 7%;
+    --card-foreground: 40 14% 94%;
     --popover: 240 6% 9%;
-    --popover-foreground: 40 12% 93%;
+    --popover-foreground: 40 14% 94%;
     --primary: 25 100% 66%;
     --primary-foreground: 28 48% 8%;
-    --secondary: 240 5% 14%;
-    --secondary-foreground: 40 12% 93%;
-    --muted: 240 5% 13%;
-    --muted-foreground: 240 5% 62%;
-    --accent: 240 5% 16%;
-    --accent-foreground: 40 12% 93%;
+    --secondary: 240 5% 13%;
+    --secondary-foreground: 40 14% 94%;
+    --muted: 240 5% 12%;
+    --muted-foreground: 240 5% 66%;
+    --accent: 240 5% 15%;
+    --accent-foreground: 40 14% 94%;
     --destructive: 0 64% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 5% 18%;
-    --input: 240 5% 22%;
+    --border: 240 5% 17%;
+    --input: 240 5% 24%;
     --ring: 25 100% 66%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
     /* Motion: exponential ease-out only, no bounce. */
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -114,6 +114,30 @@
     border-color: hsl(var(--border));
   }
 
+  /* Page-header system: one title size, one description size, rule below. */
+  .page-title {
+    font-size: 26px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .page-description {
+    max-width: 72ch;
+    font-size: 13px;
+    line-height: 1.55;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .section-label {
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+
   /* Product mark. Flat signal color, dark glyph. */
   .nbp-mark {
     display: inline-flex;
@@ -124,7 +148,7 @@
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
     font-weight: 700;
     letter-spacing: -0.02em;
-    border-radius: 8px;
+    border-radius: 9px;
   }
 
   /* Primary action. Flat, no gradient, no lift. */

@@ -343,12 +343,16 @@ export default function Dashboard() {
   }, [token]);
 
   // A non-admin must never land on the admin tab, including via ?tab=admin.
+  // Wait for the stored session to hydrate: `isAdmin` is false while `user`
+  // is still null, which would otherwise bounce a platform admin's deep link
+  // to Domains and rewrite the URL before the profile arrives.
   useEffect(() => {
+    if (loading || !token) return;
     if (activeTab === 'admin' && !isAdmin) {
       replaceUrlRef.current = true;
       setActiveTabState('domains');
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, loading, token]);
 
   const login = async () => {
     setLoggingIn(true);

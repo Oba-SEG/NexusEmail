@@ -211,6 +211,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
       <SettingsSection
         title="Notification preferences"
         description="Toggle which events generate an outbound alert."
+        contentClassName="divide-y divide-border/60 py-0"
       >
         {[
           { key: 'scan_completed', label: 'Scan completed', desc: 'Get notified when a domain scan finishes.' },

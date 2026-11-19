@@ -126,7 +126,7 @@ export default function GlobalSearch({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden p-0 [&>button]:hidden"
+        className="top-[15%] max-w-[600px] translate-y-0 gap-0 overflow-hidden p-0 [&>button]:hidden"
         onCloseAutoFocus={(e) => {
           if (!openerRef.current || openerRef.current === document.body) {
             const button = document.querySelector<HTMLElement>('button[aria-label="Search domains, brands and pages"]');

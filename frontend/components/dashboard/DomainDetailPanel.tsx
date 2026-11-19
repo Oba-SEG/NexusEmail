@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/format";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
-import { recordState, recordToneClass, dnsEvidence, scoreBreakdownRows } from "@/lib/domainPanel";
+import { recordState, dnsEvidence, scoreBreakdownRows } from "@/lib/domainPanel";
 
 /** Dedupe key: report IDs are only unique per reporter, so the key is
  * reporter-scoped; fallback keys live in a separate namespace. */
@@ -122,20 +122,34 @@ export default function DomainDetailPanel({
   };
   return (
   <div className="min-h-full bg-card">
-    <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-5 py-4">
+    <header className="sticky top-0 z-10 flex flex-col gap-3 border-b border-border bg-card/95 px-4 py-4 backdrop-blur sm:flex-row sm:items-start sm:justify-between sm:px-6">
       <div className="min-w-0">
-        <h2 className="truncate font-mono text-[15px] font-semibold">{selectedDomain.name}</h2>
-        <p className="mt-0.5 text-[12px] text-muted-foreground">Scan results and recommended fixes</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="truncate font-mono text-[16px] font-semibold">{selectedDomain.name}</h2>
+          {selectedDomain.verified && (
+            <span className="rounded border border-emerald-500/20 bg-emerald-500/[0.07] px-1.5 py-0.5 text-[10.5px] font-medium text-emerald-300">
+              Owner verified
+            </span>
+          )}
+        </div>
+        <p className="mt-1 text-[12px] text-muted-foreground">
+          Scan results and recommended fixes
+          {selectedDomain.latest_scan?.scanned_at && (
+            <> · {formatDateTime(selectedDomain.latest_scan.scanned_at)}</>
+          )}
+        </p>
       </div>
-      <div className="flex flex-shrink-0 gap-2">
-        <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
+      <div className="flex flex-shrink-0 items-center gap-1.5">
+        <Button variant="outline" size="sm" className="max-sm:flex-1" onClick={() => fixDomain(selectedDomain.id)}>
           <Wrench className="w-3.5 h-3.5" /> Get fix records
         </Button>
-        <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close" title="Close">
+          Close
+        </Button>
       </div>
-    </div>
-    <div className="space-y-4 px-5 py-4">
-      {/* DNS Status Cards */}
+    </header>
+    <div className="space-y-4 px-4 py-5 sm:px-6">
+      {/* Authentication records: one row per record, never three cramped cards. */}
       {(() => {
         const spfRow = recordState(selectedDomain.latest_scan, 'spf');
         const dkimRow = recordState(selectedDomain.latest_scan, 'dkim');
@@ -145,19 +159,33 @@ export default function DomainDetailPanel({
           { key: 'DKIM', row: dkimRow, desc: 'Digital signature verification', tip: "DomainKeys Identified Mail - Cryptographic signature to verify email hasn't been tampered" },
           { key: 'DMARC', row: dmarcRow, desc: 'Policy for SPF/DKIM failures', tip: 'Domain-based Message Authentication - Policy for handling failed auth' }
         ];
+        const dot = (tone: string) =>
+          tone === 'pass' ? 'bg-emerald-400' :
+          tone === 'fail' ? 'bg-red-400' :
+          tone === 'warn' ? 'bg-amber-400' :
+          'bg-white/25';
+        const text = (tone: string) =>
+          tone === 'pass' ? 'text-emerald-300' :
+          tone === 'fail' ? 'text-red-300' :
+          tone === 'warn' ? 'text-amber-300' :
+          'text-muted-foreground';
         return (
-          <div className="grid gap-2 md:grid-cols-3">
-            {cards.map((c) => (
-              <div key={c.key} className={`rounded-md border p-3 ${recordToneClass[c.row.tone]}`}>
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-medium text-muted-foreground">{c.key}</p>
-                  <span className="cursor-help text-[11px] text-muted-foreground" title={c.tip}>?</span>
+          <section className="overflow-hidden rounded-xl border border-border" aria-label="Authentication records">
+            {cards.map((c, i) => (
+              <div
+                key={c.key}
+                className={`flex flex-wrap items-start gap-x-3 px-4 py-3.5 ${i > 0 ? 'border-t border-border' : ''}`}
+              >
+                <span aria-hidden="true" className={`mt-[7px] h-2 w-2 flex-shrink-0 rounded-full ${dot(c.row.tone)}`} />
+                <span className="w-14 flex-shrink-0 pt-px font-mono text-[11.5px] font-medium text-muted-foreground">{c.key}</span>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-[12.5px] font-medium ${text(c.row.tone)}`}>{c.row.label}</p>
+                  <p className="mt-0.5 text-[11.5px] leading-4 text-muted-foreground">{c.desc}</p>
                 </div>
-                <p className="mt-1 text-[13px] font-semibold">{c.row.label}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</p>
+                <span className="cursor-help rounded border border-border px-1.5 text-[10px] leading-4 text-muted-foreground" title={c.tip} aria-label={c.tip}>?</span>
               </div>
             ))}
-          </div>
+          </section>
         );
       })()}
 
@@ -166,22 +194,27 @@ export default function DomainDetailPanel({
         const bd = scoreBreakdownRows(selectedDomain.latest_scan?.score_breakdown);
         if (!bd) return null;
         return (
-          <div className="rounded-lg border border-border bg-white/[0.02] p-4">
-            <div className="flex items-baseline justify-between mb-3">
-              <p className="font-medium text-sm">Health score</p>
-              <p className="text-[20px] font-semibold tabular-nums tracking-[-0.02em]">{bd.total}<span className="text-sm text-muted-foreground font-normal">/100</span></p>
+          <section className="rounded-xl border border-border p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="section-label">Health score</p>
+                <p className="mt-1 text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums">
+                  {bd.total}<span className="text-[13px] font-normal text-muted-foreground"> / 100</span>
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Weighted across records and policy</p>
             </div>
-            <div className="space-y-2">
+            <div className="mt-5 space-y-3">
               {bd.rows.map((r) => (
                 <div key={r.key} title={r.hint}>
-                  <div className="flex items-center justify-between text-xs mb-1">
+                  <div className="mb-1.5 flex items-center justify-between gap-3 text-[12px]">
                     <span className="font-medium">{r.label}</span>
-                    <span className="text-muted-foreground tabular-nums">{r.got}{r.max > 0 ? ` / ${r.max}` : ' (not scored)'}</span>
+                    <span className="text-[11px] text-muted-foreground tabular-nums">{r.got}{r.max > 0 ? ` / ${r.max}` : ' (not scored)'}</span>
                   </div>
                   {r.max > 0 && (
-                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-1 overflow-hidden rounded-full bg-white/10">
                       <div
-                        className={`h-full rounded-full ${r.got >= r.max * 0.7 ? 'bg-emerald-500' : r.got > 0 ? 'bg-amber-500' : 'bg-red-500/60'}`}
+                        className={`h-full rounded-full ${r.got >= r.max * 0.7 ? 'bg-emerald-400' : r.got > 0 ? 'bg-amber-400' : 'bg-red-400/70'}`}
                         style={{ width: `${Math.min(100, Math.round((r.got / r.max) * 100))}%` }}
                       />
                     </div>
@@ -192,10 +225,10 @@ export default function DomainDetailPanel({
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+            <p className="mt-4 border-t border-border pt-3 text-[11px] leading-5 text-muted-foreground">
               Score = SPF + DKIM + DMARC (incl. impersonation penalties) + TLS-RPT, clamped to 100. Hover a row for its weight; the fixes below raise the corresponding bar.
             </p>
-          </div>
+          </section>
         );
       })()}
 
@@ -207,59 +240,66 @@ export default function DomainDetailPanel({
         if (!evidence.length) return null;
         const nonePublished = evidence.filter((r) => ['SPF', 'DKIM', 'DMARC'].includes(r.check) && !r.found).length === 3;
         return (
-          <div className="rounded-lg border border-border bg-white/[0.02] p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[13px] font-medium">What we checked · live DNS</p>
+          <section className="overflow-hidden rounded-xl border border-border">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <h3 className="text-[13px] font-medium">What we checked · live DNS</h3>
               {selectedDomain.latest_scan?.scanned_at && (
-                <span className="text-xs text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {formatDateTime(selectedDomain.latest_scan.scanned_at)}
                 </span>
               )}
-            </div>
+            </header>
             {nonePublished && (
-              <p className="mb-3 rounded-md border border-border bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+              <p className="mx-4 mt-3 rounded-md border border-border bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                 No email authentication records are published for this domain yet — this result mirrors your live DNS,
                 not a scanner error. Run Get Fix Records below for the exact records to add at your DNS provider, then re-scan.
               </p>
             )}
-            <table className="w-full text-[12px]">
-              <tbody>
-                {evidence.map((r) => (
-                  <tr key={r.check} className="border-b border-border/60 last:border-0">
-                    <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{r.check}</td>
-                    <td className="py-1.5 pr-3 font-mono text-xs text-muted-foreground whitespace-nowrap">{r.query}</td>
-                    <td className={`py-1.5 text-xs break-all ${r.found ? 'text-foreground' : 'text-muted-foreground'}`}>{r.result}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="mt-3 pt-3 border-t border-border/60">
-              <div className="flex items-center gap-2">
+            <div className="overflow-x-auto px-4 py-2">
+              <table className="w-full text-[11.5px]">
+                <tbody>
+                  {evidence.map((r) => (
+                    <tr key={r.check} className="border-b border-border/60 last:border-0">
+                      <td className="whitespace-nowrap py-2 pr-3 font-medium">{r.check}</td>
+                      <td className="hidden whitespace-nowrap py-2 pr-3 font-mono text-[11px] text-muted-foreground sm:table-cell">{r.query}</td>
+                      <td className={`break-all py-2 ${r.found ? 'text-foreground' : 'text-muted-foreground'}`}>{r.result}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="border-t border-border px-4 py-3">
+              <label htmlFor="dkim-selector" className="text-[11px] font-medium text-muted-foreground">Check a specific DKIM selector</label>
+              <div className="mt-1.5 flex items-center gap-2">
                 <Input
-                  className="h-8 flex-1 text-[12px]"
-                  placeholder="Check a specific DKIM selector (e.g. resend, google, selector1)"
+                  id="dkim-selector"
+                  className="h-9 flex-1 text-[12px]"
+                  placeholder="e.g. resend, google, selector1"
                   value={selectorInput}
                   onChange={(e) => setSelectorInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && checkDkimSelector()}
                 />
-                <Button size="sm" variant="outline" className="h-8 text-xs" onClick={checkDkimSelector} disabled={checkingSelector || !selectorInput.trim()}>
+                <Button size="sm" variant="outline" className="h-9" onClick={checkDkimSelector} disabled={checkingSelector || !selectorInput.trim()}>
                   {checkingSelector ? 'Checking…' : 'Check selector'}
                 </Button>
               </div>
               {selectorResults.map((r) => (
-                <p key={r.selector + r.text} className={`text-xs mt-2 ${r.found ? 'text-emerald-300' : 'text-muted-foreground'}`}>
+                <p key={r.selector + r.text} className={`mt-2 text-[11.5px] ${r.found ? 'text-emerald-300' : 'text-muted-foreground'}`}>
                   <span className="font-mono">{r.selector}</span> — {r.text}
                 </p>
               ))}
             </div>
-          </div>
+          </section>
         );
       })()}
 
       {/* DMARC Aggregate Reports (issue #64): upload RFC 7489 XML */}
-      <div className="rounded-lg border border-border bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[13px] font-medium">DMARC Aggregate Reports</p>
+      <section className="overflow-hidden rounded-xl border border-border">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div>
+            <h3 className="text-[13px] font-medium">DMARC Aggregate Reports</h3>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">Upload RFC 7489 XML from your rua mailbox</p>
+          </div>
           <div>
             <input
               ref={dmarcFileRef}
@@ -273,18 +313,19 @@ export default function DomainDetailPanel({
               }}
             />
             <Button variant="outline" size="sm" disabled={dmarcUploading} onClick={() => dmarcFileRef.current && dmarcFileRef.current.click()}>
-              <Upload className="w-4 h-4 mr-1" /> {dmarcUploading ? 'Uploading...' : 'Upload XML'}
+              <Upload className="w-3.5 h-3.5" /> {dmarcUploading ? 'Uploading...' : 'Upload XML'}
             </Button>
           </div>
-        </div>
+        </header>
+        <div className="px-4 py-3">
         {dmarcUploadError && (
-          <p className="text-xs text-red-500 mb-2">{dmarcUploadError}</p>
+          <p className="mb-2 text-[11.5px] text-red-400">{dmarcUploadError}</p>
         )}
         {detailRefreshError ? (
-          <p className="text-xs text-red-500 mb-2">{detailRefreshError} — the report list below may be incomplete.</p>
+          <p className="mb-2 text-[11.5px] text-red-400">{detailRefreshError} — the report list below may be incomplete.</p>
         ) : null}
         {detailRefreshing && !detailRefreshError ? (
-          <p className="text-xs text-muted-foreground mb-2">Loading aggregate reports…</p>
+          <p className="mb-2 text-[11.5px] text-muted-foreground">Loading aggregate reports…</p>
         ) : null}
         {!detailRefreshing && selectedDomain.dmarc_reports?.length > 0 ? (
           (() => {
@@ -303,13 +344,14 @@ export default function DomainDetailPanel({
             ).size;
             const visible = showAllReports ? reports : reports.slice(0, 10);
             return (
-              <div className="space-y-2">
-                <p className="text-xs text-muted-foreground">
+              <div>
+                <p className="text-[11.5px] text-muted-foreground">
                   {reports.length} report{reports.length === 1 ? '' : 's'} · {sourceCount} unique failing source{sourceCount === 1 ? '' : 's'}
                   {selectedDomain.dmarc_reports.length > reports.length && (
                     <> · {selectedDomain.dmarc_reports.length - reports.length} duplicate ingest{selectedDomain.dmarc_reports.length - reports.length === 1 ? '' : 's'} collapsed</>
                   )}
                 </p>
+                <div className="mt-1">
                 {visible.map((r: any) => {
                   const ins = r.insights || {};
                   const sources = failingSources(r);
@@ -318,7 +360,7 @@ export default function DomainDetailPanel({
                   const key = reportKey(r);
                   const open = openReports.has(key);
                   return (
-                    <div key={key} className="rounded border text-xs overflow-hidden">
+                    <div key={key} className="border-b border-border/70 last:border-0">
                       <button
                         type="button"
                         onClick={() => {
@@ -330,30 +372,35 @@ export default function DomainDetailPanel({
                           });
                         }}
                         aria-expanded={open}
-                        className="w-full p-2 text-left cursor-pointer hover:bg-muted/30 transition-colors"
+                        className="flex w-full items-start gap-3 px-0 py-3 text-left transition-colors hover:bg-white/[0.02]"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium truncate">{r.report?.orgName || 'Unknown reporter'}</span>
-                          <span className="text-muted-foreground flex-shrink-0">
-                            {r.report?.begin ? formatDateTime(new Date(r.report.begin * 1000)) : ''}
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="truncate text-[12px] font-medium">{r.report?.orgName || 'Unknown reporter'}</span>
+                            <span className="flex-shrink-0 text-[11px] text-muted-foreground">
+                              {r.report?.begin ? formatDateTime(new Date(r.report.begin * 1000)) : ''}
+                            </span>
                           </span>
-                        </div>
-                        <div className="mt-1 text-muted-foreground">
-                          {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
-                          {sources.length > 0 && (
-                            <> · top fail source: {sources[0].ip} ({sources[0].count})</>
-                          )}
-                        </div>
+                          <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                            {ins.totalMessages ?? 0} messages · {ins.passingMessages ?? 0} aligned · {ins.failingMessages ?? 0} failed
+                            {sources.length > 0 && (
+                              <> · top fail source: {sources[0].ip} ({sources[0].count})</>
+                            )}
+                          </span>
+                        </span>
+                        {open
+                          ? <ChevronDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                          : <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />}
                       </button>
                       {open && (
-                        <div className="px-2 pb-2 space-y-2 border-t pt-2">
+                        <div className="space-y-1.5 pb-3 pl-0 text-[11.5px]">
                           <p className="text-muted-foreground">Report ID: {r.report?.reportId || '—'}</p>
                           {ins.reportedPolicyDomain && (
                             <p className="text-muted-foreground">Policy domain: {ins.reportedPolicyDomain}</p>
                           )}
                           {sources.length > 0 && (
                             <div>
-                              <p className="font-medium mb-1">Failing sources</p>
+                              <p className="font-medium">Failing sources</p>
                               <ul className="space-y-0.5 text-muted-foreground">
                                 {sources.map((s: any, si: number) => (
                                   <li key={si}>{s.ip} — {s.count} message{s.count === 1 ? '' : 's'}</li>
@@ -362,7 +409,7 @@ export default function DomainDetailPanel({
                             </div>
                           )}
                           {unauthorized.length > 0 && (
-                            <div className="text-amber-500">
+                            <div className="text-amber-300">
                               External report destination(s) lack authorization (RFC 7489 §7.1): {unauthorized.map((c: any) => c.destination).join(', ')}
                             </div>
                           )}
@@ -383,8 +430,9 @@ export default function DomainDetailPanel({
                     </div>
                   );
                 })}
+                </div>
                 {reports.length > 10 && (
-                  <Button variant="ghost" size="sm" onClick={() => setShowAllReports(true)} disabled={showAllReports}>
+                  <Button variant="ghost" size="sm" className="mt-2" onClick={() => setShowAllReports(true)} disabled={showAllReports}>
                     {showAllReports ? `Showing all ${reports.length}` : `Show all ${reports.length} reports`}
                   </Button>
                 )}
@@ -392,15 +440,18 @@ export default function DomainDetailPanel({
             );
           })()
         ) : !detailRefreshing && !detailRefreshError ? (
-          <p className="text-xs text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
+          <p className="text-[11.5px] leading-5 text-muted-foreground">No aggregate reports ingested yet. Export the XML your inbox receives at the rua address and upload it here.</p>
         ) : null}
-      </div>
+        </div>
+      </section>
 
       {/* Issues — expandable rows with the fix inline (hover tooltips
           are invisible on touch/keyboard) */}
       {selectedDomain.issues?.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <p className="text-[13px] font-medium">Issues found</p>
+        <section className="overflow-hidden rounded-xl border border-amber-500/25 bg-amber-500/[0.04]">
+          <header className="border-b border-amber-500/20 px-4 py-3">
+            <h3 className="text-[13px] font-medium">Issues found</h3>
+          </header>
           {selectedDomain.issues.map((issue: any, i: number) => {
             const key = issue.type || String(i);
             const fixText: Record<string, string> = {
@@ -413,25 +464,25 @@ export default function DomainDetailPanel({
             const rec = fixRecommendations?.recommended_records?.[recKey[issue.type]];
             const open = openIssues.has(key + i);
             return (
-              <div key={i} className="rounded bg-amber-500/10 border border-amber-500/30 overflow-hidden">
+              <div key={i} className="border-b border-amber-500/15 last:border-0">
                 <button
                   type="button"
                   onClick={() => toggleIssue(key + i)}
                   aria-expanded={open}
-                  className="w-full flex items-center gap-2 p-2 text-left cursor-pointer hover:bg-amber-500/15 transition-colors"
+                  className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-amber-500/[0.06]"
                 >
-                  {open ? <ChevronDown className="w-4 h-4 text-amber-500 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-amber-500 flex-shrink-0" />}
-                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                  <span className="text-sm flex-1">{issue.message || issue.type || issue}</span>
+                  {open ? <ChevronDown className="w-4 h-4 flex-shrink-0 text-amber-400" /> : <ChevronRight className="w-4 h-4 flex-shrink-0 text-amber-400" />}
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                  <span className="flex-1 text-[12.5px] leading-5">{issue.message || issue.type || issue}</span>
                   {issue.type && (
-                    <span className="text-xs text-amber-300 flex-shrink-0">{open ? "Hide fix" : "Show fix"}</span>
+                    <span className="flex-shrink-0 text-[11px] text-amber-300">{open ? "Hide fix" : "Show fix"}</span>
                   )}
                 </button>
                 {open && (
-                  <div className="px-2 pb-2 pl-8 space-y-2">
-                    <p className="text-xs text-foreground/90">{fixText[issue.type] || "Open the Get Fix Records output below for the exact record to publish."}</p>
+                  <div className="space-y-2 px-4 pb-3 pl-10">
+                    <p className="text-[11.5px] leading-5 text-foreground/90">{fixText[issue.type] || "Open the Get Fix Records output below for the exact record to publish."}</p>
                     {rec?.recommended && (
-                      <div className="flex items-center gap-2 p-2 rounded bg-background border font-mono text-xs">
+                      <div className="flex items-center gap-2 rounded-md border border-border bg-background p-2 font-mono text-[11px]">
                         <span className="flex-1 break-all">{rec.recommended}</span>
                         <CopyButton value={rec.recommended} label="Copy" />
                       </div>
@@ -441,47 +492,50 @@ export default function DomainDetailPanel({
               </div>
             );
           })}
-        </div>
+        </section>
       )}
 
       {/* Recommendations Section */}
       {fixRecommendations && (
-        <div ref={fixSectionRef} className="mt-4 space-y-3 rounded-lg border border-primary/25 bg-primary/[0.06] p-4">
-          <p className="text-[13px] font-medium">Recommended DNS records</p>
-          <div className="grid gap-2 text-xs font-mono">
+        <section ref={fixSectionRef} className="overflow-hidden rounded-xl border border-primary/25 bg-primary/[0.05]">
+          <header className="border-b border-primary/20 px-4 py-3">
+            <h3 className="text-[13px] font-medium">Recommended DNS records</h3>
+            <p className="mt-0.5 text-[11.5px] text-muted-foreground">Publish these at your DNS provider, then re-scan.</p>
+          </header>
+          <div className="divide-y divide-border/60">
             {fixRecommendations.recommended_records?.spf && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
-                <span className="text-muted-foreground flex-shrink-0">SPF:</span>
-                <span className="flex-1 break-all">{fixRecommendations.recommended_records.spf.recommended}</span>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="w-16 flex-shrink-0 font-mono text-[11px] text-muted-foreground">SPF</span>
+                <span className="flex-1 break-all font-mono text-[11.5px]">{fixRecommendations.recommended_records.spf.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.spf.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.dmarc && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
-                <span className="text-muted-foreground flex-shrink-0">DMARC:</span>
-                <span className="flex-1 break-all">{fixRecommendations.recommended_records.dmarc.recommended}</span>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="w-16 flex-shrink-0 font-mono text-[11px] text-muted-foreground">DMARC</span>
+                <span className="flex-1 break-all font-mono text-[11.5px]">{fixRecommendations.recommended_records.dmarc.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.dmarc.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.mta_sts && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
-                <span className="text-muted-foreground flex-shrink-0">MTA-STS:</span>
-                <span className="flex-1 break-all">{fixRecommendations.recommended_records.mta_sts.recommended}</span>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="w-16 flex-shrink-0 font-mono text-[11px] text-muted-foreground">MTA-STS</span>
+                <span className="flex-1 break-all font-mono text-[11.5px]">{fixRecommendations.recommended_records.mta_sts.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.mta_sts.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.tls_rpt && (
-              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
-                <span className="text-muted-foreground flex-shrink-0">TLS-RPT:</span>
-                <span className="flex-1 break-all">{fixRecommendations.recommended_records.tls_rpt.recommended}</span>
+              <div className="flex items-center gap-3 px-4 py-2.5">
+                <span className="w-16 flex-shrink-0 font-mono text-[11px] text-muted-foreground">TLS-RPT</span>
+                <span className="flex-1 break-all font-mono text-[11.5px]">{fixRecommendations.recommended_records.tls_rpt.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.tls_rpt.recommended} label="Copy" />
               </div>
             )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            Provider: {fixRecommendations.email_provider?.provider} | Auto-fix: {fixRecommendations.auto_fix_supported ? 'Supported' : 'Manual only'}
-          </p>
-        </div>
+          <footer className="border-t border-primary/20 px-4 py-2.5 text-[11px] text-muted-foreground">
+            Provider: {fixRecommendations.email_provider?.provider} · Auto-fix: {fixRecommendations.auto_fix_supported ? 'Supported' : 'Manual only'}
+          </footer>
+        </section>
       )}
     </div>
   </div>
