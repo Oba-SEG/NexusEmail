@@ -69,6 +69,9 @@ beforeEach(() => {
     unobserve() {}
     disconnect() {}
   };
+  // fresh address-bar state per test (the console now mirrors state in
+  // ?tab=&domain=&brand= and restores it on mount)
+  window.history.replaceState(null, '', '/');
   localStorage.setItem('nexusemail_token', 'tok');
   localStorage.setItem('nexusemail_user', JSON.stringify({ id: 1, email: 'x@y.z', platform_role: 'user' }));
 });

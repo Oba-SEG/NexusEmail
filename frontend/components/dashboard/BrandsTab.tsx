@@ -40,6 +40,8 @@ interface BrandsTabProps {
   sessionGenRef: { current: number };
   onGoToDomains: () => void;
   onAuthFailure: () => void;
+  openBrandId?: number | null;
+  onBrandSelectionChange?: (id: number | null) => void;
 }
 
 /** Brand Protection tab: monitored brand list, add-brand scan flow and
@@ -47,6 +49,7 @@ interface BrandsTabProps {
  * owned here so it resets with the tab (identity change included). */
 export default function BrandsTab({
   brands, domains, loadBrands, apiFetch, sessionGenRef, onGoToDomains, onAuthFailure,
+  openBrandId = null, onBrandSelectionChange,
 }: BrandsTabProps) {
   const brandDetailsRef = useRef<number | null>(null);
   const brandDetailsGenRef = useRef(0);
@@ -302,6 +305,7 @@ export default function BrandsTab({
 
   const openBrandDetails = async (brand: any) => {
     setSelectedBrand(brand);
+    onBrandSelectionChange?.(brand.id);
     // Mark this selection synchronously so in-flight loads for the
     // previous brand are invalidated (session gen can't see same-session
     // switches). Also clear the previous brand's records so a failed
@@ -317,6 +321,34 @@ export default function BrandsTab({
     loadBrandThreats(brand.id);
     loadBrandTakedowns(brand.id);
     loadBrandHistory(brand.id);
+  };
+
+  // Deep links (?tab=brands&brand=…) open the brand dialog once the
+  // brand list has arrived; manual opens sync the URL via
+  // onBrandSelectionChange instead.
+  const openedDeepLinkRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!openBrandId) return;
+    if (selectedBrand?.id === openBrandId) return;
+    if (openedDeepLinkRef.current === openBrandId) return;
+    const brand = brands.find((b: any) => b.id === openBrandId);
+    if (!brand) return;
+    openedDeepLinkRef.current = openBrandId;
+    openBrandDetails(brand);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openBrandId, brands, selectedBrand]);
+
+  // Browser back/forward can clear the brand deep link while the dialog
+  // is still open; close it to match the address bar.
+  useEffect(() => {
+    if (openBrandId === null && selectedBrand) setSelectedBrand(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openBrandId]);
+
+  const closeBrandDetails = () => {
+    setSelectedBrand(null);
+    openedDeepLinkRef.current = null;
+    onBrandSelectionChange?.(null);
   };
 
   const deleteBrand = () => {
@@ -753,7 +785,7 @@ export default function BrandsTab({
 
 {/* Brand Details Modal */}
 {selectedBrand && (
-  <Dialog open onOpenChange={(o) => { if (!o) setSelectedBrand(null); }}>
+  <Dialog open onOpenChange={(o) => { if (!o) closeBrandDetails(); }}>
     <DialogContent className="max-h-[80vh] w-full max-w-2xl overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(brandDetailsOpenerRef)}>
       <div>
         <DialogTitle className="font-mono text-[15px]">{selectedBrand.domain}</DialogTitle>

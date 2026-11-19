@@ -29,6 +29,7 @@ import DomainsTab from "@/components/dashboard/DomainsTab";
 import LoginScreen from "@/components/dashboard/LoginScreen";
 import DashboardChrome from "@/components/dashboard/DashboardChrome";
 import BrandsTab from "@/components/dashboard/BrandsTab";
+import ThreatAlertsTab from "@/components/dashboard/ThreatAlertsTab";
 import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,6 +40,44 @@ import { StatusViewport, notify, describeError, describeApiError, clearStatusQue
 import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/scores";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
+const TAB_VALUES = ['domains', 'brands', 'threats', 'reports', 'integrations', 'notifications', 'settings', 'admin'] as const;
+type TabValue = typeof TAB_VALUES[number];
+
+interface UrlState { tab: TabValue; domain: number | null; brand: number | null }
+
+const positiveId = (raw: string | null): number | null => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+// Addressable console state lives in the query string so a refresh, a
+// bookmark or an alert e-mail link restores the same view:
+// ?tab=threats, ?tab=domains&domain=12, ?tab=brands&brand=5.
+function readUrlState(): UrlState {
+  if (typeof window === 'undefined') return { tab: 'domains', domain: null, brand: null };
+  const params = new URLSearchParams(window.location.search);
+  const rawTab = params.get('tab') ?? '';
+  const tab: TabValue = (TAB_VALUES as readonly string[]).includes(rawTab) ? rawTab as TabValue : 'domains';
+  return {
+    tab,
+    domain: tab === 'domains' ? positiveId(params.get('domain')) : null,
+    brand: tab === 'brands' ? positiveId(params.get('brand')) : null,
+  };
+}
+
+function writeUrlState(next: UrlState, mode: 'push' | 'replace') {
+  if (typeof window === 'undefined') return;
+  const params = new URLSearchParams();
+  if (next.tab !== 'domains') params.set('tab', next.tab);
+  if (next.domain) params.set('domain', String(next.domain));
+  if (next.brand) params.set('brand', String(next.brand));
+  const query = params.toString();
+  if (query === window.location.search.replace(/^\?/, '')) return;
+  const url = `${window.location.pathname}${query ? `?${query}` : ''}`;
+  if (mode === 'replace') window.history.replaceState(null, '', url);
+  else window.history.pushState(null, '', url);
+}
 
 // Scan rows exist in two storage shapes: object fields (spf/dkim/dmarc,
 // scheduler + /scans/run) and flat *_status fields plus *_record JSON
@@ -99,6 +138,8 @@ export default function Dashboard() {
   // response win the race and overwrite newer records.
   // Platform admin (issue #24): org list + drill-down, all read-only.
   const isAdmin = user?.platform_role === 'platform_admin';
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
   // Bumped on every org open/close so a slower earlier drill-down
   // response can never overwrite a newer selection (same lesson as
   // brandDetailsGenRef).
@@ -123,13 +164,22 @@ export default function Dashboard() {
   // selection (a system close, not a user close)
   const panelReopenRef = useRef(false);
   const setSelectedDomainSync = (d: any) => { selectedDomainRef.current = d; setSelectedDomain(d); };
+  const setActiveTab = (tab: string) => {
+    setActiveTabState(tab as TabValue);
+    if (tab !== 'brands') setOpenBrandId(null);
+  };
   const setShowDetailsSync = (v: boolean) => { showDetailsRef.current = v; setShowDetails(v); };
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [showDetails, setShowDetails] = useState(false);
   const [notifications, setNotifications] = useState<any>({});
   const [settings, setSettings] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState("domains");
+  const [initialUrl] = useState(readUrlState);
+  const [activeTab, setActiveTabState] = useState<TabValue>(initialUrl.tab);
+  const [openBrandId, setOpenBrandId] = useState<number | null>(initialUrl.brand);
+  const [deepLinkDomainId, setDeepLinkDomainId] = useState<number | null>(initialUrl.domain);
+  const [alertCount, setAlertCount] = useState(0);
+  const replaceUrlRef = useRef(false);
   const [brands, setBrands] = useState([]);
   
   // Brand Protection Advanced
@@ -203,6 +253,81 @@ export default function Dashboard() {
     loadSettings();
     loadBrands();
   }, [token]);
+
+  // Console state -> URL. Tab switches, opening a domain drawer and
+  // opening a brand dialog each become addressable (?tab=…&domain=…
+  // &brand=…); no-op writes keep render churn out of history.
+  useEffect(() => {
+    if (!token || loading) return;
+    const next: UrlState = {
+      tab: activeTab,
+      domain: activeTab === 'domains' && showDetails ? (selectedDomain?.id ?? null) : null,
+      brand: activeTab === 'brands' ? openBrandId : null,
+    };
+    const mode = replaceUrlRef.current ? 'replace' : 'push';
+    replaceUrlRef.current = false;
+    writeUrlState(next, mode);
+  }, [token, loading, activeTab, showDetails, selectedDomain, openBrandId]);
+
+  // Browser back/forward restores the addressable state without pushing
+  // another history entry.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onPop = () => {
+      const next = readUrlState();
+      replaceUrlRef.current = true;
+      setActiveTabState(next.tab);
+      setOpenBrandId(next.brand);
+      if (next.tab === 'admin' && !isAdminRef.current) setActiveTabState('domains');
+      if (next.domain) setDeepLinkDomainId(next.domain);
+      else setShowDetailsSync(false);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  // A domain deep link opens the drawer once the list that contains it
+  // has arrived.
+  useEffect(() => {
+    if (!token || !deepLinkDomainId) return;
+    if (showDetailsRef.current && selectedDomainRef.current?.id === deepLinkDomainId) {
+      setDeepLinkDomainId(null);
+      return;
+    }
+    const row = domains.find((d: any) => d.id === deepLinkDomainId);
+    if (!row) return;
+    setDeepLinkDomainId(null);
+    viewDomain(row);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, domains, deepLinkDomainId]);
+
+  // Alert count badge for the nav; refreshed when the tab changes so a
+  // scan that finished elsewhere shows up on the next navigation.
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const gen = sessionGenRef.current;
+    (async () => {
+      try {
+        const res = await apiFetch(`${API_BASE}/brands/alerts`);
+        if (cancelled || gen !== sessionGenRef.current || !res.ok) return;
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data)) setAlertCount(data.length);
+      } catch {
+        // badge is best-effort; the alerts tab reports its own errors
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, activeTab]);
+
+  // A non-admin must never land on the admin tab, including via ?tab=admin.
+  useEffect(() => {
+    if (activeTab === 'admin' && !isAdmin) {
+      replaceUrlRef.current = true;
+      setActiveTabState('domains');
+    }
+  }, [activeTab, isAdmin]);
 
   const login = async () => {
     setLoggingIn(true);
@@ -782,6 +907,7 @@ export default function Dashboard() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
             isAdmin={isAdmin}
+            alertCount={alertCount}
           >
 
             <TabsContent value="domains" className="space-y-4">
@@ -866,6 +992,21 @@ export default function Dashboard() {
                 sessionGenRef={sessionGenRef}
                 onGoToDomains={() => setActiveTab('domains')}
                 onAuthFailure={handleAuthFailure}
+                openBrandId={openBrandId}
+                onBrandSelectionChange={setOpenBrandId}
+              />
+            </TabsContent>
+
+            <TabsContent value="threats" className="space-y-6">
+              <ThreatAlertsTab
+                apiFetch={apiFetch}
+                sessionGenRef={sessionGenRef}
+                onAuthFailure={handleAuthFailure}
+                onAlertCountChange={setAlertCount}
+                onOpenBrand={(brandId) => {
+                  setOpenBrandId(brandId);
+                  setActiveTabState('brands');
+                }}
               />
             </TabsContent>
 

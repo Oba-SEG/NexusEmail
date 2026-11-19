@@ -84,6 +84,10 @@ function describeSmtpError(error) {
 const DEFAULT_RESEND_API_BASE = 'https://api.resend.com';
 const DEFAULT_FROM = 'Nexus Brand Protection <noreply@brandprotection.segbytes.co.za>';
 
+// Public console origin used by e-mail/Slack deep links. Configurable per
+// deployment so staging alerts never point at production (or vice versa).
+const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 'https://brandprotection.segbytes.xyz').replace(/\/$/, '');
+
 class NotificationService {
   constructor(config = {}) {
     this.config = config;
@@ -332,7 +336,7 @@ class NotificationService {
     }
     if (svc.slackWebhook) {
       out.slack = await svc.sendSlack({
-        text: `🔍 *Scan complete:* ${domain.name} — score ${results.score}/100 (${results.issues?.length || 0} issues)`
+        text: `🔍 *Scan complete:* ${domain.name} — score ${results.score}/100 (${results.issues?.length || 0} issues)\n<${APP_BASE_URL}/?tab=domains|Open console>`
       });
     }
     return out;
@@ -349,7 +353,9 @@ class NotificationService {
       out.email = await svc.sendCriticalAlert(domain.name, [{ message }], domain.notify_email);
     }
     if (svc.slackWebhook) {
-      out.slack = await svc.sendSlack({ text: `🚨 *Critical:* ${domain.name} — ${message}` });
+      out.slack = await svc.sendSlack({
+        text: `🚨 *Critical:* ${domain.name} — ${message}\n<${APP_BASE_URL}/?tab=domains|Open console>`
+      });
     }
     return out;
   }
@@ -460,7 +466,7 @@ class NotificationService {
             ` : ''}
 
             <p style="margin-top: 30px;">
-              <a href="#" style="display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+              <a href="${APP_BASE_URL}/?tab=domains" style="display: inline-block; background: #667eea; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
                 View Full Report
               </a>
             </p>
@@ -519,6 +525,7 @@ class NotificationService {
         ${issues.map(i => `<li>${escapeHtml(i.message)}</li>`).join('')}
       </ul>
       <p>Please take immediate action to secure this domain.</p>
+      <p><a href="${APP_BASE_URL}/?tab=domains">Open the console</a></p>
     `;
 
     return await this.sendNotification(

@@ -2,7 +2,7 @@
 
 import {
   Bell, LogOut, Globe, Plug, BarChart3, Settings,
-  Shield, Building2, Menu, X
+  Shield, Building2, Menu, X, AlertTriangle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,11 +16,13 @@ interface DashboardChromeProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
   isAdmin: boolean;
+  alertCount?: number;
 }
 
 const NAV = [
   { value: "domains", label: "Domains", icon: Globe },
   { value: "brands", label: "Brand protection", icon: Shield },
+  { value: "threats", label: "Threat alerts", icon: AlertTriangle },
   { value: "reports", label: "Reports", icon: BarChart3 },
   { value: "integrations", label: "Integrations", icon: Plug },
   { value: "notifications", label: "Notifications", icon: Bell },
@@ -30,7 +32,7 @@ const NAV = [
 /** App chrome: fixed left sidebar on desktop, collapsible top nav on mobile.
  * One Tabs root; two TabsLists drive the same value. */
 export default function DashboardChrome({
-  children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin,
+  children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -56,6 +58,7 @@ export default function DashboardChrome({
           key={item.value}
           value={item.value}
           onClick={onSelect}
+          aria-label={item.value === "threats" && alertCount > 0 ? `${item.label}, ${alertCount} open` : undefined}
           className={
             compact
               ? "group w-full justify-start gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-white/[0.03] hover:text-foreground data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground"
@@ -64,6 +67,13 @@ export default function DashboardChrome({
         >
           <Icon className="w-4 h-4 flex-shrink-0 text-muted-foreground transition-colors group-data-[state=active]:text-primary" />
           {item.label}
+          {item.value === "threats" && alertCount > 0 && (
+            <>
+              <span aria-hidden="true" className="ml-auto rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-red-300">
+                {alertCount}
+              </span>
+            </>
+          )}
         </TabsTrigger>
       );
     });
