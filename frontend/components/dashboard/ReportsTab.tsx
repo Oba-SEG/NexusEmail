@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download, FileText, RefreshCw } from "lucide-react";
+import { Download, Eye, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { notify, describeError } from "@/components/ui/status";
 import { TabHeader } from "@/components/dashboard/settings-ui";
@@ -13,10 +13,11 @@ const selectClass = "h-9 w-full rounded-md border border-input bg-white/[0.02] p
 interface ReportsTabProps {
   domains: any[];
   apiFetch: (url: string, options?: any) => Promise<Response>;
+  onOpenDomain?: (domainId: number) => void;
 }
 
 /** Reports tab: per-domain HTML report + bulk CSV/JSON export. */
-export default function ReportsTab({ domains, apiFetch }: ReportsTabProps) {
+export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsTabProps) {
   const [reportDomainId, setReportDomainId] = useState<number | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
 
@@ -112,6 +113,14 @@ const exportJSON = async () => {
               title={!reportDomainId ? 'Select a domain above first' : undefined}
             >
               {generatingReport ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating…</> : <><FileText className="w-3.5 h-3.5" /> Generate report</>}
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              disabled={!reportDomainId}
+              onClick={() => reportDomainId && onOpenDomain?.(reportDomainId)}
+            >
+              <Eye className="w-3.5 h-3.5" /> Open domain details
             </Button>
             <p className="text-[11px] text-muted-foreground">
               {reportDomainId ? 'Downloads as a self-contained HTML file.' : 'Select a domain to enable report generation.'}

@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, ShieldCheck, Trash2, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -39,6 +40,8 @@ export default function ThreatAlertsTab({
   const [error, setError] = useState('');
   const [dismissing, setDismissing] = useState<Set<number>>(new Set());
   const [confirmClear, setConfirmClear] = useState(false);
+  const [query, setQuery] = useState('');
+  const [severity, setSeverity] = useState<'all' | 'high' | 'medium' | 'low'>('all');
   const [clearing, setClearing] = useState(false);
   const loadSeqRef = useRef(0);
 
@@ -130,6 +133,15 @@ export default function ThreatAlertsTab({
     }
   };
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredAlerts = alerts.filter((alert: any) => {
+    const sev = String(alert.severity || 'medium').toLowerCase();
+    const severityMatch = severity === 'all'
+      || (severity === 'high' ? sev === 'high' || sev === 'critical' : sev === severity);
+    const text = `${alert.domain || ''} ${alert.brand_name || ''} ${alert.message || ''}`.toLowerCase();
+    return severityMatch && (!normalizedQuery || text.includes(normalizedQuery));
+  });
+
   return (
     <>
       <TabHeader
@@ -168,7 +180,35 @@ export default function ThreatAlertsTab({
       )}
 
       {state === 'ready' && alerts.length > 0 && (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search alerts"
+                aria-label="Search threat alerts"
+                className="h-8 w-[220px] pl-8 text-[12px]"
+              />
+            </div>
+            <div className="inline-flex rounded-md border border-border bg-card p-0.5">
+              {(['all', 'high', 'medium', 'low'] as const).map((level) => (
+                <button
+                  key={level}
+                  onClick={() => setSeverity(level)}
+                  aria-pressed={severity === level}
+                  className={`h-7 rounded px-2.5 text-[12px] font-medium capitalize transition-colors ${severity === level ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  {level}
+                </button>
+              ))}
+            </div>
+            <span role="status" className="ml-auto text-[12px] text-muted-foreground">
+              {filteredAlerts.length} of {alerts.length} alert{alerts.length === 1 ? '' : 's'}
+            </span>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-border">
           <div className="flex items-center justify-between border-b border-border bg-white/[0.02] px-4 py-2.5">
             <p className="text-[12px] text-muted-foreground">
               {alerts.length} open alert{alerts.length === 1 ? '' : 's'}
@@ -176,7 +216,7 @@ export default function ThreatAlertsTab({
             <p className="text-[11px] text-muted-foreground">Newest first</p>
           </div>
           <ul className="divide-y divide-border">
-            {alerts.map((alert: any) => (
+            {filteredAlerts.map((alert: any) => (
               <li key={alert.id} className="flex flex-wrap items-start gap-3 px-4 py-3.5">
                 <AlertTriangle className="mt-0.5 w-4 h-4 flex-shrink-0 text-amber-400" />
                 <div className="min-w-0 flex-1">
@@ -214,7 +254,13 @@ export default function ThreatAlertsTab({
                 </div>
               </li>
             ))}
+            {filteredAlerts.length === 0 && (
+              <li className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+                No alerts match the current filter.
+              </li>
+            )}
           </ul>
+          </div>
         </div>
       )}
 

@@ -770,10 +770,11 @@ export default function Dashboard() {
     try {
       const res = await apiFetch(`${API_BASE}/domains/${domain.id}`);
       const data = await res.json();
-      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return 'stale';
       if (!res.ok || data.error) {
         setDetailRefreshError('Failed to load domain details');
-        return;
+        notify('Couldn\'t load domain details.', 'error', 'The domain may have been removed. Try again.');
+        return 'failed';
       }
       // The shown-domain ref follows the successful selection only — a
       // failed Inspect leaves the panel (and the ref) on the previous
@@ -785,11 +786,15 @@ export default function Dashboard() {
       setSelectedDomainSync(data);
       setShowDetailsSync(true);
       setDetailRefreshing(false);
+      return 'ok';
     } catch (e) {
       console.error('Failed to load domain details:', e);
       if (gen === sessionGenRef.current && selGen === domainDetailsGenRef.current) {
         setDetailRefreshError('Failed to load domain details');
+        notify('Couldn\'t load domain details.', 'error', 'The request failed. Try again.');
+        return 'failed';
       }
+      return 'stale';
     } finally {
       // only the settling request may clear its own pending entry —
       // an older Inspect to the same domain must not clear the
@@ -820,7 +825,7 @@ export default function Dashboard() {
         body: xml
       });
       const data = await res.json();
-      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return;
+      if (gen !== sessionGenRef.current || selGen !== domainDetailsGenRef.current) return false;
       if (!res.ok || data.error) {
         setDmarcUploadError(data.error || 'Upload failed');
         return;
@@ -966,7 +971,23 @@ export default function Dashboard() {
             </TabsContent>
 
             <TabsContent value="reports" className="space-y-6">
-              <ReportsTab domains={domains} apiFetch={apiFetch} />
+              <ReportsTab
+                domains={domains}
+                apiFetch={apiFetch}
+                onOpenDomain={async (domainId) => {
+                  const row = domains.find((d: any) => d.id === domainId);
+                  if (!row) return;
+                  setActiveTab('domains');
+                  const result = await viewDomain(row);
+                  // The Reports control that held focus unmounts with the
+                  // tab; keep keyboard position on the Domains heading only
+                  // when this request failed and no drawer (e.g. a newer
+                  // selection) owns focus now.
+                  if (result === 'failed' && !showDetailsRef.current) {
+                    document.getElementById('domains-heading')?.focus();
+                  }
+                }}
+              />
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-6">

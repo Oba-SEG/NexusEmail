@@ -24,7 +24,7 @@ const NAV = [
   { value: "brands", label: "Brand protection", icon: Shield },
   { value: "threats", label: "Threat alerts", icon: AlertTriangle },
   { value: "reports", label: "Reports", icon: BarChart3 },
-  { value: "integrations", label: "Integrations", icon: Plug },
+  { value: "integrations", label: "DNS providers", icon: Plug },
   { value: "notifications", label: "Notifications", icon: Bell },
   { value: "settings", label: "Settings", icon: Settings },
 ];
@@ -48,7 +48,7 @@ export default function DashboardChrome({
   };
 
   const items = [...NAV];
-  if (isAdmin) items.push({ value: "admin", label: "Admin", icon: Building2 });
+  if (isAdmin) items.push({ value: "admin", label: "Administration", icon: Building2 });
 
   const triggers = (compact: boolean, onSelect?: () => void) =>
     items.map((item) => {
