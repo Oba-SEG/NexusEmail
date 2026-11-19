@@ -219,6 +219,11 @@ export default function Dashboard() {
     setDmarcUploadError(null);
   };
 
+  const resetBrandState = () => {
+    brandsLoadSeqRef.current += 1;
+    setBrands([]);
+  };
+
   // load* handlers when they see a 401 against an authenticated endpoint —
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
@@ -231,6 +236,7 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    resetBrandState();
     // Tab ownership is Dashboard-level and survives AdminPanel unmount:
     // a non-admin signing in after an admin must not land on the admin tab.
     if (activeTab === 'admin') setActiveTab('domains');
@@ -362,6 +368,7 @@ export default function Dashboard() {
       setConfigLoaded(false);
       setConfigError('');
       resetDomainState();
+      resetBrandState();
       if (activeTab === 'admin') setActiveTab('domains');
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
@@ -407,6 +414,7 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    resetBrandState();
     // Tab ownership is Dashboard-level and survives AdminPanel unmount:
     // a non-admin signing in after an admin must not land on the admin tab.
     if (activeTab === 'admin') setActiveTab('domains');

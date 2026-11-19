@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Bell, Building2, Globe, Plug, Search, Settings, Shield } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogDescription, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogTitle, dialogFocusReturn,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -45,9 +45,12 @@ export default function GlobalSearch({
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const activeRef = useRef<HTMLButtonElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const returnFocus = dialogFocusReturn(openerRef);
 
   useEffect(() => {
     if (open) {
+      openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       setQuery('');
       setActive(0);
     }
@@ -105,6 +108,7 @@ export default function GlobalSearch({
   const activeIndex = Math.min(active, Math.max(0, flat.length - 1));
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.nativeEvent.isComposing) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActive((i) => Math.min(i + 1, flat.length - 1));
@@ -120,7 +124,20 @@ export default function GlobalSearch({
   let cursor = -1;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden p-0 [&>button]:hidden">
+      <DialogContent
+        className="top-[18%] max-w-xl translate-y-0 gap-0 overflow-hidden p-0 [&>button]:hidden"
+        onCloseAutoFocus={(e) => {
+          if (!openerRef.current || openerRef.current === document.body) {
+            const button = document.querySelector<HTMLElement>('button[aria-label="Search domains, brands and pages"]');
+            if (button) {
+              e.preventDefault();
+              button.focus();
+              return;
+            }
+          }
+          returnFocus(e);
+        }}
+      >
         <DialogTitle className="sr-only">Search</DialogTitle>
         <DialogDescription className="sr-only">
           Search pages, domains and brands. Use arrow keys to choose and Enter to open.
@@ -133,19 +150,25 @@ export default function GlobalSearch({
             onKeyDown={onKeyDown}
             placeholder="Search domains, brands, pages…"
             aria-label="Search domains, brands and pages"
+            role="combobox"
+            aria-expanded={open}
+            aria-autocomplete="list"
+            aria-controls="global-search-results"
+            aria-activedescendant={flat.length ? `gs-${flat[activeIndex].key}` : undefined}
             className="h-12 w-full bg-transparent text-[14px] outline-none placeholder:text-muted-foreground"
           />
           <kbd className="rounded border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground">esc</kbd>
         </div>
         <div className="max-h-[380px] overflow-y-auto p-2">
           {flat.length === 0 && (
-            <p className="px-3 py-8 text-center text-[13px] text-muted-foreground">
+            <p role="status" className="px-3 py-8 text-center text-[13px] text-muted-foreground">
               {q ? `No results for “${query}”.` : 'Start typing to search.'}
             </p>
           )}
+          <div id="global-search-results" role="listbox" aria-label="Search results">
           {sections.map((section) => (
-            <div key={section.label} className="mb-1">
-              <p className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+            <div key={section.label} role="group" aria-label={section.label} className="mb-1">
+              <p aria-hidden="true" className="px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
                 {section.label}
               </p>
               {section.items.map((item) => {
@@ -155,6 +178,9 @@ export default function GlobalSearch({
                 return (
                   <button
                     key={item.key}
+                    id={`gs-${item.key}`}
+                    role="option"
+                    aria-selected={index === activeIndex}
                     ref={index === activeIndex ? activeRef : undefined}
                     onClick={item.run}
                     onMouseEnter={() => setActive(index)}
@@ -173,6 +199,7 @@ export default function GlobalSearch({
               })}
             </div>
           ))}
+          </div>
         </div>
         <div className="flex items-center gap-3 border-t border-border px-4 py-2 text-[10.5px] text-muted-foreground">
           <span><kbd className="rounded border border-border px-1">↑</kbd> <kbd className="rounded border border-border px-1">↓</kbd> to navigate</span>
