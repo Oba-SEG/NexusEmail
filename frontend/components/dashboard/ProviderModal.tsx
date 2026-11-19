@@ -43,17 +43,16 @@ export default function ProviderModal({
         const brand = providerBrand(selectedProvider.name);
         const meta = PROVIDER_METADATA[selectedProvider.name];
         return (
-          <div className="relative border-b border-border px-5 pt-5 pb-4">
-            <div className="absolute inset-0 opacity-[0.08]" style={{ background: brand.bg }} />
-            <div className="relative flex items-start gap-4">
+          <div className="border-b border-border px-6 py-5">
+            <div className="flex items-start gap-4">
               <div
-                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border border-border text-[14px] font-semibold"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-border text-[13px] font-semibold"
                 style={{ background: brand.bg, color: brand.text, letterSpacing: '-0.02em' }}
               >
                 {brand.mono}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="mb-1 text-[11px] text-muted-foreground">Connect provider · {meta?.category}</p>
+                <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">Connect provider · {meta?.category}</p>
                 <DialogTitle className="text-[17px] font-semibold tracking-[-0.01em]">{selectedProvider.name}</DialogTitle>
                 <DialogDescription className="mt-1 text-[12px] leading-relaxed">{meta?.summary}</DialogDescription>
               </div>
@@ -63,7 +62,7 @@ export default function ProviderModal({
         );
       })()}
 
-      <div className="p-5">
+      <div className="p-6">
         {/* Field stack */}
         <div className="space-y-4">
           {(PROVIDER_METADATA[selectedProvider.name]?.fields || []).map((field: ProviderField) => (
@@ -91,9 +90,9 @@ export default function ProviderModal({
         </div>
 
         {/* Docs deep-link + security note */}
-        <div className="mt-4 flex items-start gap-3 rounded-md border border-border bg-white/[0.02] p-3">
+        <div className="mt-5 flex items-start gap-3 rounded-lg border border-border bg-white/[0.02] p-3.5">
           <Key className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-          <div className="flex-1 text-[11px] text-muted-foreground leading-relaxed">
+          <div className="flex-1 text-[11.5px] leading-relaxed text-muted-foreground">
             <p className="mb-1">
               <a
                 href={PROVIDER_METADATA[selectedProvider.name]?.docsUrl}
@@ -109,7 +108,7 @@ export default function ProviderModal({
         </div>
 
         {/* Actions */}
-        <div className="mt-5 flex gap-2">
+        <div className="mt-6 flex gap-2">
           <Button
             className="flex-1"
             onClick={onSave}

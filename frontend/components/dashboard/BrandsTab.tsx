@@ -384,25 +384,8 @@ export default function BrandsTab({
 <TabHeader
   title="Brand protection"
   description="Detect typosquats, look-alikes, and brand abuse on the domains you operate."
-/>
-
-<div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
-  <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-    <div>
-      <h3 className="text-[14px] font-semibold">Monitored brands</h3>
-      <p className="mt-0.5 text-[12px] text-muted-foreground">Each brand is tied to a verified domain you own.</p>
-    </div>
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={brandQuery}
-          onChange={(e) => setBrandQuery(e.target.value)}
-          placeholder="Search brands"
-          aria-label="Search brands"
-          className="h-8 w-[190px] pl-8 text-[12px]"
-        />
-      </div>
+  action={
+    <>
       {brandAlerts.length > 0 && (
         <Button variant="outline" size="sm" className="text-red-300 hover:bg-red-500/10 hover:text-red-200" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
           <Bell className="w-3.5 h-3.5" /> Alerts
@@ -416,12 +399,35 @@ export default function BrandsTab({
       <Button size="sm" onClick={() => setShowAddBrand(true)}>
         <Plus className="w-3.5 h-3.5" /> Add brand
       </Button>
+    </>
+  }
+/>
+
+<div className="mt-6">
+  <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <h3 className="text-[14px] font-semibold">
+        Monitored brands
+        <span className="ml-1.5 font-normal tabular-nums text-muted-foreground">{brands.length}</span>
+      </h3>
+      <p className="mt-0.5 text-[12px] text-muted-foreground">Each brand is tied to a verified domain you own.</p>
+    </div>
+    <div className="relative w-full sm:w-[240px]">
+      <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        value={brandQuery}
+        onChange={(e) => setBrandQuery(e.target.value)}
+        placeholder="Search brands"
+        aria-label="Search brands"
+        className="h-9 w-full pl-8 text-[12.5px]"
+      />
     </div>
   </div>
-  <div className="p-5">
+  <div className="space-y-4">
     {showAddBrand && (
-      <div className="mb-5 rounded-md border border-border bg-white/[0.02] p-4">
-        <p className="mb-3 text-[13px] font-medium">Add a brand to monitor</p>
+      <div className="rounded-xl border border-border bg-white/[0.02] p-5">
+        <p className="text-[14px] font-semibold">Add a brand to monitor</p>
+        <p className="mb-4 mt-0.5 text-[12px] text-muted-foreground">Pick a verified domain, then name the brand you want to protect.</p>
         {domains.filter((d: any) => d.verified).length === 0 ? (
           <div className="space-y-3">
             <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm text-amber-300">
@@ -443,10 +449,11 @@ export default function BrandsTab({
             </div>
           </div>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label className="text-[12px] text-muted-foreground">Domain</label>
+              <label htmlFor="new-brand-domain" className="text-[12px] font-medium text-muted-foreground">Domain</label>
               <select
+                id="new-brand-domain"
                 value={newBrandDomain}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -472,16 +479,17 @@ export default function BrandsTab({
               </p>
             </div>
             <div>
-              <label className="text-[12px] text-muted-foreground">Brand name (optional)</label>
+              <label htmlFor="new-brand-name" className="text-[12px] font-medium text-muted-foreground">Brand name (optional)</label>
               <Input
+                id="new-brand-name"
                 placeholder="My Company"
                 value={newBrandName}
                 onChange={(e) => setNewBrandName(e.target.value)}
-                className="mt-1"
+                className="mt-1.5"
               />
             </div>
             <div>
-              <label htmlFor="new-brand-schedule" className="text-[12px] text-muted-foreground">Automatic scans</label>
+              <label htmlFor="new-brand-schedule" className="text-[12px] font-medium text-muted-foreground">Automatic scans</label>
               <select
                 id="new-brand-schedule"
                 value={newBrandSchedule}
@@ -494,7 +502,7 @@ export default function BrandsTab({
                 <option value="manual">Manual only</option>
               </select>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-3">
               <Button
                 size="sm"
                 disabled={!newBrandDomain}
@@ -541,27 +549,31 @@ export default function BrandsTab({
     )}
 
     {brands.length === 0 && !showAddBrand ? (
-      <div className="py-14 text-center">
-        <Shield className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
-        <p className="text-[13px] font-medium">No brands monitored yet</p>
-        <p className="mt-1 text-[12px] text-muted-foreground">Add a brand to start watching for typosquatting and impersonation.</p>
+      <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
+        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Shield className="h-5 w-5" />
+        </div>
+        <p className="text-[15px] font-semibold">No brands monitored yet</p>
+        <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">Add a brand to start watching for typosquatting and impersonation.</p>
       </div>
     ) : (
-      <div className="divide-y divide-border overflow-hidden rounded-md border border-border">
+      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
         {filteredBrands.map((brand: any) => (
-          <div key={brand.id} className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
+          <div key={brand.id} className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-white/[0.03] text-muted-foreground">
                 <Shield className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <p className="truncate font-mono text-[12.5px] font-medium">{brand.domain}</p>
-                <p className="text-[12px] text-muted-foreground">
-                  {brand.brand_name}
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="truncate font-mono text-[12.5px] font-medium">{brand.domain}</p>
                   {(brand.threats?.length || 0) > 0 && (
-                    <span className="ml-2 text-amber-300">{brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked</span>
+                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-300">
+                      {brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked
+                    </span>
                   )}
-                </p>
+                </div>
+                <p className="text-[12px] text-muted-foreground">{brand.brand_name}</p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {brand.last_scan ? `Last scan ${formatDateTime(brand.last_scan)}` : 'Never scanned'}
                   {brand.next_scan ? ` · Next ${formatDateTime(brand.next_scan)}` : ''}
@@ -575,7 +587,7 @@ export default function BrandsTab({
                 value={brand.scan_schedule || 'manual'}
                 onChange={(e) => updateBrandSchedule(brand.id, e.target.value)}
                 disabled={savingSchedules.has(brand.id)}
-                className="h-8 rounded-md border border-input bg-white/[0.02] px-2 text-[12px] text-muted-foreground disabled:opacity-50"
+                className="h-8 rounded-md border border-input bg-white/[0.03] px-2 text-[12px] text-muted-foreground disabled:opacity-50"
               >
                 <option value="manual">Manual</option>
                 <option value="daily">Daily</option>
@@ -822,7 +834,7 @@ export default function BrandsTab({
       </div>
 
       <div className="space-y-5">
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 border-y border-border/60 py-3">
           <Button size="sm" onClick={(e) => { takedownOpenerRef.current = e.currentTarget; setShowTakedownModal(true); }}>
             <Zap className="w-3.5 h-3.5" /> Submit takedown
           </Button>
@@ -832,16 +844,15 @@ export default function BrandsTab({
         </div>
 
         <div>
-          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-            Tracked threats ({brandThreats.length})
+          <h4 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Tracked threats <span className="ml-1 tabular-nums text-foreground/60">{brandThreats.length}</span>
           </h4>
           {brandThreats.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">No threats tracked.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="divide-y divide-border/60 border-y border-border/60">
               {brandThreats.map((threat: any) => (
-                <div key={threat.id} className="flex items-center justify-between rounded-md border border-border bg-white/[0.02] p-3">
+                <div key={threat.id} className="flex items-center justify-between gap-3 py-2.5">
                   <div className="min-w-0">
                     <p className="break-all font-mono text-[12px] font-medium">{threat.domain}</p>
                     <div className="mt-1 flex gap-1.5">
@@ -869,16 +880,15 @@ export default function BrandsTab({
         </div>
 
         <div>
-          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
-            <Zap className="w-3.5 h-3.5 text-muted-foreground" />
-            Takedown requests ({brandTakedowns.length})
+          <h4 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Takedown requests <span className="ml-1 tabular-nums text-foreground/60">{brandTakedowns.length}</span>
           </h4>
           {brandTakedowns.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">No takedown requests.</p>
           ) : (
-            <div className="space-y-1.5">
+            <div className="divide-y divide-border/60 border-y border-border/60">
               {brandTakedowns.map((takedown: any) => (
-                <div key={takedown.id} className="rounded-md border border-border bg-white/[0.02] p-3">
+                <div key={takedown.id} className="py-2.5">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-mono text-[12px] font-medium">{takedown.domain}</p>
@@ -896,9 +906,8 @@ export default function BrandsTab({
         </div>
 
         <div>
-          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
-            <Search className="w-3.5 h-3.5 text-muted-foreground" />
-            Scan history ({brandHistory.length})
+          <h4 className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Scan history <span className="ml-1 tabular-nums text-foreground/60">{brandHistory.length}</span>
           </h4>
           {historyState === 'loading' ? (
             <p className="text-[12px] text-muted-foreground">Loading scan history…</p>
@@ -916,11 +925,11 @@ export default function BrandsTab({
           ) : brandHistory.length === 0 ? (
             <p className="text-[12px] text-muted-foreground">No saved scans yet — run a scan or set an automatic schedule.</p>
           ) : (
-            <div className="max-h-56 space-y-1 overflow-y-auto">
+            <div className="max-h-56 divide-y divide-border/60 overflow-y-auto border-y border-border/60">
               {[...brandHistory].reverse().map((scan: any) => (
-                <div key={scan.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+                <div key={scan.id} className="flex items-center justify-between gap-3 py-2 text-[11px]">
                   <span className="whitespace-nowrap text-muted-foreground">{formatDateTime(scan.scanned_at)}</span>
-                  <span className="truncate tabular-nums text-foreground/80">
+                  <span className="min-w-0 truncate tabular-nums text-foreground/80">
                     Score {scan.score}/100 · typo {scan.typosquatting} · lookalike {scan.lookalikes} · subdomain {scan.impersonation} · homograph {scan.homographs}
                     {scan.tld_count ? ` · ${scan.tld_count} TLDs` : ''}
                   </span>
@@ -956,11 +965,11 @@ export default function BrandsTab({
       <DialogTitle>Submit takedown request</DialogTitle>
       <div className="space-y-3">
         <div>
-          <label className="text-[12px] text-muted-foreground">Domain</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Domain</label>
           <Input className="mt-1 font-mono" value={takedownForm.domain} onChange={(e) => setTakedownForm({ ...takedownForm, domain: e.target.value })} placeholder="bad-domain.com" />
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Threat type</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Threat type</label>
           <select className={selectClass} value={takedownForm.threat_type} onChange={(e) => setTakedownForm({ ...takedownForm, threat_type: e.target.value })}>
             <option value="impersonation">Impersonation</option>
             <option value="typosquatting">Typosquatting</option>
@@ -969,11 +978,11 @@ export default function BrandsTab({
           </select>
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Evidence / notes</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Evidence / notes</label>
           <textarea className={textareaClass} rows={3} value={takedownForm.evidence} onChange={(e) => setTakedownForm({ ...takedownForm, evidence: e.target.value })} placeholder="Describe the abuse…" />
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Contact email</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Contact email</label>
           <Input className="mt-1" value={takedownForm.contact_email} onChange={(e) => setTakedownForm({ ...takedownForm, contact_email: e.target.value })} placeholder="legal@yourbrand.com" />
         </div>
         <div className="flex gap-2 pt-1">
@@ -991,11 +1000,11 @@ export default function BrandsTab({
       <DialogTitle>Add manual threat</DialogTitle>
       <div className="space-y-3">
         <div>
-          <label className="text-[12px] text-muted-foreground">Domain</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Domain</label>
           <Input className="mt-1 font-mono" value={threatForm.domain} onChange={(e) => setThreatForm({ ...threatForm, domain: e.target.value })} placeholder="fake-brand.com" />
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Threat type</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Threat type</label>
           <select className={selectClass} value={threatForm.threat_type} onChange={(e) => setThreatForm({ ...threatForm, threat_type: e.target.value })}>
             <option value="manual">Manual</option>
             <option value="impersonation">Impersonation</option>
@@ -1004,7 +1013,7 @@ export default function BrandsTab({
           </select>
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Severity</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Severity</label>
           <select className={selectClass} value={threatForm.severity} onChange={(e) => setThreatForm({ ...threatForm, severity: e.target.value })}>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
@@ -1012,7 +1021,7 @@ export default function BrandsTab({
           </select>
         </div>
         <div>
-          <label className="text-[12px] text-muted-foreground">Notes</label>
+          <label className="text-[12px] font-medium text-muted-foreground">Notes</label>
           <textarea className={textareaClass} rows={2} value={threatForm.notes} onChange={(e) => setThreatForm({ ...threatForm, notes: e.target.value })} />
         </div>
         <div className="flex gap-2 pt-1">
@@ -1031,14 +1040,17 @@ export default function BrandsTab({
       {brandAlerts.length === 0 ? (
         <p className="py-8 text-center text-[12px] text-muted-foreground">No alerts.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/60 border-y border-border/60">
           {brandAlerts.map((alert: any) => (
-            <div key={alert.id} className={`rounded-md border p-3 ${alert.severity === 'high' ? 'border-red-500/25 bg-red-500/10' : 'border-amber-500/25 bg-amber-500/10'}`}>
+            <div key={alert.id} className="py-3">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-start gap-2.5">
+                  <span className={`mt-1.5 h-1.5 w-1.5 flex-none rounded-full ${alert.severity === 'high' ? 'bg-red-400' : 'bg-amber-400'}`} aria-hidden="true" />
+                  <div className="min-w-0">
                   <p className="truncate font-mono text-[12px] font-medium">{alert.domain}</p>
                   <p className="mt-1 text-[12px] text-muted-foreground">{alert.message}</p>
                   <p className="mt-1 text-[11px] text-muted-foreground">{alert.brand_name} · {formatDateTime(alert.timestamp)}</p>
+                  </div>
                 </div>
                 <Badge variant={alert.severity === 'high' ? 'destructive' : 'default'}>
                   {alert.severity}

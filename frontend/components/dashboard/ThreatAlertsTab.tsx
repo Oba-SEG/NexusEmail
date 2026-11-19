@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, ExternalLink, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { ExternalLink, Search, ShieldCheck, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -146,59 +146,62 @@ export default function ThreatAlertsTab({
     <>
       <TabHeader
         title="Threat alerts"
-        description="Typosquats and impersonation attempts found across your monitored brands. Open the brand to review evidence, submit takedowns or whitelist a match."
+        description="Typosquats and impersonation attempts found across your monitored brands. Open a brand to review evidence, submit takedowns or whitelist a match."
         action={
           alerts.length > 0 ? (
-            <Button variant="outline" size="sm" onClick={() => setConfirmClear(true)}>
-              <Trash2 className="w-3.5 h-3.5" /> Clear all
-            </Button>
+            <>
+              <Badge variant="outline">{alerts.length} open</Badge>
+              <Button variant="outline" size="sm" onClick={() => setConfirmClear(true)}>
+                <Trash2 className="w-3.5 h-3.5" /> Clear all
+              </Button>
+            </>
           ) : undefined
         }
       />
 
       {state === 'loading' && (
-        <p className="text-[13px] text-muted-foreground" role="status">Loading threat alerts…</p>
+        <p className="mt-8 text-[13px] text-muted-foreground" role="status">Loading threat alerts…</p>
       )}
 
       {state === 'error' && (
-        <div className="flex flex-col items-start gap-3 rounded-md border border-border bg-white/[0.02] p-4">
+        <div className="mt-6 flex flex-col items-start gap-3 rounded-xl border border-border bg-card p-5">
           <p className="text-[13px] text-red-300">{error}</p>
           <Button variant="outline" size="sm" onClick={() => loadAlerts()}>Retry</Button>
         </div>
       )}
 
       {state === 'ready' && alerts.length === 0 && (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border py-16 text-center">
-          <ShieldCheck className="w-8 h-8 text-emerald-400/70" />
-          <div>
-            <p className="text-[14px] font-medium">No open threat alerts</p>
-            <p className="mt-1 max-w-[46ch] text-[12.5px] text-muted-foreground">
-              New typosquats and impersonation attempts appear here after each brand scan. Nothing needs attention right now.
-            </p>
+        <div className="mt-6 flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-16 text-center">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-300">
+            <ShieldCheck className="h-5 w-5" />
           </div>
+          <p className="text-[15px] font-semibold">No open threat alerts</p>
+          <p className="mx-auto mt-1 max-w-[48ch] text-[12.5px] leading-5 text-muted-foreground">
+            New typosquats and impersonation attempts appear here after each brand scan. Nothing needs attention right now.
+          </p>
         </div>
       )}
 
       {state === 'ready' && alerts.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
+        <div className="mt-6">
+          <div className="flex flex-wrap items-center gap-2 pb-3">
+            <div className="relative w-full sm:w-[240px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search alerts"
                 aria-label="Search threat alerts"
-                className="h-8 w-[220px] pl-8 text-[12px]"
+                className="h-9 w-full pl-8 text-[12.5px]"
               />
             </div>
-            <div className="inline-flex rounded-md border border-border bg-card p-0.5">
+            <div className="inline-flex rounded-lg border border-border bg-card p-1">
               {(['all', 'high', 'medium', 'low'] as const).map((level) => (
                 <button
                   key={level}
                   onClick={() => setSeverity(level)}
                   aria-pressed={severity === level}
-                  className={`h-7 rounded px-2.5 text-[12px] font-medium capitalize transition-colors ${severity === level ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`h-7 rounded-md px-2.5 text-[12px] font-medium capitalize transition-colors ${severity === level ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   {level}
                 </button>
@@ -208,17 +211,15 @@ export default function ThreatAlertsTab({
               {filteredAlerts.length} of {alerts.length} alert{alerts.length === 1 ? '' : 's'}
             </span>
           </div>
-          <div className="overflow-hidden rounded-lg border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-white/[0.02] px-4 py-2.5">
-            <p className="text-[12px] text-muted-foreground">
-              {alerts.length} open alert{alerts.length === 1 ? '' : 's'}
-            </p>
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex items-center justify-between border-b border-border bg-white/[0.015] px-4 py-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">Alert queue</p>
             <p className="text-[11px] text-muted-foreground">Newest first</p>
           </div>
           <ul className="divide-y divide-border">
             {filteredAlerts.map((alert: any) => (
-              <li key={alert.id} className="flex flex-wrap items-start gap-3 px-4 py-3.5">
-                <AlertTriangle className="mt-0.5 w-4 h-4 flex-shrink-0 text-amber-400" />
+              <li key={alert.id} className="flex flex-wrap items-start gap-3 px-4 py-4">
+                <span aria-hidden="true" className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${String(alert.severity || 'medium').toLowerCase() === 'high' || String(alert.severity).toLowerCase() === 'critical' ? 'bg-red-400' : String(alert.severity || 'medium').toLowerCase() === 'medium' ? 'bg-amber-400' : 'bg-white/30'}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     {alert.domain && (

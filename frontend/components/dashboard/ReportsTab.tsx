@@ -85,38 +85,44 @@ const exportJSON = async () => {
         description="Per-domain HTML reports for stakeholders, plus bulk exports for archive."
       />
 
-      <div className="mt-6 grid overflow-hidden rounded-lg border border-border bg-card md:grid-cols-2">
-        <section className="border-b border-border p-5 md:border-b-0 md:border-r">
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 text-muted-foreground" />
+      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <section className="min-w-0 rounded-xl border border-border bg-card p-5">
+          <div>
             <h3 className="text-[14px] font-semibold">Single domain report</h3>
+            <p className="mt-1 max-w-[55ch] text-[12.5px] leading-5 text-muted-foreground">
+              Detailed HTML breakdown of one domain&rsquo;s SPF, DKIM and DMARC posture, ready to share with stakeholders.
+            </p>
           </div>
-          <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
-            Detailed HTML breakdown of one domain&rsquo;s SPF, DKIM and DMARC posture.
-          </p>
-          <div className="mt-4 space-y-3">
-            <select
-              className={selectClass}
-              value={reportDomainId || ''}
-              onChange={(e) => setReportDomainId(Number(e.target.value))}
-              aria-label="Domain for report"
-            >
-              <option value="">Select a domain…</option>
-              {domains.map((d: any) => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-            <Button
-              className="w-full"
-              onClick={() => reportDomainId && generateReport(reportDomainId)}
-              disabled={!reportDomainId || generatingReport}
-              title={!reportDomainId ? 'Select a domain above first' : undefined}
-            >
-              {generatingReport ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating…</> : <><FileText className="w-3.5 h-3.5" /> Generate report</>}
-            </Button>
+          <div className="mt-5">
+            <label htmlFor="report-domain" className="text-[12px] font-medium text-muted-foreground">Domain</label>
+            <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+              <select
+                id="report-domain"
+                className={selectClass + ' min-w-0 sm:flex-1'}
+                value={reportDomainId || ''}
+                onChange={(e) => setReportDomainId(Number(e.target.value))}
+                aria-label="Domain for report"
+              >
+                <option value="">Select a domain…</option>
+                {domains.map((d: any) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+              <Button
+                onClick={() => reportDomainId && generateReport(reportDomainId)}
+                disabled={!reportDomainId || generatingReport}
+                title={!reportDomainId ? 'Select a domain above first' : undefined}
+                className="sm:w-auto"
+              >
+                {generatingReport ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating…</> : <><FileText className="w-3.5 h-3.5" /> Generate report</>}
+              </Button>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
             <Button
               variant="ghost"
-              className="w-full"
+              size="sm"
+              className="h-8 px-2 text-[12px]"
               disabled={!reportDomainId}
               onClick={() => reportDomainId && onOpenDomain?.(reportDomainId)}
             >
@@ -128,25 +134,34 @@ const exportJSON = async () => {
           </div>
         </section>
 
-        <section className="p-5">
-          <div className="flex items-center gap-2">
-            <Download className="h-4 w-4 text-muted-foreground" />
+        <section className="rounded-xl border border-border bg-card p-5">
+          <div>
             <h3 className="text-[14px] font-semibold">Bulk export</h3>
+            <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+              Every domain&rsquo;s latest scan in one archive.
+            </p>
           </div>
-          <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
-            Download every domain&rsquo;s latest scan as a single archive.
-          </p>
-          <div className="mt-4 space-y-2">
-            <Button variant="outline" className="w-full justify-between" onClick={exportCSV}>
-              <span className="flex items-center gap-2"><Download className="w-3.5 h-3.5" /> CSV</span>
-              <span className="text-[11px] text-muted-foreground">Spreadsheet-friendly</span>
-            </Button>
-            <Button variant="outline" className="w-full justify-between" onClick={exportJSON}>
-              <span className="flex items-center gap-2"><Download className="w-3.5 h-3.5" /> JSON</span>
-              <span className="text-[11px] text-muted-foreground">Full structured data</span>
-            </Button>
+          <div className="mt-4 divide-y divide-border border-y border-border">
+            <div className="flex items-center justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-medium">CSV</p>
+                <p className="text-[11px] text-muted-foreground">Spreadsheet-friendly</p>
+              </div>
+              <Button variant="outline" size="sm" className="flex-shrink-0" onClick={exportCSV}>
+                <Download className="w-3.5 h-3.5" /> Download CSV
+              </Button>
+            </div>
+            <div className="flex items-center justify-between gap-3 py-3">
+              <div className="min-w-0">
+                <p className="text-[12.5px] font-medium">JSON</p>
+                <p className="text-[11px] text-muted-foreground">Full structured data</p>
+              </div>
+              <Button variant="outline" size="sm" className="flex-shrink-0" onClick={exportJSON}>
+                <Download className="w-3.5 h-3.5" /> Download JSON
+              </Button>
+            </div>
           </div>
-          <p className="mt-3 text-[11px] text-muted-foreground">
+          <p className="mt-3 text-[11px] leading-5 text-muted-foreground">
             Exports include the latest scan per domain and are safe to archive.
           </p>
         </section>

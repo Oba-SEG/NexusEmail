@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Settings, X, Zap, Plug } from "lucide-react";
+import { Settings, X, Zap, Plug, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import ProviderModal from "@/components/dashboard/ProviderModal";
 import { dialogFocusReturn } from "@/components/ui/dialog";
 import { DNS_PROVIDERS, PROVIDER_METADATA, type ProviderField } from "@/lib/providers";
@@ -33,6 +34,7 @@ export default function IntegrationsTab({ settings, loadSettings, sessionGenRef,
   const [selectedProvider, setSelectedProvider] = useState<any>(null);
   const [providerCreds, setProviderCreds] = useState<any>({});
   const [savingProvider, setSavingProvider] = useState(false);
+  const [query, setQuery] = useState('');
 
   // Consume the Settings shortcut's one-time focus request on mount.
   useEffect(() => {
@@ -136,115 +138,130 @@ const testProviderConnection = async (provider: any) => {
         description="Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API."
       />
 
-      {/* Connection summary */}
-      <div className="mt-5 flex flex-wrap items-center gap-x-8 gap-y-3 rounded-lg border border-border bg-card px-4 py-3.5">
-        <div>
-          <p className="text-[12px] text-muted-foreground">Connected</p>
-          <p className="text-[20px] font-semibold tabular-nums tracking-[-0.02em]">
-            <span className={connected > 0 ? 'text-emerald-400' : 'text-foreground'}>{connected}</span>
-            <span className="text-[13px] font-normal text-muted-foreground"> / {totalProviders} providers</span>
-          </p>
+      {/* Connection summary + provider search */}
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative w-full sm:w-[260px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search providers"
+            aria-label="Search DNS providers"
+            className="h-9 w-full pl-8 text-[12.5px]"
+          />
         </div>
-        <div className="hidden h-8 w-px bg-border sm:block" />
-        {categories.map((cat) => {
-          const inCat = DNS_PROVIDERS.filter((p: any) => p.category === cat);
-          const connectedInCat = inCat.filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
-          return (
-            <div key={cat}>
-              <p className="text-[11px] text-muted-foreground">{cat}</p>
-              <p className="text-[13px] font-medium tabular-nums">
-                <span className={connectedInCat > 0 ? 'text-emerald-400' : 'text-foreground'}>{connectedInCat}</span>
-                <span className="text-muted-foreground"> / {inCat.length}</span>
-              </p>
-            </div>
-          );
-        })}
-        <p className="ml-auto max-w-[280px] text-[11px] leading-relaxed text-muted-foreground">
+        <p className="text-[12px] text-muted-foreground">
+          <span className={connected > 0 ? 'font-medium text-emerald-300' : 'font-medium text-foreground'}>{connected}</span>
+          {' '}of {totalProviders} connected
+        </p>
+        <p className="text-[11px] text-muted-foreground sm:ml-auto">
           {connected === 0
             ? 'Connect a provider to unlock auto-remediation.'
             : 'Auto-remediation runs on detected issues for connected providers.'}
         </p>
       </div>
 
-      {categories.map((category) => {
-        const providersInCategory = DNS_PROVIDERS.filter((p: any) => p.category === category);
-        if (providersInCategory.length === 0) return null;
-        return (
-          <section key={category} className="mt-6">
-            <div className="mb-2 flex items-baseline justify-between">
-              <h3 className="text-[12px] font-medium text-muted-foreground">{category}</h3>
-              <span className="text-[11px] tabular-nums text-muted-foreground/70">{providersInCategory.length} provider{providersInCategory.length === 1 ? '' : 's'}</span>
+      {(() => {
+        const q = query.trim().toLowerCase();
+        const matching = DNS_PROVIDERS.filter((p: any) =>
+          !q || p.name.toLowerCase().includes(q) || String(p.summary || '').toLowerCase().includes(q) || p.category.toLowerCase().includes(q)
+        );
+        if (matching.length === 0) {
+          return (
+            <div className="mt-6 rounded-xl border border-border bg-card px-6 py-12 text-center">
+              <p className="text-[13px] font-medium">No providers match &ldquo;{query}&rdquo;</p>
+              <button onClick={() => setQuery('')} className="mt-1 text-[12px] text-primary underline-offset-2 hover:underline">
+                Clear search
+              </button>
             </div>
-            <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
-              {providersInCategory.map((provider: any) => {
-                const isConnected = settings?.provider_credentials?.[provider.name.toLowerCase()];
-                const meta = PROVIDER_METADATA[provider.name];
-                const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
-                return (
-                  <div key={provider.name} className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.03] text-[11px] font-semibold tracking-[-0.02em] text-muted-foreground">
-                        {provider.name.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="truncate text-[13px] font-medium">{provider.name}</p>
-                          {isConnected ? (
-                            <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
-                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                              Connected
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">{requiredCount} field{requiredCount === 1 ? '' : 's'} required</span>
-                          )}
+          );
+        }
+        return categories.map((category) => {
+          const providersInCategory = matching
+            .filter((p: any) => p.category === category)
+            .sort((a: any, b: any) => {
+              const aOn = settings?.provider_credentials?.[a.name.toLowerCase()] ? 1 : 0;
+              const bOn = settings?.provider_credentials?.[b.name.toLowerCase()] ? 1 : 0;
+              return bOn - aOn;
+            });
+          if (providersInCategory.length === 0) return null;
+          return (
+            <section key={category} className="mt-6">
+              <div className="mb-2 flex items-baseline justify-between">
+                <h3 className="section-label">{category}</h3>
+                <span className="text-[11px] tabular-nums text-muted-foreground/70">{providersInCategory.length} provider{providersInCategory.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+                {providersInCategory.map((provider: any) => {
+                  const isConnected = settings?.provider_credentials?.[provider.name.toLowerCase()];
+                  const meta = PROVIDER_METADATA[provider.name];
+                  const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
+                  return (
+                    <div key={provider.name} className="flex flex-col gap-2 px-4 py-3.5 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-white/[0.03] text-[11px] font-semibold tracking-[-0.02em] text-muted-foreground">
+                          {provider.name.slice(0, 2).toUpperCase()}
                         </div>
-                        <p className="truncate text-[11.5px] text-muted-foreground">{provider.summary}</p>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-[13px] font-medium">{provider.name}</p>
+                            {isConnected ? (
+                              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                Connected
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">{requiredCount} field{requiredCount === 1 ? '' : 's'} required</span>
+                            )}
+                          </div>
+                          <p className="truncate text-[11.5px] text-muted-foreground">{provider.summary}</p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0">
-                      {isConnected ? (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => testProviderConnection(provider)}>
-                            <Zap className="w-3.5 h-3.5" /> Test
-                          </Button>
+                      <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0">
+                        {isConnected ? (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => testProviderConnection(provider)}>
+                              <Zap className="w-3.5 h-3.5" /> Test
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="px-2"
+                              title="Reconfigure"
+                              aria-label={`Reconfigure ${provider.name}`}
+                              onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
+                            >
+                              <Settings className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="px-2 text-red-300 hover:bg-red-500/10 hover:text-red-200"
+                              title="Disconnect"
+                              aria-label={`Disconnect ${provider.name}`}
+                              onClick={() => disconnectProvider(provider.name)}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
+                          </>
+                        ) : (
                           <Button
                             size="sm"
-                            variant="ghost"
-                            className="px-2"
-                            title="Reconfigure"
-                            aria-label={`Reconfigure ${provider.name}`}
+                            variant="outline"
                             onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
                           >
-                            <Settings className="w-3.5 h-3.5" />
+                            <Plug className="w-3.5 h-3.5" /> Configure
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="px-2 text-red-300 hover:bg-red-500/10 hover:text-red-200"
-                            title="Disconnect"
-                            aria-label={`Disconnect ${provider.name}`}
-                            onClick={() => disconnectProvider(provider.name)}
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => { providerOpenerRef.current = e.currentTarget; openProviderModal(provider); }}
-                        >
-                          <Plug className="w-3.5 h-3.5" /> Configure
-                        </Button>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        );
-      })}
+                  );
+                })}
+              </div>
+            </section>
+          );
+        });
+      })()}
 
       {showProviderModal && selectedProvider && (
         <ProviderModal

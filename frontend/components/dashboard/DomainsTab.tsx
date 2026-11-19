@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Search, AlertTriangle, CheckCircle, Globe, Plus, RefreshCw,
   Zap, Eye, Clock, Trash2, CheckSquare, Square
@@ -199,6 +200,12 @@ export default function DomainsTab({
       if (opener && opener.isConnected) opener.focus();
     };
   }, [showDetails]);
+  useEffect(() => {
+    if (!showDetails) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [showDetails]);
   const trapDrawerTab = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
     const c = drawerRef.current;
@@ -232,10 +239,11 @@ export default function DomainsTab({
         action={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Globe className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Add one domain, or paste several"
-                className="w-full pl-8 sm:w-[320px]"
+                placeholder="Add a domain or paste several"
+                aria-label="Add a domain or paste several"
+                className="w-full pl-8 sm:w-[300px]"
                 value={domainInput}
                 onChange={(e) => setDomainInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && addDomain()}
@@ -262,7 +270,7 @@ export default function DomainsTab({
 
       {/* Bulk actions */}
       {selectedIds.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/[0.05] px-4 py-2.5">
           <span className="text-[12px] font-medium">
             {selectedIds.length} {selectedIds.length === 1 ? 'domain' : 'domains'} selected
           </span>
@@ -285,54 +293,124 @@ export default function DomainsTab({
         </div>
       )}
 
-      {/* Portfolio stats */}
+      {/* Portfolio band: posture first, then the single next action. */}
       {domains.length > 0 && (() => {
         const total = domains.length;
         const verified = domains.filter((d: any) => d.verified).length;
-        const scoredDomains = domains.filter((d: any) => typeof d.last_score === 'number');
-        const avgScore = scoredDomains.length > 0
-          ? Math.round(scoredDomains.reduce((s: number, d: any) => s + (d.last_score || 0), 0) / scoredDomains.length)
+        const scanned = domains.filter((d: any) => typeof d.last_score === 'number');
+        const avgScore = scanned.length > 0
+          ? Math.round(scanned.reduce((sum: number, d: any) => sum + (d.last_score || 0), 0) / scanned.length)
           : null;
-        const atRisk = scoredDomains.filter((d: any) => scoreBand(d.last_score) !== 'passing').length;
-        const avgScoreColor = avgScore == null ? 'text-muted-foreground' : avgScore >= PASSING_SCORE ? 'text-emerald-400' : avgScore >= WARNING_SCORE ? 'text-amber-400' : 'text-red-400';
-        const stats = [
-          { label: 'Domains', value: total, hint: 'on file', accent: 'text-foreground' },
-          { label: 'Ownership verified', value: verified, hint: `${total - verified} pending`, accent: verified === total ? 'text-emerald-400' : 'text-foreground' },
-          { label: 'Average health', value: avgScore == null ? '—' : `${avgScore}`, hint: avgScore == null ? 'No scans yet' : avgScore >= PASSING_SCORE ? 'Strong posture' : avgScore >= WARNING_SCORE ? 'Fixes recommended' : 'Action required', accent: avgScoreColor },
-          { label: 'At risk', value: atRisk, hint: `below ${PASSING_SCORE}`, accent: atRisk > 0 ? 'text-amber-400' : 'text-emerald-400' },
-        ];
+        const atRisk = scanned.filter((d: any) => scoreBand(d.last_score) !== 'passing').length;
+        const verdict = avgScore == null
+          ? 'Not scanned'
+          : avgScore >= PASSING_SCORE ? 'Healthy' : avgScore >= WARNING_SCORE ? 'Needs attention' : 'Action required';
+        const verdictTone = avgScore == null
+          ? 'border-border bg-white/[0.03] text-muted-foreground'
+          : avgScore >= PASSING_SCORE ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+          : avgScore >= WARNING_SCORE ? 'border-amber-500/25 bg-amber-500/10 text-amber-300'
+          : 'border-red-500/25 bg-red-500/10 text-red-300';
+        const lastScan = domains
+          .map((d: any) => d.last_scan ? new Date(d.last_scan).getTime() : 0)
+          .reduce((max: number, t: number) => Math.max(max, t), 0);
+        const lastScanAgo = (() => {
+          if (!lastScan) return 'Never';
+          const minutes = Math.floor((Date.now() - lastScan) / 60000);
+          if (minutes < 1) return 'Just now';
+          if (minutes < 60) return `${minutes}m ago`;
+          const hours = Math.floor(minutes / 60);
+          if (hours < 24) return `${hours}h ago`;
+          return `${Math.floor(hours / 24)}d ago`;
+        })();
+        const worst = scanned
+          .slice()
+          .sort((a: any, b: any) => (a.last_score || 0) - (b.last_score || 0))[0];
+        const gap = worst
+          ? [
+              { key: 'dmarc' as const, label: 'DMARC' },
+              { key: 'dkim' as const, label: 'DKIM' },
+              { key: 'spf' as const, label: 'SPF' },
+            ]
+              .map((r) => ({ ...r, state: recordState(worst.latest_scan, r.key) }))
+              .find((r) => r.state.tone !== 'pass')
+          : null;
+        const gapCopy = gap
+          ? gap.state.tone === 'none'
+            ? `${gap.label} has no scan data yet`
+            : gap.state.tone === 'fail'
+              ? `${gap.label} is missing or failing`
+              : `${gap.label} needs a policy upgrade`
+          : null;
+
         return (
-          <>
-            <div className="mt-5 grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card sm:grid-cols-4">
-              {stats.map((s, i) => (
-                <div
-                  key={s.label}
-                  className={cn(
-                    "px-4 py-3.5",
-                    i < 2 && "border-b border-border sm:border-b-0",
-                    i % 2 === 1 && "border-l border-border"
-                  )}
-                >
-                  <p className="text-[12px] text-muted-foreground">{s.label}</p>
-                  <p className={cn("mt-0.5 text-[20px] font-semibold tabular-nums tracking-[-0.02em]", s.accent)}>{s.value}</p>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{s.hint}</p>
+          <section className="mt-5 overflow-hidden rounded-xl border border-border bg-card" aria-label="Portfolio health">
+            <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-4">
+                <div className={cn("flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border text-[17px] font-semibold tabular-nums", verdictTone)}>
+                  {avgScore == null ? '—' : avgScore}
                 </div>
-              ))}
+                <div className="min-w-0">
+                  <p className="section-label">Portfolio health</p>
+                  <p className="mt-1 text-[16px] font-semibold tracking-[-0.015em]">{verdict}</p>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground">
+                    {total} {total === 1 ? 'domain' : 'domains'} · {atRisk} at risk · {verified} of {total} owned verified
+                  </p>
+                </div>
+              </div>
+              <dl className="grid grid-cols-3 gap-6 border-t border-border pt-4 text-left lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Average score</dt>
+                  <dd className="mt-1 text-[14px] font-semibold tabular-nums">{avgScore == null ? '—' : `${avgScore}/100`}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Last scan</dt>
+                  <dd className="mt-1 text-[14px] font-semibold">{lastScanAgo}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] text-muted-foreground">Ownership</dt>
+                  <dd className={cn("mt-1 text-[14px] font-semibold", verified === total ? 'text-emerald-300' : 'text-foreground')}>
+                    {verified === total ? 'Verified' : `${total - verified} pending`}
+                  </dd>
+                </div>
+              </dl>
             </div>
-            {atRisk === total && avgScore != null && (
-              <p className="mt-3 text-[12px] leading-5 text-muted-foreground">
-                New portfolios start at 0 until SPF, DKIM and DMARC records exist. Open a domain and run Get fix records, then re-scan.
-              </p>
+            {worst && gapCopy && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-white/[0.015] px-5 py-3">
+                <span className="section-label text-primary/90">Next fix</span>
+                <p className="min-w-0 text-[12.5px] text-muted-foreground">
+                  <span className="font-medium text-foreground" title={worst.name}>Lowest-scoring domain</span>
+                  {' · '}{gapCopy}
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto h-8"
+                  onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(worst); }}
+                >
+                  Open domain
+                </Button>
+              </div>
             )}
-          </>
+            {(!worst || !gapCopy) && avgScore != null && (
+              <div className="border-t border-border bg-white/[0.015] px-5 py-3 text-[12px] text-muted-foreground">
+                {atRisk === 0
+                  ? 'All scored domains are passing. Keep the records published and re-scan after DNS changes.'
+                  : 'No single authentication gap explains the score shortfall. Inspect the lowest-scoring domains below.'}
+              </div>
+            )}
+            {avgScore == null && (
+              <div className="border-t border-border bg-white/[0.015] px-5 py-3 text-[12px] text-muted-foreground">
+                Run the first scan to establish a baseline for this portfolio.
+              </div>
+            )}
+          </section>
         );
       })()}
 
       {/* Filter */}
       {domains.length > 0 && (
         <div className="mt-5 flex flex-wrap items-center gap-3">
-          <span className="text-[12px] text-muted-foreground">Filter</span>
-          <div className="inline-flex rounded-md border border-border bg-card p-0.5">
+          <div className="inline-flex rounded-lg border border-border bg-card p-1" role="group" aria-label="Filter domains by score">
             {[
               { key: null, label: 'All', count: domains.length },
               { key: 'passing', label: 'Passing', count: filterByBand(domains, 'passing').length },
@@ -344,7 +422,7 @@ export default function DomainsTab({
                 <button
                   key={f.label}
                   onClick={() => setDomainFilter(f.key as any)}
-                  className={`h-7 rounded px-2.5 text-[12px] font-medium transition-colors ${active ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={`h-7 rounded-md px-2.5 text-[12px] font-medium transition-colors ${active ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   {f.label}
                   <span className={`ml-1.5 tabular-nums ${active ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}>{f.count}</span>
@@ -352,14 +430,14 @@ export default function DomainsTab({
               );
             })}
           </div>
-          <div className="relative ml-auto">
+          <div className="relative ml-auto w-full sm:w-auto">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={domainQuery}
               onChange={(e) => setDomainQuery(e.target.value)}
               placeholder="Search domains"
               aria-label="Search domains"
-              className="h-8 w-[200px] pl-8 text-[12px]"
+              className="h-9 w-full pl-8 text-[12.5px] sm:w-[220px]"
             />
           </div>
         </div>
@@ -367,22 +445,22 @@ export default function DomainsTab({
 
       {/* Domain table */}
       {domains.length === 0 ? (
-        <div className="mt-4 rounded-lg border border-dashed border-border px-6 py-12 text-center">
-          <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <div className="mt-4 rounded-xl border border-border bg-card px-6 py-14 text-center">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Globe className="w-5 h-5" />
           </div>
-          <h3 className="text-[14px] font-semibold">No domains yet</h3>
+          <h3 className="text-[15px] font-semibold">No domains yet</h3>
           <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">
             Add a domain above to start scanning SPF, DKIM and DMARC posture.
           </p>
         </div>
       ) : (
-        <div className="mt-3 overflow-hidden rounded-lg border border-border bg-card">
+        <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-[13px]">
+            <table className="w-full text-[13px]">
               <thead>
-                <tr className="border-b border-border bg-white/[0.02] text-left text-[12px] font-medium text-muted-foreground">
-                  <th className="w-10 px-3 py-2.5">
+                <tr className="border-b border-border bg-white/[0.015] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  <th className="w-10 px-4 py-2.5">
                     <button
                       onClick={() => {
                         if (allVisibleSelected) {
@@ -399,11 +477,11 @@ export default function DomainsTab({
                         : <Square className="w-4 h-4" />}
                     </button>
                   </th>
-                  <th className="px-3 py-2.5 font-medium">Domain</th>
-                  <th className="px-3 py-2.5 font-medium">Records</th>
-                  <th className="px-3 py-2.5 font-medium">Score</th>
-                  <th className="px-3 py-2.5 font-medium">Last scan</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Actions</th>
+                  <th className="px-4 py-2.5 font-medium">Domain</th>
+                  <th className="hidden px-4 py-2.5 font-medium md:table-cell">Records</th>
+                  <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Score</th>
+                  <th className="hidden px-4 py-2.5 font-medium lg:table-cell">Last scan</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -427,21 +505,26 @@ export default function DomainsTab({
                   const spf = recordState(domain.latest_scan, 'spf');
                   const dkim = recordState(domain.latest_scan, 'dkim');
                   const dmarc = recordState(domain.latest_scan, 'dmarc');
-                  const pillClass = (row: { tone: string }) =>
-                    row.tone === 'pass' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300' :
-                    row.tone === 'fail' ? 'border-red-500/25 bg-red-500/10 text-red-300' :
-                    row.tone === 'warn' ? 'border-amber-500/25 bg-amber-500/10 text-amber-300' :
-                    'border-border bg-white/[0.03] text-muted-foreground';
+                  const recordText = (row: { tone: string }) =>
+                    row.tone === 'pass' ? 'text-emerald-300/90' :
+                    row.tone === 'fail' ? 'text-red-300/90' :
+                    row.tone === 'warn' ? 'text-amber-300/90' :
+                    'text-muted-foreground/70';
+                  const recordDot = (row: { tone: string }) =>
+                    row.tone === 'pass' ? 'bg-emerald-400' :
+                    row.tone === 'fail' ? 'bg-red-400' :
+                    row.tone === 'warn' ? 'bg-amber-400' :
+                    'bg-white/25';
 
                   return (
                     <tr
                       key={domain.id}
                       className={`border-b border-border last:border-0 transition-colors hover:bg-white/[0.02] ${isSelected ? 'bg-primary/[0.04]' : ''}`}
                     >
-                      <td className="px-3 py-3">
+                      <td className="px-4 py-3.5">
                         <button
                           onClick={() => toggleSelect(domain.id)}
-                          className="flex h-4 w-4 items-center justify-center rounded border border-input hover:border-primary/50"
+                          className="flex h-5 w-5 items-center justify-center rounded border border-input hover:border-primary/50"
                           aria-label={isSelected ? 'Deselect' : 'Select'}
                         >
                           {isSelected
@@ -449,12 +532,18 @@ export default function DomainsTab({
                             : <Square className="w-3.5 h-3.5 text-muted-foreground/50" />}
                         </button>
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="whitespace-nowrap font-mono text-[12.5px] font-medium">{domain.name}</span>
+                          <span className={`text-[11px] font-medium tabular-nums sm:hidden ${scoreText}`}>
+                            {hasScore ? `Score ${score}` : 'Not scanned'}
+                          </span>
                           {domain.verified ? (
-                            <span className="inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300">
-                              <CheckCircle className="w-3 h-3" /> Ownership verified
+                            <span
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-500/20 bg-emerald-500/[0.07] px-1.5 py-0.5 text-[11px] font-medium text-emerald-300"
+                              title="Ownership verified: a DNS TXT record proves you control this domain"
+                            >
+                              <CheckCircle className="w-3 h-3" /> Owner verified
                             </span>
                           ) : (
                             <button
@@ -466,18 +555,18 @@ export default function DomainsTab({
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-1.5">
+                      <td className="hidden px-4 py-3.5 md:table-cell">
+                        <div className="flex items-center gap-3.5">
                           {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
-                            <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium ${pillClass(p.v)}`}>
+                            <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[11.5px] font-medium ${recordText(p.v)}`}>
+                              <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${recordDot(p.v)}`} />
                               {p.k}
-                              {p.v.tone !== 'none' && <span className="opacity-60">·</span>}
-                              {p.v.tone !== 'none' && <span>{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
+                              {p.v.tone !== 'none' && <span className="text-[10px] opacity-70">{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
                             </span>
                           ))}
                         </div>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="hidden px-4 py-3.5 sm:table-cell">
                         <div className="flex items-center gap-2.5">
                           <span className={`w-7 text-right text-[12px] font-medium tabular-nums ${scoreText}`}>
                             {hasScore ? score : '—'}
@@ -487,18 +576,24 @@ export default function DomainsTab({
                           </div>
                         </div>
                       </td>
-                      <td className="px-3 py-3 text-[12px] text-muted-foreground">
-                        <span className="inline-flex items-center gap-1" title={domain.last_scan ? new Date(domain.last_scan).toISOString() : undefined}>
+                      <td className="hidden px-4 py-3.5 text-[12px] text-muted-foreground lg:table-cell">
+                        <span className="inline-flex items-center gap-1.5" title={domain.last_scan ? new Date(domain.last_scan).toISOString() : undefined}>
                           <Clock className="w-3 h-3" /> {lastScanAgo}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center justify-end gap-0.5">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center justify-end gap-1">
                           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => scanDomain(domain.id)} title="Re-scan">
                             <RefreshCw className="w-3.5 h-3.5" />
                           </Button>
-                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(domain); }} title="Inspect">
-                            <Eye className="w-3.5 h-3.5" />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2.5 text-[12px]"
+                            onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(domain); }}
+                            title="Inspect"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> Inspect
                           </Button>
                         </div>
                       </td>
@@ -507,7 +602,7 @@ export default function DomainsTab({
                 })}
                 {visibleDomains.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-12 text-center text-[13px] text-muted-foreground">
                       {normalizedQuery ? (
                         <>
                           No domains match &ldquo;{domainQuery}&rdquo;.
@@ -540,10 +635,10 @@ export default function DomainsTab({
         </div>
       )}
 
-      {showDetails && selectedDomain && (
+      {showDetails && selectedDomain && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`${selectedDomain.name} details`}>
           <div className="absolute inset-0 bg-black/60 drawer-backdrop" onClick={onClosePanel} />
-          <div ref={drawerRef} onKeyDown={trapDrawerTab} className="absolute inset-y-0 right-0 w-full max-w-xl overflow-y-auto border-l border-border bg-card shadow-2xl drawer-slide-in">
+          <div ref={drawerRef} onKeyDown={trapDrawerTab} className="absolute inset-y-0 right-0 w-full max-w-[580px] overflow-y-auto border-l border-border bg-card shadow-2xl drawer-slide-in">
             <DomainDetailPanel
               key={selectedDomain.id}
               apiFetch={apiFetch}
@@ -559,7 +654,8 @@ export default function DomainsTab({
               onClose={onClosePanel}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {showVerifyModal && verifyDomain && (
@@ -572,24 +668,26 @@ export default function DomainsTab({
               </DialogDescription>
             </div>
 
-            <div className="space-y-3">
-              <div className="rounded-md border border-border bg-white/[0.02] p-3">
-                <p className="text-[12px] font-medium">TXT record (recommended)</p>
-                <dl className="mt-2 space-y-1 text-[11.5px]">
-                  <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Name</dt><dd className="break-all font-mono">_nexusemail-verification</dd></div>
-                  <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Value</dt><dd className="break-all font-mono">_nexusemail-verification={verifyToken}</dd></div>
-                </dl>
+            <div>
+              <div className="divide-y divide-border/60 border-y border-border/60">
+                <div className="py-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">TXT record <span className="normal-case tracking-normal text-foreground/60">recommended</span></p>
+                  <dl className="mt-2 space-y-1 text-[11.5px]">
+                    <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Name</dt><dd className="break-all font-mono">_nexusemail-verification</dd></div>
+                    <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Value</dt><dd className="break-all font-mono">_nexusemail-verification={verifyToken}</dd></div>
+                  </dl>
+                </div>
+
+                <div className="py-3">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">CNAME alternative</p>
+                  <dl className="mt-2 space-y-1 text-[11.5px]">
+                    <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Name</dt><dd className="break-all font-mono">verify.{verifyDomain.name}</dd></div>
+                    <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Target</dt><dd className="break-all font-mono">{verifyToken}.verification.nexusemail.local</dd></div>
+                  </dl>
+                </div>
               </div>
 
-              <div className="rounded-md border border-border bg-white/[0.02] p-3">
-                <p className="text-[12px] font-medium">CNAME alternative</p>
-                <dl className="mt-2 space-y-1 text-[11.5px]">
-                  <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Name</dt><dd className="break-all font-mono">verify.{verifyDomain.name}</dd></div>
-                  <div className="flex gap-2"><dt className="w-12 shrink-0 text-muted-foreground">Target</dt><dd className="break-all font-mono">{verifyToken}.verification.nexusemail.local</dd></div>
-                </dl>
-              </div>
-
-              <p className="text-[12px] leading-5 text-muted-foreground">
+              <p className="mt-3 text-[12px] leading-5 text-muted-foreground">
                 DNS changes can take a few minutes to propagate. Publish the record, then verify.
               </p>
 

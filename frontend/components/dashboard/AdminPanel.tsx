@@ -207,8 +207,8 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   }
 };
 
-  const sectionClass = "overflow-hidden rounded-lg border border-border bg-card";
-  const sectionHeadClass = "flex items-center justify-between border-b border-border px-4 py-2.5";
+  const sectionClass = "overflow-hidden rounded-xl border border-border bg-card";
+  const sectionHeadClass = "flex items-center justify-between border-b border-border bg-white/[0.015] px-4 py-2.5";
   const sectionBodyClass = "max-h-72 space-y-1 overflow-y-auto p-2";
 
   return (
@@ -219,7 +219,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
       />
 
       {!isAdmin ? (
-        <div className="mt-6 rounded-lg border border-border bg-card p-6 text-center text-[12px] text-muted-foreground">
+        <div className="mt-6 rounded-xl border border-border bg-card px-6 py-12 text-center text-[12.5px] text-muted-foreground">
           Platform admin access required.
         </div>
       ) : adminDetail ? (
@@ -229,14 +229,14 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div className="min-w-0">
-              <h2 className="text-[16px] font-semibold tracking-[-0.01em]">{adminDetail.org.name}</h2>
+              <h2 className="text-[19px] font-semibold tracking-[-0.015em]">{adminDetail.org.name}</h2>
               <p className="truncate font-mono text-[11px] text-muted-foreground">
-                {adminDetail.org.slug} · {adminDetail.org.plan || 'no plan'} · {adminDetail.org.id}
+                {adminDetail.org.slug} · {adminDetail.org.plan || 'No plan'} · ID {adminDetail.org.id}
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card md:grid-cols-4">
+          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card md:grid-cols-4">
             {[
               { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length, small: false },
               { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length, small: false },
@@ -247,7 +247,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
                 key={s.label}
                 className={`px-4 py-3 ${i < 2 ? 'border-b border-border md:border-b-0' : ''} ${i % 2 === 1 ? 'border-l border-border' : ''} ${i === 2 ? 'md:border-l md:border-border' : ''}`}
               >
-                <p className="text-[12px] text-muted-foreground">{s.label}</p>
+                <p className="text-[11px] text-muted-foreground">{s.label}</p>
                 <p className={`mt-0.5 font-semibold tabular-nums ${s.small ? 'text-[12px]' : 'text-[20px] tracking-[-0.02em]'}`}>{s.value}</p>
               </div>
             ))}
@@ -255,7 +255,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className={sectionClass}>
-              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Domains</h3></div>
+              <div className={sectionHeadClass}><h3 className="text-[12.5px] font-medium">Domains</h3></div>
               <div className={sectionBodyClass}>
                 {adminDetail.failed?.domains ? (
                   <p className="px-2 py-1.5 text-[12px] text-red-400/80">Domains unavailable — the request failed.</p>
@@ -277,7 +277,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
             </section>
 
             <section className={sectionClass}>
-              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Users</h3></div>
+              <div className={sectionHeadClass}><h3 className="text-[12.5px] font-medium">Users</h3></div>
               <div className={sectionBodyClass}>
                 {adminDetail.failed?.users ? (
                   <p className="px-2 py-1.5 text-[12px] text-red-400/80">Users unavailable — the request failed.</p>
@@ -338,7 +338,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className={sectionClass}>
-              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Scan history</h3></div>
+              <div className={sectionHeadClass}><h3 className="text-[12.5px] font-medium">Scan history</h3></div>
               <div className={sectionBodyClass}>
                 {adminDetail.failed?.scans ? (
                   <p className="px-2 py-1.5 text-[12px] text-red-400/80">Scan history unavailable — the request failed.</p>
@@ -363,7 +363,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
             </section>
 
             <section className={sectionClass}>
-              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Channels</h3></div>
+              <div className={sectionHeadClass}><h3 className="text-[12.5px] font-medium">Channels</h3></div>
               <div className="space-y-1 p-2">
                 {adminDetail.failed?.notifications ? (
                   <p className="px-2 py-1.5 text-[12px] text-red-400/80">Channel status unavailable — the request failed.</p>
@@ -386,12 +386,19 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
           </div>
         </div>
       ) : (
-        <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
-          <div className="border-b border-border px-5 py-4">
-            <h3 className="flex items-center gap-2 text-[14px] font-semibold">
-              <Building2 className="h-4 w-4 text-muted-foreground" /> Customer organizations
-            </h3>
-            <p className="mt-0.5 text-[12px] text-muted-foreground">All hosted organizations — read-only support access, every view is audited.</p>
+        <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
+          <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="flex items-center gap-2 text-[14px] font-semibold">
+                <Building2 className="h-4 w-4 text-muted-foreground" /> Customer organizations
+              </h3>
+
+            </div>
+            {adminOrgs && adminOrgs.length > 0 && (
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {adminOrgs.length} {adminOrgs.length === 1 ? 'organization' : 'organizations'}
+              </span>
+            )}
           </div>
           <div className="p-4">
             {adminLoading ? (
@@ -409,30 +416,30 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
               <div className="overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <thead>
-                    <tr className="border-b border-border bg-white/[0.02] text-left text-[12px] font-medium text-muted-foreground">
-                      <th className="px-3 py-2.5 font-medium">Organization</th>
-                      <th className="px-3 py-2.5 font-medium">Plan</th>
-                      <th className="px-3 py-2.5 font-medium">Domains</th>
-                      <th className="px-3 py-2.5 font-medium">Users</th>
-                      <th className="px-3 py-2.5 font-medium">Scans</th>
-                      <th className="px-3 py-2.5 font-medium">Last activity</th>
-                      <th className="px-3 py-2.5"></th>
+                    <tr className="border-b border-border bg-white/[0.015] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                      <th className="px-4 py-2.5 font-medium">Organization</th>
+                      <th className="px-4 py-2.5 font-medium">Plan</th>
+                      <th className="px-4 py-2.5 font-medium">Domains</th>
+                      <th className="px-4 py-2.5 font-medium">Users</th>
+                      <th className="px-4 py-2.5 font-medium">Scans</th>
+                      <th className="px-4 py-2.5 font-medium">Last activity</th>
+                      <th className="px-4 py-2.5"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {adminOrgs.map((o) => (
                       <tr key={o.id} className="border-b border-border transition-colors last:border-0 hover:bg-white/[0.02]">
-                        <td className="px-3 py-2.5">
-                          <p className="truncate font-medium">{o.name}</p>
-                          <p className="truncate text-[11px] text-muted-foreground">{o.slug}</p>
+                        <td className="px-4 py-3.5">
+                          <p className="truncate text-[13px] font-medium">{o.name}</p>
+                          <p className="truncate font-mono text-[11px] text-muted-foreground">{o.slug}</p>
                         </td>
-                        <td className="px-3 py-2.5">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
-                        <td className="px-3 py-2.5 tabular-nums">{o.domain_count}</td>
-                        <td className="px-3 py-2.5 tabular-nums">{o.user_count}</td>
-                        <td className="px-3 py-2.5 tabular-nums">{o.scan_count}</td>
-                        <td className="whitespace-nowrap px-3 py-2.5 text-[11px] text-muted-foreground">{o.last_activity ? formatDateTime(o.last_activity) : '—'}</td>
-                        <td className="px-3 py-2.5 text-right">
-                          <Button size="sm" variant="ghost" className="h-7" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5" /></Button>
+                        <td className="px-4 py-3.5">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="px-4 py-3.5 text-[12.5px] tabular-nums">{o.domain_count}</td>
+                        <td className="px-4 py-3.5 text-[12.5px] tabular-nums">{o.user_count}</td>
+                        <td className="px-4 py-3.5 text-[12.5px] tabular-nums">{o.scan_count}</td>
+                        <td className="whitespace-nowrap px-4 py-3.5 text-[11.5px] text-muted-foreground">{o.last_activity ? formatDateTime(o.last_activity) : '—'}</td>
+                        <td className="px-4 py-3.5 text-right">
+                          <Button size="sm" variant="ghost" className="h-8 px-2 text-[12px]" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5" /></Button>
                         </td>
                       </tr>
                     ))}
