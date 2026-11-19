@@ -10,7 +10,7 @@ import { Fragment, useRef, useState } from "react";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
-  user: { name?: string; email?: string } | null;
+  user: { name?: string; email?: string; organization?: { name?: string; slug?: string } | null } | null;
   logoutNotice: string | null;
   onLogout: () => void;
   activeTab: string;
@@ -53,6 +53,7 @@ export default function DashboardChrome({
   children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0, onOpenSearch,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   // Close on selection, pointer or keyboard. If the keyboard focused a
   // trigger inside the mobile strip, it is about to unmount, so move
@@ -108,7 +109,7 @@ export default function DashboardChrome({
   const brand = (
     <div className="flex items-center gap-2.5 min-w-0">
       <div className="nbp-mark w-8 h-8 text-[11px] flex-shrink-0">N</div>
-      <div className="leading-tight min-w-0">
+      <div className="hidden leading-tight min-w-0 sm:block">
         <h1 className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground">Nexus</h1>
         <p className="text-[11px] text-muted-foreground">Brand protection</p>
       </div>
@@ -128,13 +129,28 @@ export default function DashboardChrome({
       {logoutNotice && (
         <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
       )}
+      {user?.organization?.name && (
+        <button
+          type="button"
+          onClick={() => setWorkspaceExpanded((o) => !o)}
+          aria-expanded={workspaceExpanded}
+          aria-label={`Workspace: ${user.organization.name}`}
+          title={`Workspace: ${user.organization.name}`}
+          className="flex max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.04] focus-visible:border-primary/60 focus-visible:outline-none"
+        >
+          <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className={workspaceExpanded ? "whitespace-normal break-words" : "max-w-[84px] truncate sm:max-w-[160px]"}>
+            {user.organization.name}
+          </span>
+        </button>
+      )}
       {user?.email && (
         <div className="hidden sm:block text-right leading-tight">
           <p className="text-[12px] font-medium text-foreground truncate max-w-[180px]">{user.name || user.email}</p>
           <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{user.email}</p>
         </div>
       )}
-      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.04] text-[11px] font-semibold text-foreground">
+      <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.04] text-[11px] font-semibold text-foreground sm:flex">
         {(user?.name || user?.email || 'OB').slice(0, 2).toUpperCase()}
       </div>
       <Button
