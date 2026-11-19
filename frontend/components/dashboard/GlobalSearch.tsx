@@ -105,10 +105,11 @@ export default function GlobalSearch({
     { label: 'Brands', items: brandResults },
   ].filter((s) => s.items.length > 0);
   const flat = sections.flatMap((s) => s.items);
-  const activeIndex = Math.min(active, Math.max(0, flat.length - 1));
+  const activeIndex = flat.length ? Math.min(Math.max(active, 0), flat.length - 1) : 0;
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.nativeEvent.isComposing) return;
+    if (flat.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       setActive((i) => Math.min(i + 1, flat.length - 1));
