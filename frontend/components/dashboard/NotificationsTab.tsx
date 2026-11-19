@@ -187,7 +187,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   return (
     <>
       <TabHeader
-        title="How we reach you"
+        title="Notifications"
         description="Pick which events trigger an alert, and configure every outbound channel in one place."
       />
 

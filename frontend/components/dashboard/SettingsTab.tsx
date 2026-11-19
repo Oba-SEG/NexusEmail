@@ -66,7 +66,7 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
   return (
     <>
       <TabHeader
-        title="Operational defaults"
+        title="Settings"
         description="Scanning cadence and auto-remediation policy."
         action={(
           <Button

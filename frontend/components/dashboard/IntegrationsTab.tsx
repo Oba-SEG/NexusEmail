@@ -173,7 +173,7 @@ const testProviderConnection = async (provider: any) => {
           <section key={category} className="mt-6">
             <div className="mb-2 flex items-baseline justify-between">
               <h3 className="text-[12px] font-medium text-muted-foreground">{category}</h3>
-              <span className="text-[11px] tabular-nums text-muted-foreground/70">{providersInCategory.length} providers</span>
+              <span className="text-[11px] tabular-nums text-muted-foreground/70">{providersInCategory.length} provider{providersInCategory.length === 1 ? '' : 's'}</span>
             </div>
             <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
               {providersInCategory.map((provider: any) => {
