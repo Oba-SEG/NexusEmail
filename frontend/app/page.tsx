@@ -30,6 +30,7 @@ import LoginScreen from "@/components/dashboard/LoginScreen";
 import DashboardChrome from "@/components/dashboard/DashboardChrome";
 import BrandsTab from "@/components/dashboard/BrandsTab";
 import ThreatAlertsTab from "@/components/dashboard/ThreatAlertsTab";
+import GlobalSearch from "@/components/dashboard/GlobalSearch";
 import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -179,6 +180,7 @@ export default function Dashboard() {
   const [openBrandId, setOpenBrandId] = useState<number | null>(initialUrl.brand);
   const [deepLinkDomainId, setDeepLinkDomainId] = useState<number | null>(initialUrl.domain);
   const [alertCount, setAlertCount] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
   const replaceUrlRef = useRef(false);
   const [brands, setBrands] = useState([]);
   
@@ -217,6 +219,11 @@ export default function Dashboard() {
     setDmarcUploadError(null);
   };
 
+  const resetBrandState = () => {
+    brandsLoadSeqRef.current += 1;
+    setBrands([]);
+  };
+
   // load* handlers when they see a 401 against an authenticated endpoint —
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
@@ -229,6 +236,7 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    resetBrandState();
     // Tab ownership is Dashboard-level and survives AdminPanel unmount:
     // a non-admin signing in after an admin must not land on the admin tab.
     if (activeTab === 'admin') setActiveTab('domains');
@@ -321,6 +329,19 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeTab]);
 
+  // ⌘K / Ctrl+K opens the palette; it searches already-loaded entities.
+  useEffect(() => {
+    if (!token) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowSearch((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [token]);
+
   // A non-admin must never land on the admin tab, including via ?tab=admin.
   useEffect(() => {
     if (activeTab === 'admin' && !isAdmin) {
@@ -347,6 +368,7 @@ export default function Dashboard() {
       setConfigLoaded(false);
       setConfigError('');
       resetDomainState();
+      resetBrandState();
       if (activeTab === 'admin') setActiveTab('domains');
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
@@ -392,6 +414,7 @@ export default function Dashboard() {
     clearStatusQueue();
     setSettings(null);
     resetDomainState();
+    resetBrandState();
     // Tab ownership is Dashboard-level and survives AdminPanel unmount:
     // a non-admin signing in after an admin must not land on the admin tab.
     if (activeTab === 'admin') setActiveTab('domains');
@@ -905,6 +928,22 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <StatusViewport />
+      <GlobalSearch
+        open={showSearch}
+        onOpenChange={setShowSearch}
+        domains={domains}
+        brands={brands}
+        isAdmin={isAdmin}
+        onOpenDomain={(domain) => {
+          setActiveTab('domains');
+          viewDomain(domain);
+        }}
+        onOpenBrand={(brandId) => {
+          setOpenBrandId(brandId);
+          setActiveTabState('brands');
+        }}
+        onNavigate={setActiveTab}
+      />
           <DashboardChrome
             user={user}
             logoutNotice={logoutNotice}
@@ -913,6 +952,7 @@ export default function Dashboard() {
             onTabChange={setActiveTab}
             isAdmin={isAdmin}
             alertCount={alertCount}
+            onOpenSearch={() => setShowSearch(true)}
           >
 
             <TabsContent value="domains" className="space-y-4">
