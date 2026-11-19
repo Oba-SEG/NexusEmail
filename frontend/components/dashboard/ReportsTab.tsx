@@ -85,8 +85,8 @@ const exportJSON = async () => {
         description="Per-domain HTML reports for stakeholders, plus bulk exports for archive."
       />
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[1.35fr_1fr]">
-        <section className="rounded-xl border border-border bg-card p-5">
+      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <section className="min-w-0 rounded-xl border border-border bg-card p-5">
           <div>
             <h3 className="text-[14px] font-semibold">Single domain report</h3>
             <p className="mt-1 max-w-[55ch] text-[12.5px] leading-5 text-muted-foreground">
@@ -98,7 +98,7 @@ const exportJSON = async () => {
             <div className="mt-1.5 flex flex-col gap-2 sm:flex-row">
               <select
                 id="report-domain"
-                className={selectClass + ' sm:flex-1'}
+                className={selectClass + ' min-w-0 sm:flex-1'}
                 value={reportDomainId || ''}
                 onChange={(e) => setReportDomainId(Number(e.target.value))}
                 aria-label="Domain for report"
@@ -148,7 +148,7 @@ const exportJSON = async () => {
                 <p className="text-[11px] text-muted-foreground">Spreadsheet-friendly</p>
               </div>
               <Button variant="outline" size="sm" className="flex-shrink-0" onClick={exportCSV}>
-                <Download className="w-3.5 h-3.5" /> Download
+                <Download className="w-3.5 h-3.5" /> Download CSV
               </Button>
             </div>
             <div className="flex items-center justify-between gap-3 py-3">
@@ -157,7 +157,7 @@ const exportJSON = async () => {
                 <p className="text-[11px] text-muted-foreground">Full structured data</p>
               </div>
               <Button variant="outline" size="sm" className="flex-shrink-0" onClick={exportJSON}>
-                <Download className="w-3.5 h-3.5" /> Download
+                <Download className="w-3.5 h-3.5" /> Download JSON
               </Button>
             </div>
           </div>

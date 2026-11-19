@@ -385,7 +385,7 @@ export default function DomainsTab({
                   size="sm"
                   variant="outline"
                   className="ml-auto h-8"
-                  onClick={() => viewDomain(worst)}
+                  onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(worst); }}
                 >
                   Open domain
                 </Button>
@@ -393,7 +393,9 @@ export default function DomainsTab({
             )}
             {(!worst || !gapCopy) && avgScore != null && (
               <div className="border-t border-border bg-white/[0.015] px-5 py-3 text-[12px] text-muted-foreground">
-                {gapCopy ? '' : 'All scored domains are passing. Keep the records published and re-scan after DNS changes.'}
+                {atRisk === 0
+                  ? 'All scored domains are passing. Keep the records published and re-scan after DNS changes.'
+                  : 'No single authentication gap explains the score shortfall. Inspect the lowest-scoring domains below.'}
               </div>
             )}
             {avgScore == null && (
