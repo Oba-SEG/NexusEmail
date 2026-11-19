@@ -2,14 +2,13 @@
 
 import { useId, type InputHTMLAttributes, type ReactNode, type RefObject } from "react";
 import { RefreshCw, Save, Send, Zap, type LucideIcon } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 /** Shared chrome for the settings-style tabs (Integrations, Notifications,
- * Settings) so section headers, toggle rows and save/test actions stay
- * identical instead of being copy-pasted per tab. */
+ * Settings) so page headers, section headers, toggle rows and save/test
+ * actions stay identical instead of being copy-pasted per tab. */
 
 export function TabHeader({
   title,
@@ -25,10 +24,10 @@ export function TabHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 flex-wrap">
+    <div className="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h2 id={headingId} ref={headingRef} tabIndex={headingId ? -1 : undefined} className="font-display text-2xl font-bold tracking-tight mb-1">{title}</h2>
-        <p className="text-sm text-muted-foreground">{description}</p>
+        <h2 id={headingId} ref={headingRef} tabIndex={headingId ? -1 : undefined} className="text-[22px] font-semibold tracking-[-0.015em]">{title}</h2>
+        <p className="mt-1 max-w-[65ch] text-[13px] leading-5 text-muted-foreground">{description}</p>
       </div>
       {action}
     </div>
@@ -41,7 +40,7 @@ export function SettingsSection({
   description,
   actions,
   children,
-  contentClassName = "space-y-3",
+  contentClassName = "space-y-4",
 }: {
   icon?: LucideIcon;
   title: string;
@@ -51,21 +50,19 @@ export function SettingsSection({
   contentClassName?: string;
 }) {
   return (
-    <Card className="premium-surface premium-card">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="font-display tracking-tight flex items-center gap-2">
-              {Icon ? <Icon className="w-4 h-4 text-emerald-400" /> : null}
-              {title}
-            </CardTitle>
-            {description ? <CardDescription className="mt-1">{description}</CardDescription> : null}
-          </div>
-          {actions}
+    <section className="rounded-lg border border-border bg-card">
+      <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="min-w-0">
+          <h3 className="flex items-center gap-2 text-[13.5px] font-semibold tracking-[-0.01em]">
+            {Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null}
+            {title}
+          </h3>
+          {description ? <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{description}</p> : null}
         </div>
-      </CardHeader>
-      <CardContent className={contentClassName}>{children}</CardContent>
-    </Card>
+        {actions}
+      </header>
+      <div className={cn("px-5 py-4", contentClassName)}>{children}</div>
+    </section>
   );
 }
 
@@ -78,6 +75,7 @@ export function ToggleRow({
   offLabel = "Disabled",
   disabled = false,
   pending = false,
+  className,
 }: {
   label: string;
   description: string;
@@ -87,16 +85,17 @@ export function ToggleRow({
   offLabel?: string;
   disabled?: boolean;
   pending?: boolean;
+  className?: string;
 }) {
   const labelId = useId();
   return (
-    <div className="flex items-center justify-between gap-4 p-4 rounded-lg border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
-      <div>
-        <p id={labelId} className="font-medium text-sm">{label}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+    <div className={cn("flex items-center justify-between gap-4 py-3", className)}>
+      <div className="min-w-0">
+        <p id={labelId} className="text-[13px] font-medium">{label}</p>
+        <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{description}</p>
       </div>
-      <span className="flex items-center gap-3 shrink-0">
-        <span role="status" aria-live="polite" className="min-w-[4.5rem] text-right text-xs font-medium text-muted-foreground">
+      <span className="flex shrink-0 items-center gap-3">
+        <span role="status" aria-live="polite" className="min-w-[4.5rem] text-right text-[12px] font-medium text-muted-foreground">
           {pending ? 'Saving…' : on ? onLabel : offLabel}
         </span>
         <button
@@ -109,18 +108,18 @@ export function ToggleRow({
         disabled={disabled}
         onClick={() => { if (!pending) onClick(); }}
         className={cn(
-          "pressable relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border px-1",
+          "pressable relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border px-0.5",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
           "disabled:pointer-events-none disabled:opacity-50",
           on
-            ? "border-emerald-400/50 bg-emerald-500/30 shadow-[0_0_14px_-4px_rgba(16,185,129,0.55)]"
-            : "border-white/15 bg-white/10 hover:bg-white/15"
+            ? "border-primary/60 bg-primary/70"
+            : "border-input bg-white/[0.06] hover:bg-white/[0.09]"
         )}
       >
         <span
           className={cn(
-            "pointer-events-none block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out-quart",
-            on ? "translate-x-5" : "translate-x-0",
+            "pointer-events-none block h-4 w-4 rounded-full shadow-sm transition-transform duration-150 ease-out-quart",
+            on ? "translate-x-4 bg-primary-foreground" : "translate-x-0 bg-white/70",
             pending && "animate-pulse"
           )}
         />
@@ -141,12 +140,8 @@ export function FormField({
   const inputId = id || generatedId;
   return (
     <div className={className}>
-      <label htmlFor={inputId} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{label}</label>
-      <Input
-        id={inputId}
-        {...props}
-        className="mt-1.5 bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
-      />
+      <label htmlFor={inputId} className="text-[12px] font-medium text-muted-foreground">{label}</label>
+      <Input id={inputId} {...props} className="mt-1.5" />
     </div>
   );
 }
@@ -175,10 +170,10 @@ export function SaveTestActions({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex gap-2">
+    <div className="flex flex-wrap gap-2">
       {onSave ? (
-        <Button size="sm" onClick={onSave} disabled={disabled || saving} aria-busy={saving} className="bg-emerald-600 hover:bg-emerald-500 text-white border-0">
-          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+        <Button size="sm" onClick={onSave} disabled={disabled || saving} aria-busy={saving}>
+          {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
           {saving ? savingLabel : saveLabel}
         </Button>
       ) : null}
@@ -188,12 +183,11 @@ export function SaveTestActions({
         onClick={onTest}
         disabled={disabled || testing || saving}
         title="Tests the saved configuration"
-        className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5"
       >
         {testing ? (
-          <><RefreshCw className="w-4 h-4 animate-spin" /> {testingLabel || `${testLabel.replace(/^Send /, "Sending ").replace(/^Test /, "Testing ")}…`}</>
+          <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> {testingLabel || `${testLabel.replace(/^Send /, "Sending ").replace(/^Test /, "Testing ")}…`}</>
         ) : (
-          <>{testIcon === "zap" ? <Zap className="w-4 h-4" /> : <Send className="w-4 h-4" />} {testLabel}</>
+          <>{testIcon === "zap" ? <Zap className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />} {testLabel}</>
         )}
       </Button>
     </div>

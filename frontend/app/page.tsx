@@ -764,18 +764,17 @@ export default function Dashboard() {
       <div className="min-h-screen bg-background flex items-center justify-center">
         <StatusViewport />
         <div className="text-center">
-          <div className="nbp-mark w-16 h-16 mx-auto mb-5 text-[20px] animate-pulse">NBP</div>
-          <p className="font-display text-base font-semibold tracking-tight">Nexus Brand Protection</p>
-          <p className="text-xs text-muted-foreground mt-1">Loading…</p>
+          <div className="nbp-mark w-10 h-10 mx-auto mb-4 text-[14px]">N</div>
+          <p className="text-[13px] font-medium">Nexus Brand Protection</p>
+          <p className="text-[12px] text-muted-foreground mt-1">Loading…</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="min-h-screen bg-background text-foreground">
       <StatusViewport />
-      <div className="min-h-screen text-foreground" style={{background: "linear-gradient(180deg, #0f172a 0%, #0b1220 100%)"}}>
           <DashboardChrome
             user={user}
             logoutNotice={logoutNotice}
@@ -881,14 +880,6 @@ export default function Dashboard() {
             </TabsContent>
 
           </DashboardChrome>
-
-        <footer className="border-t border-border/40 py-6 mt-10">
-          <div className="container mx-auto px-6 text-center text-sm text-muted-foreground">
-            <p>Nexus Brand Protection</p>
-          </div>
-        </footer>
-
-      </div>
     </div>
   );
 }
