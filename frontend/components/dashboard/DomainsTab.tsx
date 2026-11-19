@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   Search, AlertTriangle, CheckCircle, Globe, Plus, RefreshCw,
-  Zap, Eye, Clock, Wrench, Trash2, CheckSquare, Square
+  Zap, Eye, Clock, Trash2, CheckSquare, Square
 } from "lucide-react";
 import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
@@ -297,7 +297,7 @@ export default function DomainsTab({
         const avgScoreColor = avgScore == null ? 'text-muted-foreground' : avgScore >= PASSING_SCORE ? 'text-emerald-400' : avgScore >= WARNING_SCORE ? 'text-amber-400' : 'text-red-400';
         const stats = [
           { label: 'Domains', value: total, hint: 'on file', accent: 'text-foreground' },
-          { label: 'Verified', value: verified, hint: `${total - verified} pending`, accent: verified === total ? 'text-emerald-400' : 'text-foreground' },
+          { label: 'Ownership verified', value: verified, hint: `${total - verified} pending`, accent: verified === total ? 'text-emerald-400' : 'text-foreground' },
           { label: 'Average health', value: avgScore == null ? '—' : `${avgScore}`, hint: avgScore == null ? 'No scans yet' : avgScore >= PASSING_SCORE ? 'Strong posture' : avgScore >= WARNING_SCORE ? 'Fixes recommended' : 'Action required', accent: avgScoreColor },
           { label: 'At risk', value: atRisk, hint: `below ${PASSING_SCORE}`, accent: atRisk > 0 ? 'text-amber-400' : 'text-emerald-400' },
         ];
@@ -454,7 +454,7 @@ export default function DomainsTab({
                           <span className="whitespace-nowrap font-mono text-[12.5px] font-medium">{domain.name}</span>
                           {domain.verified ? (
                             <span className="inline-flex items-center gap-1 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-300">
-                              <CheckCircle className="w-3 h-3" /> Verified
+                              <CheckCircle className="w-3 h-3" /> Ownership verified
                             </span>
                           ) : (
                             <button
@@ -499,9 +499,6 @@ export default function DomainsTab({
                           </Button>
                           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(domain); }} title="Inspect">
                             <Eye className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => fixDomain(domain.id)} title="Get fix records">
-                            <Wrench className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       </td>

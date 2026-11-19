@@ -10,7 +10,7 @@ import { Fragment, useRef, useState } from "react";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
-  user: { name?: string; email?: string } | null;
+  user: { name?: string; email?: string; organization?: { name?: string; slug?: string } | null } | null;
   logoutNotice: string | null;
   onLogout: () => void;
   activeTab: string;
@@ -127,6 +127,15 @@ export default function DashboardChrome({
       </button>
       {logoutNotice && (
         <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
+      )}
+      {user?.organization?.name && (
+        <div
+          className="hidden items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-[11px] text-muted-foreground md:flex"
+          title={`Workspace: ${user.organization.name}`}
+        >
+          <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="max-w-[160px] truncate">{user.organization.name}</span>
+        </div>
       )}
       {user?.email && (
         <div className="hidden sm:block text-right leading-tight">
