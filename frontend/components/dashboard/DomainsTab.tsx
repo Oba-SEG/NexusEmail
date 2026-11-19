@@ -55,7 +55,7 @@ interface DomainsTabProps {
  * detail-panel machine); this component owns the add/verify UX and
  * resets it on unmount. */
 export default function DomainsTab({
-  domains, selectedIds, toggleSelect, toggleSelectAll, setSelectedIds,
+  domains, selectedIds, toggleSelect, setSelectedIds,
   scanning, bulkScan, deleteDomains, scanDomain, viewDomain,
   apiFetch, sessionGenRef, loadDomains,
   selectedDomain, fixRecommendations, detailRefreshing, detailRefreshError,
@@ -219,11 +219,14 @@ export default function DomainsTab({
   const visibleDomains = filterByBand(domains, domainFilter).filter(
     (d: any) => !normalizedQuery || String(d.name || '').toLowerCase().includes(normalizedQuery)
   );
+  const allVisibleSelected = visibleDomains.length > 0
+    && visibleDomains.every((d: any) => selectedIds.includes(d.id));
 
   return (
     <>
       <TabHeader
         headingRef={heroHeadingRef}
+        headingId="domains-heading"
         title="Domains"
         description="SPF, DKIM and DMARC posture for the domains you operate."
         action={
@@ -381,11 +384,17 @@ export default function DomainsTab({
                 <tr className="border-b border-border bg-white/[0.02] text-left text-[12px] font-medium text-muted-foreground">
                   <th className="w-10 px-3 py-2.5">
                     <button
-                      onClick={toggleSelectAll}
-                      aria-label={selectedIds.length === domains.length && domains.length > 0 ? 'Deselect all' : 'Select all'}
+                      onClick={() => {
+                        if (allVisibleSelected) {
+                          setSelectedIds(selectedIds.filter((id) => !visibleDomains.some((d: any) => d.id === id)));
+                        } else {
+                          setSelectedIds(Array.from(new Set([...selectedIds, ...visibleDomains.map((d: any) => d.id)])));
+                        }
+                      }}
+                      aria-label={allVisibleSelected ? 'Deselect all' : 'Select all'}
                       className="text-muted-foreground hover:text-foreground transition-colors"
                     >
-                      {selectedIds.length === domains.length && domains.length > 0
+                      {allVisibleSelected
                         ? <CheckSquare className="w-4 h-4 text-primary" />
                         : <Square className="w-4 h-4" />}
                     </button>
@@ -502,13 +511,29 @@ export default function DomainsTab({
                 {visibleDomains.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">
-                      No domains match &ldquo;{domainQuery}&rdquo;.
-                      <button
-                        onClick={() => setDomainQuery('')}
-                        className="ml-2 text-primary underline-offset-2 hover:underline"
-                      >
-                        Clear search
-                      </button>
+                      {normalizedQuery ? (
+                        <>
+                          No domains match &ldquo;{domainQuery}&rdquo;.
+                          <button
+                            onClick={() => setDomainQuery('')}
+                            className="ml-2 text-primary underline-offset-2 hover:underline"
+                          >
+                            Clear search
+                          </button>
+                        </>
+                      ) : domainFilter ? (
+                        <>
+                          No domains in the <span className="capitalize">{domainFilter}</span> band.
+                          <button
+                            onClick={() => setDomainFilter(null)}
+                            className="ml-2 text-primary underline-offset-2 hover:underline"
+                          >
+                            Reset filter
+                          </button>
+                        </>
+                      ) : (
+                        <>No domains to show.</>
+                      )}
                     </td>
                   </tr>
                 )}

@@ -197,14 +197,15 @@ export default function ThreatAlertsTab({
                 <button
                   key={level}
                   onClick={() => setSeverity(level)}
+                  aria-pressed={severity === level}
                   className={`h-7 rounded px-2.5 text-[12px] font-medium capitalize transition-colors ${severity === level ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
                   {level}
                 </button>
               ))}
             </div>
-            <span className="ml-auto text-[12px] text-muted-foreground">
-              {filteredAlerts.length} of {alerts.length}
+            <span role="status" className="ml-auto text-[12px] text-muted-foreground">
+              {filteredAlerts.length} of {alerts.length} alert{alerts.length === 1 ? '' : 's'}
             </span>
           </div>
           <div className="overflow-hidden rounded-lg border border-border">
