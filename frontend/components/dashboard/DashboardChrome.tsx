@@ -2,11 +2,11 @@
 
 import {
   Bell, LogOut, Globe, Plug, BarChart3, Settings,
-  Shield, Building2, Menu, X, AlertTriangle
+  Shield, Building2, Menu, X, AlertTriangle, Search
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
@@ -17,22 +17,40 @@ interface DashboardChromeProps {
   onTabChange: (tab: string) => void;
   isAdmin: boolean;
   alertCount?: number;
+  onOpenSearch: () => void;
 }
 
-const NAV = [
-  { value: "domains", label: "Domains", icon: Globe },
-  { value: "brands", label: "Brand protection", icon: Shield },
-  { value: "threats", label: "Threat alerts", icon: AlertTriangle },
-  { value: "reports", label: "Reports", icon: BarChart3 },
-  { value: "integrations", label: "DNS providers", icon: Plug },
-  { value: "notifications", label: "Notifications", icon: Bell },
-  { value: "settings", label: "Settings", icon: Settings },
+// Grouped so the sidebar still reads as four short sections when the
+// product grows past the single flat list.
+const NAV_GROUPS = [
+  {
+    label: "Monitoring",
+    items: [
+      { value: "domains", label: "Domains", icon: Globe },
+      { value: "brands", label: "Brand protection", icon: Shield },
+      { value: "threats", label: "Threat alerts", icon: AlertTriangle },
+    ],
+  },
+  {
+    label: "Output",
+    items: [
+      { value: "reports", label: "Reports", icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Configure",
+    items: [
+      { value: "integrations", label: "DNS providers", icon: Plug },
+      { value: "notifications", label: "Notifications", icon: Bell },
+      { value: "settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 /** App chrome: fixed left sidebar on desktop, collapsible top nav on mobile.
  * One Tabs root; two TabsLists drive the same value. */
 export default function DashboardChrome({
-  children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0,
+  children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0, onOpenSearch,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -47,11 +65,11 @@ export default function DashboardChrome({
     setMobileNavOpen(false);
   };
 
-  const items = [...NAV];
-  if (isAdmin) items.push({ value: "admin", label: "Administration", icon: Building2 });
+  const groups = isAdmin
+    ? [...NAV_GROUPS, { label: "Account", items: [{ value: "admin", label: "Administration", icon: Building2 }] }]
+    : NAV_GROUPS;
 
-  const triggers = (compact: boolean, onSelect?: () => void) =>
-    items.map((item) => {
+  const trigger = (item: typeof NAV_GROUPS[number]["items"][number], compact: boolean, onSelect?: () => void) => {
       const Icon = item.icon;
       return (
         <TabsTrigger
@@ -76,7 +94,16 @@ export default function DashboardChrome({
           )}
         </TabsTrigger>
       );
-    });
+  };
+
+  const triggers = (compact: boolean, onSelect?: () => void) => groups.map((group) => (
+    <Fragment key={group.label}>
+      <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
+        {group.label}
+      </p>
+      {group.items.map((item) => trigger(item, compact, onSelect))}
+    </Fragment>
+  ));
 
   const brand = (
     <div className="flex items-center gap-2.5 min-w-0">
@@ -90,6 +117,14 @@ export default function DashboardChrome({
 
   const userCluster = (
     <div className="flex items-center gap-3">
+      <button
+        onClick={onOpenSearch}
+        aria-label="Search domains, brands and pages"
+        title="Search (⌘K)"
+        className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground"
+      >
+        <Search className="w-4 h-4" />
+      </button>
       {logoutNotice && (
         <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
       )}

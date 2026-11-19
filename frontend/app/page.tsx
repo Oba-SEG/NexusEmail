@@ -30,6 +30,7 @@ import LoginScreen from "@/components/dashboard/LoginScreen";
 import DashboardChrome from "@/components/dashboard/DashboardChrome";
 import BrandsTab from "@/components/dashboard/BrandsTab";
 import ThreatAlertsTab from "@/components/dashboard/ThreatAlertsTab";
+import GlobalSearch from "@/components/dashboard/GlobalSearch";
 import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -179,6 +180,7 @@ export default function Dashboard() {
   const [openBrandId, setOpenBrandId] = useState<number | null>(initialUrl.brand);
   const [deepLinkDomainId, setDeepLinkDomainId] = useState<number | null>(initialUrl.domain);
   const [alertCount, setAlertCount] = useState(0);
+  const [showSearch, setShowSearch] = useState(false);
   const replaceUrlRef = useRef(false);
   const [brands, setBrands] = useState([]);
   
@@ -320,6 +322,19 @@ export default function Dashboard() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, activeTab]);
+
+  // ⌘K / Ctrl+K opens the palette; it searches already-loaded entities.
+  useEffect(() => {
+    if (!token) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setShowSearch((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [token]);
 
   // A non-admin must never land on the admin tab, including via ?tab=admin.
   useEffect(() => {
@@ -905,6 +920,22 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <StatusViewport />
+      <GlobalSearch
+        open={showSearch}
+        onOpenChange={setShowSearch}
+        domains={domains}
+        brands={brands}
+        isAdmin={isAdmin}
+        onOpenDomain={(domain) => {
+          setActiveTab('domains');
+          viewDomain(domain);
+        }}
+        onOpenBrand={(brandId) => {
+          setOpenBrandId(brandId);
+          setActiveTabState('brands');
+        }}
+        onNavigate={setActiveTab}
+      />
           <DashboardChrome
             user={user}
             logoutNotice={logoutNotice}
@@ -913,6 +944,7 @@ export default function Dashboard() {
             onTabChange={setActiveTab}
             isAdmin={isAdmin}
             alertCount={alertCount}
+            onOpenSearch={() => setShowSearch(true)}
           >
 
             <TabsContent value="domains" className="space-y-4">
