@@ -966,7 +966,16 @@ export default function Dashboard() {
             </TabsContent>
 
             <TabsContent value="reports" className="space-y-6">
-              <ReportsTab domains={domains} apiFetch={apiFetch} />
+              <ReportsTab
+                domains={domains}
+                apiFetch={apiFetch}
+                onOpenDomain={(domainId) => {
+                  const row = domains.find((d: any) => d.id === domainId);
+                  if (!row) return;
+                  setActiveTab('domains');
+                  viewDomain(row);
+                }}
+              />
             </TabsContent>
 
             <TabsContent value="settings" className="space-y-6">

@@ -71,6 +71,7 @@ export default function DomainsTab({
   const verifyOpenerRef = useRef<HTMLButtonElement | null>(null);
   const heroHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const [domainFilter, setDomainFilter] = useState<string | null>(null);
+  const [domainQuery, setDomainQuery] = useState('');
   const [showVerifyModal, setShowVerifyModal] = useState(false);
   const [verifyDomain, setVerifyDomain] = useState<any>(null);
   const [verifyToken, setVerifyToken] = useState('');
@@ -214,6 +215,11 @@ export default function DomainsTab({
     else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus(); }
   };
 
+  const normalizedQuery = domainQuery.trim().toLowerCase();
+  const visibleDomains = filterByBand(domains, domainFilter).filter(
+    (d: any) => !normalizedQuery || String(d.name || '').toLowerCase().includes(normalizedQuery)
+  );
+
   return (
     <>
       <TabHeader
@@ -321,7 +327,7 @@ export default function DomainsTab({
 
       {/* Filter */}
       {domains.length > 0 && (
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-5 flex flex-wrap items-center gap-3">
           <span className="text-[12px] text-muted-foreground">Filter</span>
           <div className="inline-flex rounded-md border border-border bg-card p-0.5">
             {[
@@ -342,6 +348,16 @@ export default function DomainsTab({
                 </button>
               );
             })}
+          </div>
+          <div className="relative ml-auto">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={domainQuery}
+              onChange={(e) => setDomainQuery(e.target.value)}
+              placeholder="Search domains"
+              aria-label="Search domains"
+              className="h-8 w-[200px] pl-8 text-[12px]"
+            />
           </div>
         </div>
       )}
@@ -382,7 +398,7 @@ export default function DomainsTab({
                 </tr>
               </thead>
               <tbody>
-                {filterByBand(domains, domainFilter).map((domain: any) => {
+                {visibleDomains.map((domain: any) => {
                   const score = domain.last_score;
                   const hasScore = typeof score === 'number';
                   const band = hasScore ? scoreBand(score) : null;
@@ -483,6 +499,19 @@ export default function DomainsTab({
                     </tr>
                   );
                 })}
+                {visibleDomains.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+                      No domains match &ldquo;{domainQuery}&rdquo;.
+                      <button
+                        onClick={() => setDomainQuery('')}
+                        className="ml-2 text-primary underline-offset-2 hover:underline"
+                      >
+                        Clear search
+                      </button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

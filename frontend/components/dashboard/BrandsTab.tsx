@@ -54,6 +54,7 @@ export default function BrandsTab({
   const brandDetailsRef = useRef<number | null>(null);
   const brandDetailsGenRef = useRef(0);
   const [selectedBrand, setSelectedBrand] = useState<any>(null);
+  const [brandQuery, setBrandQuery] = useState('');
   const [showTakedownModal, setShowTakedownModal] = useState(false);
   const [showThreatModal, setShowThreatModal] = useState(false);
   const [takedownForm, setTakedownForm] = useState({ domain: '', threat_type: 'impersonation', evidence: '', contact_email: '' });
@@ -371,6 +372,13 @@ export default function BrandsTab({
       });
   };
 
+  const normalizedBrandQuery = brandQuery.trim().toLowerCase();
+  const filteredBrands = brands.filter((brand: any) =>
+    !normalizedBrandQuery ||
+    String(brand.domain || '').toLowerCase().includes(normalizedBrandQuery) ||
+    String(brand.brand_name || '').toLowerCase().includes(normalizedBrandQuery)
+  );
+
   return (
     <>
 <TabHeader
@@ -384,7 +392,17 @@ export default function BrandsTab({
       <h3 className="text-[14px] font-semibold">Monitored brands</h3>
       <p className="mt-0.5 text-[12px] text-muted-foreground">Each brand is tied to a verified domain you own.</p>
     </div>
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={brandQuery}
+          onChange={(e) => setBrandQuery(e.target.value)}
+          placeholder="Search brands"
+          aria-label="Search brands"
+          className="h-8 w-[190px] pl-8 text-[12px]"
+        />
+      </div>
       {brandAlerts.length > 0 && (
         <Button variant="outline" size="sm" className="text-red-300 hover:bg-red-500/10 hover:text-red-200" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
           <Bell className="w-3.5 h-3.5" /> Alerts
@@ -530,7 +548,7 @@ export default function BrandsTab({
       </div>
     ) : (
       <div className="divide-y divide-border overflow-hidden rounded-md border border-border">
-        {brands.map((brand: any) => (
+        {filteredBrands.map((brand: any) => (
           <div key={brand.id} className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
@@ -594,6 +612,17 @@ export default function BrandsTab({
             </div>
           </div>
         ))}
+        {brands.length > 0 && filteredBrands.length === 0 && (
+          <div className="px-4 py-10 text-center text-[13px] text-muted-foreground">
+            No brands match &ldquo;{brandQuery}&rdquo;.
+            <button
+              onClick={() => setBrandQuery('')}
+              className="ml-2 text-primary underline-offset-2 hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
       </div>
     )}
 
