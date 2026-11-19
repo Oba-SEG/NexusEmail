@@ -106,7 +106,7 @@ export default function DashboardChrome({
   );
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange} className="min-h-screen">
+    <Tabs value={activeTab} onValueChange={onTabChange} orientation="vertical" className="min-h-screen">
       {/* Mobile top bar */}
       <nav className="lg:hidden sticky top-0 z-40 border-b border-border bg-background">
         <div className="px-4 py-2.5 flex items-center justify-between gap-3">

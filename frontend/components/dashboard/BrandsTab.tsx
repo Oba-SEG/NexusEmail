@@ -782,7 +782,7 @@ export default function BrandsTab({
               {brandThreats.map((threat: any) => (
                 <div key={threat.id} className="flex items-center justify-between rounded-md border border-border bg-white/[0.02] p-3">
                   <div className="min-w-0">
-                    <p className="truncate font-mono text-[12px] font-medium">{threat.domain}</p>
+                    <p className="break-all font-mono text-[12px] font-medium">{threat.domain}</p>
                     <div className="mt-1 flex gap-1.5">
                       <Badge variant={threat.severity === 'high' ? 'destructive' : threat.severity === 'medium' ? 'default' : 'secondary'}>
                         {threat.threat_type}
