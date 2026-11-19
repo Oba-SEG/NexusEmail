@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 interface DashboardChromeProps {
   children: React.ReactNode;
@@ -20,21 +20,21 @@ interface DashboardChromeProps {
 
 const NAV = [
   { value: "domains", label: "Domains", icon: Globe },
-  { value: "brands", label: "Brand Protection", icon: Shield },
+  { value: "brands", label: "Brand protection", icon: Shield },
   { value: "reports", label: "Reports", icon: BarChart3 },
   { value: "integrations", label: "Integrations", icon: Plug },
   { value: "notifications", label: "Notifications", icon: Bell },
   { value: "settings", label: "Settings", icon: Settings },
 ];
 
-/** App chrome: fixed left sidebar console on desktop, collapsible top
- * nav on mobile. One Tabs root; two TabsLists drive the same value. */
+/** App chrome: fixed left sidebar on desktop, collapsible top nav on mobile.
+ * One Tabs root; two TabsLists drive the same value. */
 export default function DashboardChrome({
   children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
-  // Close on selection — pointer or keyboard. If the keyboard focused a
+  // Close on selection, pointer or keyboard. If the keyboard focused a
   // trigger inside the mobile strip, it is about to unmount, so move
   // focus back to the toggle button first (never drop focus to body).
   const closeMobileNav = () => {
@@ -58,25 +58,22 @@ export default function DashboardChrome({
           onClick={onSelect}
           className={
             compact
-              ? "gap-2 px-3 py-2 text-sm data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-300 data-[state=active]:border-emerald-500/30 border border-transparent text-muted-foreground whitespace-nowrap"
-              : "group relative w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground data-[state=active]:bg-white/[0.05] data-[state=active]:text-foreground data-[state=active]:border-white/10 border border-transparent hover:bg-white/[0.03] hover:text-foreground transition-[background-color,color,border-color,transform] duration-150 ease-out-quart motion-safe:active:scale-[0.98]"
+              ? "group w-full justify-start gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-white/[0.03] hover:text-foreground data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground"
+              : "group h-9 w-full justify-start gap-2.5 rounded-md border-0 px-2.5 text-[13px] font-medium text-muted-foreground hover:bg-white/[0.03] hover:text-foreground data-[state=active]:bg-white/[0.06] data-[state=active]:text-foreground"
           }
         >
-          {!compact && (
-            <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-emerald-400 opacity-0 group-data-[state=active]:opacity-100" aria-hidden />
-          )}
-          <Icon className="w-4 h-4 flex-shrink-0" />
+          <Icon className="w-4 h-4 flex-shrink-0 text-muted-foreground transition-colors group-data-[state=active]:text-primary" />
           {item.label}
         </TabsTrigger>
       );
     });
 
   const brand = (
-    <div className="flex items-center gap-3 min-w-0">
-      <div className="nbp-mark w-10 h-10 text-[14px] flex-shrink-0">NBP</div>
+    <div className="flex items-center gap-2.5 min-w-0">
+      <div className="nbp-mark w-8 h-8 text-[11px] flex-shrink-0">N</div>
       <div className="leading-tight min-w-0">
-        <h1 className="font-display text-[15px] font-bold tracking-tight text-foreground truncate">Nexus Brand Protection</h1>
-        <p className="text-[11px] text-muted-foreground">Domain security console</p>
+        <h1 className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground">Nexus</h1>
+        <p className="text-[11px] text-muted-foreground">Brand protection</p>
       </div>
     </div>
   );
@@ -88,34 +85,34 @@ export default function DashboardChrome({
       )}
       {user?.email && (
         <div className="hidden sm:block text-right leading-tight">
-          <p className="text-xs font-medium text-foreground truncate max-w-[180px]">{user.name || user.email}</p>
+          <p className="text-[12px] font-medium text-foreground truncate max-w-[180px]">{user.name || user.email}</p>
           <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{user.email}</p>
         </div>
       )}
-      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-emerald-400 to-teal-600 flex items-center justify-center text-sm font-bold text-[#052e14] flex-shrink-0">
+      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.04] text-[11px] font-semibold text-foreground">
         {(user?.name || user?.email || 'OB').slice(0, 2).toUpperCase()}
       </div>
       <Button
         variant="ghost"
         size="icon"
-        className="h-9 w-9 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
+        className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10"
         onClick={onLogout}
         title="Sign out"
         aria-label="Sign out"
       >
-        <LogOut className="w-[18px] h-[18px]" />
+        <LogOut className="w-4 h-4" />
       </Button>
     </div>
   );
 
   return (
-    <Tabs value={activeTab} onValueChange={onTabChange} className="min-h-screen">
+    <Tabs value={activeTab} onValueChange={onTabChange} orientation="vertical" className="min-h-screen">
       {/* Mobile top bar */}
-      <nav className="lg:hidden sticky top-0 z-40 border-b border-white/5 bg-background/95 backdrop-blur">
-        <div className="px-4 py-3 flex items-center justify-between gap-3">
+      <nav className="lg:hidden sticky top-0 z-40 border-b border-border bg-background">
+        <div className="px-4 py-2.5 flex items-center justify-between gap-3">
           <button
             ref={toggleRef}
-            className="p-2 -ml-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+            className="p-1.5 -ml-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-white/[0.05] transition-colors"
             onClick={() => setMobileNavOpen((o) => !o)}
             aria-label="Toggle navigation"
             aria-expanded={mobileNavOpen}
@@ -126,8 +123,8 @@ export default function DashboardChrome({
           {userCluster}
         </div>
         {mobileNavOpen && (
-          <div data-mobile-nav>
-            <TabsList className="flex gap-1 overflow-x-auto px-3 pb-3 bg-transparent border-0 p-0 h-auto w-full justify-start">
+          <div data-mobile-nav className="px-3 pb-3">
+            <TabsList className="flex h-auto w-full flex-col items-stretch gap-0.5 border-0 bg-transparent p-0">
               {triggers(true, closeMobileNav)}
             </TabsList>
           </div>
@@ -135,22 +132,19 @@ export default function DashboardChrome({
       </nav>
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 flex-col border-r border-white/5 bg-[#0d1526]">
-        <div className="px-5 py-5">{brand}</div>
-        <TabsList className="flex flex-col gap-1 px-3 bg-transparent border-0 p-0 h-auto w-full" data-orientation="vertical">
+      <aside className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-60 flex-col border-r border-border bg-[#0b0b0d]">
+        <div className="px-4 py-4">{brand}</div>
+        <TabsList className="flex h-auto w-full flex-col items-stretch gap-0.5 border-0 bg-transparent p-2 pt-0">
           {triggers(false)}
         </TabsList>
-        <div className="mt-auto px-5 py-4 text-[11px] text-muted-foreground leading-relaxed">
-          SPF · DKIM · DMARC monitoring for the domains you operate.
-        </div>
       </aside>
 
       {/* Content */}
-      <div className="lg:pl-64 min-h-screen flex flex-col">
-        <div className="hidden lg:flex items-center justify-end gap-3 px-8 py-3 border-b border-white/5 bg-background/80 backdrop-blur sticky top-0 z-30">
+      <div className="lg:pl-60 min-h-screen flex flex-col">
+        <div className="hidden lg:flex h-14 items-center justify-end gap-3 border-b border-border px-6 sticky top-0 z-30 bg-background/95 backdrop-blur-sm">
           {userCluster}
         </div>
-        <main className="flex-1 px-4 sm:px-8 py-8 max-w-[1440px] w-full mx-auto">
+        <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
           {children}
         </main>
       </div>

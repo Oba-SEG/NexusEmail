@@ -52,7 +52,7 @@ export default function CopyButton({ value, label, className }: CopyButtonProps)
       aria-label={failed ? "Copy failed" : copied ? "Copied" : `Copy ${label || "value"}`}
       className={
         className ||
-        "inline-flex items-center gap-1 text-[11px] text-emerald-300 hover:text-emerald-200 transition-colors flex-shrink-0 cursor-pointer"
+        "inline-flex flex-shrink-0 cursor-pointer items-center gap-1 text-[11px] text-primary transition-colors hover:text-primary/80"
       }
     >
       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}

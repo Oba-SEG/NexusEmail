@@ -66,17 +66,16 @@ export default function SettingsTab({ settings, onSettingsChange, apiFetch, onGo
   return (
     <>
       <TabHeader
-        title="Operational defaults"
+        title="Settings"
         description="Scanning cadence and auto-remediation policy."
         action={(
           <Button
             variant="outline"
             size="sm"
-            className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 text-xs h-8"
             onClick={onGoToIntegrations}
             disabled={!onGoToIntegrations}
           >
-            <Server className="w-3.5 h-3.5 mr-1.5" />
+            <Server className="w-3.5 h-3.5" />
             {connected}/{DNS_PROVIDERS.length} DNS providers connected
           </Button>
         )}

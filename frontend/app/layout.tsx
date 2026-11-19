@@ -1,23 +1,21 @@
 import type { Metadata } from "next";
-import { Fira_Code, Fira_Sans } from "next/font/google";
+import { Public_Sans, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { cspValue } from "@/lib/csp";
 
-const firaSans = Fira_Sans({
+const publicSans = Public_Sans({
   subsets: ["latin"],
   variable: "--font-sans",
   display: "swap",
-  weight: ["300", "400", "500", "600", "700"],
 });
 
-// Fira Code is the display face (headings, brand wordmark, KPI numbers) per
-// the uipm design system: technical, precise, dashboard-native.
-const firaCode = Fira_Code({
+// Mono is a data face only: domains, DNS records, selectors, API keys.
+const plexMono = IBM_Plex_Mono({
   subsets: ["latin"],
-  variable: "--font-display",
+  variable: "--font-mono",
   display: "swap",
-  weight: ["400", "500", "600", "700"],
+  weight: ["400", "500", "600"],
 });
 
 export const metadata: Metadata = {
@@ -31,7 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn(firaSans.variable, firaCode.variable)} suppressHydrationWarning>
+    <html lang="en" className={cn(publicSans.variable, plexMono.variable)} suppressHydrationWarning>
       <head>
         {/* Static-export (GitHub Pages) builds can't receive response headers,
             so the CSP ships as a <meta> tag instead. Server builds (Docker/VPS

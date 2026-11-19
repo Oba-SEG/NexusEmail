@@ -187,7 +187,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
   return (
     <>
       <TabHeader
-        title="How we reach you"
+        title="Notifications"
         description="Pick which events trigger an alert, and configure every outbound channel in one place."
       />
 
@@ -201,7 +201,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
               : 'Loading your saved delivery settings…'}
           </p>
           {configError ? (
-            <Button size="sm" variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onRetryConfig} disabled={!onRetryConfig}>
+            <Button size="sm" variant="outline" onClick={onRetryConfig} disabled={!onRetryConfig}>
               Retry
             </Button>
           ) : null}
@@ -238,7 +238,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
       >
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">SMTP (direct)</h4>
+            <h4 className="text-[12px] font-medium text-foreground">SMTP (direct)</h4>
             {!canManageSmtp ? (
               <p className="text-xs text-muted-foreground">Only owners and admins can change SMTP credentials.</p>
             ) : null}
@@ -250,7 +250,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             <FormField label="Password" type="password" disabled={!smtpReady} value={smtpForm.pass} onChange={(e) => updateSmtp({ pass: e.target.value })} placeholder="••••••••" />
             <FormField label="From email" className="sm:col-span-2" disabled={!smtpReady} value={smtpForm.from} onChange={(e) => updateSmtp({ from: e.target.value })} placeholder="noreply@yourdomain.com" />
             <label className="sm:col-span-2 flex items-center gap-2 text-sm cursor-pointer select-none">
-              <input type="checkbox" disabled={!smtpReady} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-emerald-500" />
+              <input type="checkbox" disabled={!smtpReady} checked={smtpForm.secure} onChange={(e) => updateSmtp({ secure: e.target.checked })} className="accent-primary" />
               <span>Use implicit TLS (port 465) — leave off for STARTTLS, usually port 587</span>
             </label>
           </div>
@@ -269,7 +269,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         <div className="hairline" />
 
         <div className="space-y-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Resend (HTTP API)</h4>
+          <h4 className="text-[12px] font-medium text-foreground">Resend (HTTP API)</h4>
           <p className="text-xs text-muted-foreground leading-relaxed">
             Works everywhere — including networks where outbound SMTP is blocked. Free tier: 3,000 emails/month at resend.com.
           </p>
@@ -287,8 +287,8 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             testLabel="Send test email"
             disabled={!ready}
           />
-          <div className="text-xs text-muted-foreground p-3 rounded-md bg-white/[0.03] border border-white/5 leading-relaxed">
-            Until your own domain is verified in Resend, test emails can be sent from <code className="text-emerald-300">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-emerald-300">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
+          <div className="rounded-md border border-border bg-white/[0.02] p-3 text-[11px] leading-relaxed text-muted-foreground">
+            Until your own domain is verified in Resend, test emails can be sent from <code className="text-primary">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-primary">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
           </div>
         </div>
       </SettingsSection>
@@ -306,7 +306,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
           placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
         />
         <p className="text-xs text-muted-foreground">
-          Slack &rarr; your workspace &rarr; Apps &rarr; Incoming Webhooks &rarr; create for a channel. <a href="https://my.slack.com/apps/A0F7XDUAZ-incoming-webhooks" target="_blank" rel="noreferrer" className="text-emerald-300 hover:underline">Open Slack Webhooks</a>
+          Slack &rarr; your workspace &rarr; Apps &rarr; Incoming Webhooks &rarr; create for a channel. <a href="https://my.slack.com/apps/A0F7XDUAZ-incoming-webhooks" target="_blank" rel="noreferrer" className="text-primary hover:underline">Open Slack Webhooks</a>
         </p>
         <SaveTestActions
           onSave={saveSlack}

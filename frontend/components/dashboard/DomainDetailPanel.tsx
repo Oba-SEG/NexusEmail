@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, Wrench, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import CopyButton from "@/components/dashboard/CopyButton";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatDateTime } from "@/lib/format";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 import { recordState, recordToneClass, dnsEvidence, scoreBreakdownRows } from "@/lib/domainPanel";
@@ -121,20 +121,20 @@ export default function DomainDetailPanel({
     });
   };
   return (
-  <Card className="border-0 rounded-none bg-background min-h-full shadow-none">
-    <CardHeader className="flex flex-row items-center justify-between pb-2">
-      <div>
-        <CardTitle className="text-lg">{selectedDomain.name}</CardTitle>
-        <CardDescription>Scan Results & Recommended Fixes</CardDescription>
+  <div className="min-h-full bg-card">
+    <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-5 py-4">
+      <div className="min-w-0">
+        <h2 className="truncate font-mono text-[15px] font-semibold">{selectedDomain.name}</h2>
+        <p className="mt-0.5 text-[12px] text-muted-foreground">Scan results and recommended fixes</p>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-shrink-0 gap-2">
         <Button variant="outline" size="sm" onClick={() => fixDomain(selectedDomain.id)}>
-          <Wrench className="w-4 h-4 mr-1" /> Get Fix Records
+          <Wrench className="w-3.5 h-3.5" /> Get fix records
         </Button>
         <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
       </div>
-    </CardHeader>
-    <CardContent>
+    </div>
+    <div className="space-y-4 px-5 py-4">
       {/* DNS Status Cards */}
       {(() => {
         const spfRow = recordState(selectedDomain.latest_scan, 'spf');
@@ -146,15 +146,15 @@ export default function DomainDetailPanel({
           { key: 'DMARC', row: dmarcRow, desc: 'Policy for SPF/DKIM failures', tip: 'Domain-based Message Authentication - Policy for handling failed auth' }
         ];
         return (
-          <div className="grid md:grid-cols-3 gap-4 mb-4">
+          <div className="grid gap-2 md:grid-cols-3">
             {cards.map((c) => (
-              <div key={c.key} className={`p-4 rounded-lg border ${recordToneClass[c.row.tone]}`}>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-sm font-medium">{c.key}</p>
-                  <span className="text-xs cursor-help" title={c.tip}>?</span>
+              <div key={c.key} className={`rounded-md border p-3 ${recordToneClass[c.row.tone]}`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium text-muted-foreground">{c.key}</p>
+                  <span className="cursor-help text-[11px] text-muted-foreground" title={c.tip}>?</span>
                 </div>
-                <p className="font-semibold">{c.row.label}</p>
-                <p className="text-xs text-muted-foreground mt-1">{c.desc}</p>
+                <p className="mt-1 text-[13px] font-semibold">{c.row.label}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">{c.desc}</p>
               </div>
             ))}
           </div>
@@ -166,10 +166,10 @@ export default function DomainDetailPanel({
         const bd = scoreBreakdownRows(selectedDomain.latest_scan?.score_breakdown);
         if (!bd) return null;
         return (
-          <div className="mb-4 p-4 rounded-lg border bg-background">
+          <div className="rounded-lg border border-border bg-white/[0.02] p-4">
             <div className="flex items-baseline justify-between mb-3">
               <p className="font-medium text-sm">Health score</p>
-              <p className="font-display text-2xl font-bold tabular-nums">{bd.total}<span className="text-sm text-muted-foreground font-normal">/100</span></p>
+              <p className="text-[20px] font-semibold tabular-nums tracking-[-0.02em]">{bd.total}<span className="text-sm text-muted-foreground font-normal">/100</span></p>
             </div>
             <div className="space-y-2">
               {bd.rows.map((r) => (
@@ -207,22 +207,22 @@ export default function DomainDetailPanel({
         if (!evidence.length) return null;
         const nonePublished = evidence.filter((r) => ['SPF', 'DKIM', 'DMARC'].includes(r.check) && !r.found).length === 3;
         return (
-          <div className="mb-4 p-4 rounded-lg border bg-background">
+          <div className="rounded-lg border border-border bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-2">
-              <p className="font-medium text-sm">What we checked · live DNS</p>
+              <p className="text-[13px] font-medium">What we checked · live DNS</p>
               {selectedDomain.latest_scan?.scanned_at && (
                 <span className="text-xs text-muted-foreground">
-                  {new Date(selectedDomain.latest_scan.scanned_at).toLocaleString()}
+                  {formatDateTime(selectedDomain.latest_scan.scanned_at)}
                 </span>
               )}
             </div>
             {nonePublished && (
-              <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-3 py-2 mb-3">
+              <p className="mb-3 rounded-md border border-border bg-white/[0.02] px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
                 No email authentication records are published for this domain yet — this result mirrors your live DNS,
                 not a scanner error. Run Get Fix Records below for the exact records to add at your DNS provider, then re-scan.
               </p>
             )}
-            <table className="w-full text-sm">
+            <table className="w-full text-[12px]">
               <tbody>
                 {evidence.map((r) => (
                   <tr key={r.check} className="border-b border-border/60 last:border-0">
@@ -236,7 +236,7 @@ export default function DomainDetailPanel({
             <div className="mt-3 pt-3 border-t border-border/60">
               <div className="flex items-center gap-2">
                 <Input
-                  className="h-8 text-xs bg-background/50 border-white/10 flex-1"
+                  className="h-8 flex-1 text-[12px]"
                   placeholder="Check a specific DKIM selector (e.g. resend, google, selector1)"
                   value={selectorInput}
                   onChange={(e) => setSelectorInput(e.target.value)}
@@ -257,9 +257,9 @@ export default function DomainDetailPanel({
       })()}
 
       {/* DMARC Aggregate Reports (issue #64): upload RFC 7489 XML */}
-      <div className="mb-4 p-4 rounded-lg border bg-background">
+      <div className="rounded-lg border border-border bg-white/[0.02] p-4">
         <div className="flex items-center justify-between mb-2">
-          <p className="font-medium text-sm">DMARC Aggregate Reports</p>
+          <p className="text-[13px] font-medium">DMARC Aggregate Reports</p>
           <div>
             <input
               ref={dmarcFileRef}
@@ -335,7 +335,7 @@ export default function DomainDetailPanel({
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-medium truncate">{r.report?.orgName || 'Unknown reporter'}</span>
                           <span className="text-muted-foreground flex-shrink-0">
-                            {r.report?.begin ? new Date(r.report.begin * 1000).toLocaleString() : ''}
+                            {r.report?.begin ? formatDateTime(new Date(r.report.begin * 1000)) : ''}
                           </span>
                         </div>
                         <div className="mt-1 text-muted-foreground">
@@ -399,8 +399,8 @@ export default function DomainDetailPanel({
       {/* Issues — expandable rows with the fix inline (hover tooltips
           are invisible on touch/keyboard) */}
       {selectedDomain.issues?.length > 0 && (
-        <div className="space-y-2 mb-4">
-          <p className="font-medium text-sm">Issues Found:</p>
+        <div className="mb-4 space-y-2">
+          <p className="text-[13px] font-medium">Issues found</p>
           {selectedDomain.issues.map((issue: any, i: number) => {
             const key = issue.type || String(i);
             const fixText: Record<string, string> = {
@@ -446,32 +446,32 @@ export default function DomainDetailPanel({
 
       {/* Recommendations Section */}
       {fixRecommendations && (
-        <div ref={fixSectionRef} className="space-y-3 mt-4 p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
-          <p className="font-medium text-sm">Recommended DNS Records:</p>
+        <div ref={fixSectionRef} className="mt-4 space-y-3 rounded-lg border border-primary/25 bg-primary/[0.06] p-4">
+          <p className="text-[13px] font-medium">Recommended DNS records</p>
           <div className="grid gap-2 text-xs font-mono">
             {fixRecommendations.recommended_records?.spf && (
-              <div className="p-2 bg-background rounded border flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
                 <span className="text-muted-foreground flex-shrink-0">SPF:</span>
                 <span className="flex-1 break-all">{fixRecommendations.recommended_records.spf.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.spf.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.dmarc && (
-              <div className="p-2 bg-background rounded border flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
                 <span className="text-muted-foreground flex-shrink-0">DMARC:</span>
                 <span className="flex-1 break-all">{fixRecommendations.recommended_records.dmarc.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.dmarc.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.mta_sts && (
-              <div className="p-2 bg-background rounded border flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
                 <span className="text-muted-foreground flex-shrink-0">MTA-STS:</span>
                 <span className="flex-1 break-all">{fixRecommendations.recommended_records.mta_sts.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.mta_sts.recommended} label="Copy" />
               </div>
             )}
             {fixRecommendations.recommended_records?.tls_rpt && (
-              <div className="p-2 bg-background rounded border flex items-center gap-2">
+              <div className="flex items-center gap-2 rounded-md border border-border bg-black/20 p-2">
                 <span className="text-muted-foreground flex-shrink-0">TLS-RPT:</span>
                 <span className="flex-1 break-all">{fixRecommendations.recommended_records.tls_rpt.recommended}</span>
                 <CopyButton value={fixRecommendations.recommended_records.tls_rpt.recommended} label="Copy" />
@@ -483,7 +483,7 @@ export default function DomainDetailPanel({
           </p>
         </div>
       )}
-    </CardContent>
-  </Card>
+    </div>
+  </div>
   );
 }

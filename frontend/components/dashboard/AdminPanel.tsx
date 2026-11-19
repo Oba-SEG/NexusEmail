@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Building2, Users, Globe, Shield, KeyRound, ChevronRight, ArrowLeft, RefreshCw, Check, X } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Building2, ChevronRight, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { describeError } from "@/components/ui/status";
-import { scoreBand, PASSING_SCORE } from "@/lib/scores";
+import { scoreBand } from "@/lib/scores";
+import { TabHeader } from "@/components/dashboard/settings-ui";
+import { formatDateTime } from "@/lib/format";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -207,230 +207,242 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   }
 };
 
+  const sectionClass = "overflow-hidden rounded-lg border border-border bg-card";
+  const sectionHeadClass = "flex items-center justify-between border-b border-border px-4 py-2.5";
+  const sectionBodyClass = "max-h-72 space-y-1 overflow-y-auto p-2";
+
   return (
     <>
-            {!isAdmin ? (
-              <Card className="border-border/40 bg-white/[0.02]">
-                <CardContent className="pt-6 text-center text-sm text-muted-foreground">
-                  Platform admin access required.
-                </CardContent>
-              </Card>
-            ) : adminDetail ? (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Button size="icon" variant="ghost" onClick={closeAdminOrg} title="Back to organizations">
-                    <ArrowLeft className="w-4 h-4" />
-                  </Button>
-                  <div>
-                    <h2 className="font-display font-semibold">{adminDetail.org.name}</h2>
-                    <p className="text-xs text-muted-foreground">{adminDetail.org.slug} · {adminDetail.org.plan || 'no plan'} · {adminDetail.org.id}</p>
-                  </div>
-                </div>
+      <TabHeader
+        title="Administration"
+        description="Customer organizations — read-only support access, every view is audited."
+      />
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  {[
-                    { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length },
-                    { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length },
-                    { label: 'Scans', value: adminDetail.org.counts?.scan_count ?? adminDetail.scans.length },
-                    { label: 'Last activity', value: adminDetail.org.counts?.last_activity ? new Date(adminDetail.org.counts.last_activity).toLocaleString() : '—' },
-                  ].map((s) => (
-                    <Card key={s.label} className="border-border/40 bg-white/[0.02]">
-                      <CardContent className="pt-4 pb-3">
-                        <p className="text-[11px] uppercase tracking-wider text-muted-foreground">{s.label}</p>
-                        <p className="font-display font-semibold text-lg">{s.value}</p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+      {!isAdmin ? (
+        <div className="mt-6 rounded-lg border border-border bg-card p-6 text-center text-[12px] text-muted-foreground">
+          Platform admin access required.
+        </div>
+      ) : adminDetail ? (
+        <div className="mt-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <Button size="icon" variant="ghost" onClick={closeAdminOrg} title="Back to organizations">
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div className="min-w-0">
+              <h2 className="text-[16px] font-semibold tracking-[-0.01em]">{adminDetail.org.name}</h2>
+              <p className="truncate font-mono text-[11px] text-muted-foreground">
+                {adminDetail.org.slug} · {adminDetail.org.plan || 'no plan'} · {adminDetail.org.id}
+              </p>
+            </div>
+          </div>
 
-                <div className="grid lg:grid-cols-2 gap-4">
-                  <Card className="border-border/40 bg-white/[0.02]">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm">Domains</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                      {adminDetail.failed?.domains ? (
-                        <p className="text-sm text-red-400/70">Domains unavailable — the request failed.</p>
-                      ) : (
-                        <>
-                      {adminDetail.domains.length === 0 && <p className="text-sm text-muted-foreground">No domains.</p>}
-                      {adminDetail.domains.map((d: any) => (
-                        <div key={d.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
-                          <span className="truncate font-medium">{d.name}</span>
-                          <span className="flex items-center gap-2 text-xs text-muted-foreground flex-shrink-0">
-                            {d.verified ? 'verified' : 'unverified'}
-                            <Badge variant="outline" className={typeof d.last_score === 'number' ? (scoreBand(d.last_score) === 'passing' ? 'text-emerald-400 border-emerald-400/30' : scoreBand(d.last_score) === 'warnings' ? 'text-amber-400 border-amber-400/30' : 'text-red-400 border-red-400/30') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
+          <div className="grid grid-cols-2 overflow-hidden rounded-lg border border-border bg-card md:grid-cols-4">
+            {[
+              { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length, small: false },
+              { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length, small: false },
+              { label: 'Scans', value: adminDetail.org.counts?.scan_count ?? adminDetail.scans.length, small: false },
+              { label: 'Last activity', value: adminDetail.org.counts?.last_activity ? formatDateTime(adminDetail.org.counts.last_activity) : '—', small: true },
+            ].map((s, i) => (
+              <div
+                key={s.label}
+                className={`px-4 py-3 ${i < 2 ? 'border-b border-border md:border-b-0' : ''} ${i % 2 === 1 ? 'border-l border-border' : ''} ${i === 2 ? 'md:border-l md:border-border' : ''}`}
+              >
+                <p className="text-[12px] text-muted-foreground">{s.label}</p>
+                <p className={`mt-0.5 font-semibold tabular-nums ${s.small ? 'text-[12px]' : 'text-[20px] tracking-[-0.02em]'}`}>{s.value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className={sectionClass}>
+              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Domains</h3></div>
+              <div className={sectionBodyClass}>
+                {adminDetail.failed?.domains ? (
+                  <p className="px-2 py-1.5 text-[12px] text-red-400/80">Domains unavailable — the request failed.</p>
+                ) : (
+                  <>
+                    {adminDetail.domains.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No domains.</p>}
+                    {adminDetail.domains.map((d: any) => (
+                      <div key={d.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] transition-colors hover:bg-white/[0.02]">
+                        <span className="truncate font-mono text-[11.5px] font-medium">{d.name}</span>
+                        <span className="flex flex-shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+                          {d.verified ? 'verified' : 'unverified'}
+                          <Badge variant="outline" className={typeof d.last_score === 'number' ? (scoreBand(d.last_score) === 'passing' ? 'border-emerald-500/25 text-emerald-300' : scoreBand(d.last_score) === 'warnings' ? 'border-amber-500/25 text-amber-300' : 'border-red-500/25 text-red-300') : ''}>{typeof d.last_score === 'number' ? d.last_score : '—'}</Badge>
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className={sectionClass}>
+              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Users</h3></div>
+              <div className={sectionBodyClass}>
+                {adminDetail.failed?.users ? (
+                  <p className="px-2 py-1.5 text-[12px] text-red-400/80">Users unavailable — the request failed.</p>
+                ) : (
+                  <>
+                    {adminDetail.users.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No users.</p>}
+                    {adminDetail.users.map((u: any) => (
+                      <div key={u.id} className="space-y-1.5 rounded px-2 py-1.5 transition-colors hover:bg-white/[0.02]">
+                        <div className="flex items-center justify-between gap-2 text-[12px]">
+                          <div className="min-w-0">
+                            <p className="truncate font-mono text-[11.5px] font-medium">{u.email}</p>
+                            <p className="truncate text-[11px] text-muted-foreground">{u.name}</p>
+                          </div>
+                          <span className="flex flex-shrink-0 items-center gap-2">
+                            <button
+                              className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                              onClick={() => {
+                                pwFormGenRef.current += 1;
+                                setPwResetFor(pwResetFor === u.id ? null : u.id);
+                                setPwResetValue('');
+                                setPwResetError(null);
+                              }}
+                            >
+                              Reset
+                            </button>
+                            <Badge variant="outline">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
                           </span>
                         </div>
-                      ))}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-border/40 bg-white/[0.02]">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm">Users</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                      {adminDetail.failed?.users ? (
-                        <p className="text-sm text-red-400/70">Users unavailable — the request failed.</p>
-                      ) : (
-                        <>
-                      {adminDetail.users.length === 0 && <p className="text-sm text-muted-foreground">No users.</p>}
-                      {adminDetail.users.map((u: any) => (
-                        <div key={u.id} className="space-y-1.5 border-b border-border/30 pb-1.5">
-                          <div className="flex items-center justify-between gap-2 text-sm">
-                            <div className="min-w-0">
-                              <p className="truncate font-medium">{u.email}</p>
-                              <p className="text-xs text-muted-foreground truncate">{u.name}</p>
-                            </div>
-                            <span className="flex items-center gap-2 flex-shrink-0">
-                              <button
-                                className="text-[11px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-                                onClick={() => {
-                                  pwFormGenRef.current += 1;
-                                  setPwResetFor(pwResetFor === u.id ? null : u.id);
-                                  setPwResetValue('');
-                                  setPwResetError(null);
-                                }}
-                              >
-                                Reset
-                              </button>
-                              <Badge variant="outline">{u.role}{u.status !== 'active' ? ` · ${u.status}` : ''}</Badge>
-                            </span>
+                        {pwResetFor === u.id && (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              type="password"
+                              placeholder="New password (min 8)"
+                              value={pwResetValue}
+                              onChange={(e) => setPwResetValue(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && submitPasswordReset(adminDetail.org.id, u.id)}
+                              className="h-8 min-w-[160px] flex-1 text-[12px]"
+                            />
+                            <Button size="sm" className="h-8" disabled={pwResetBusy} onClick={() => submitPasswordReset(adminDetail.org.id, u.id)}>
+                              {pwResetBusy ? 'Setting…' : 'Set'}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-8" onClick={() => { pwFormGenRef.current += 1; setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
+                              Cancel
+                            </Button>
+                            {pwResetError && <span className="text-[11px] text-red-400">{pwResetError}</span>}
                           </div>
-                          {pwResetFor === u.id && (
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Input
-                                type="password"
-                                placeholder="New password (min 8)"
-                                value={pwResetValue}
-                                onChange={(e) => setPwResetValue(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && submitPasswordReset(adminDetail.org.id, u.id)}
-                                className="h-8 text-sm flex-1 min-w-[160px]"
-                              />
-                              <Button size="sm" className="h-8" disabled={pwResetBusy} onClick={() => submitPasswordReset(adminDetail.org.id, u.id)}>
-                                {pwResetBusy ? 'Setting…' : 'Set'}
-                              </Button>
-                              <Button size="sm" variant="ghost" className="h-8" onClick={() => { pwFormGenRef.current += 1; setPwResetFor(null); setPwResetValue(''); setPwResetError(null); }}>
-                                Cancel
-                              </Button>
-                              {pwResetError && <span className="text-xs text-red-400">{pwResetError}</span>}
-                            </div>
-                          )}
-                          {pwResetDone === u.id && (
-                            <p className="text-[11px] text-emerald-400">Password updated — existing sessions were signed out.</p>
-                          )}
-                        </div>
-                      ))}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div className="grid lg:grid-cols-2 gap-4">
-                  <Card className="border-border/40 bg-white/[0.02]">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm">Scan history</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 max-h-72 overflow-y-auto">
-                      {adminDetail.failed?.scans ? (
-                        <p className="text-sm text-red-400/70">Scan history unavailable — the request failed.</p>
-                      ) : (
-                        <>
-                      {adminDetail.scans.length === 0 && <p className="text-sm text-muted-foreground">No scans yet.</p>}
-                      {adminDetail.scans.map((s: any) => {
-                        const scanDomain = adminDetail.domains.find((d: any) => d.id === s.domain_id);
-                        return (
-                          <div key={s.id} className="flex items-center justify-between gap-2 text-sm border-b border-border/30 pb-1.5">
-                            <span className="truncate">{scanDomain?.name || s.domain_id}</span>
-                            <span className="text-xs text-muted-foreground flex items-center gap-2 flex-shrink-0">
-                              {typeof s.score === 'number' && <Badge variant="outline">{s.score}</Badge>}
-                              {s.scanned_at ? new Date(s.scanned_at).toLocaleString() : '—'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="border-border/40 bg-white/[0.02]">
-                    <CardHeader className="pb-2"><CardTitle className="text-sm">Channels</CardTitle></CardHeader>
-                    <CardContent className="space-y-2 text-sm">
-                      {adminDetail.failed?.notifications ? (
-                        <p className="text-sm text-red-400/70">Channel status unavailable — the request failed.</p>
-                      ) : (
-                        <>
-                      {[
-                        { label: 'SMTP', on: !!adminDetail.notifications.smtp, detail: adminDetail.notifications.smtp ? `${adminDetail.notifications.smtp.host || '—'}${adminDetail.notifications.smtp.pass_configured ? ' · pass set' : ''}` : 'not configured' },
-                        { label: 'Resend', on: !!adminDetail.notifications.resend, detail: adminDetail.notifications.resend ? (adminDetail.notifications.resend.from || 'configured') : 'not configured' },
-                        { label: 'Slack', on: !!adminDetail.notifications.slack?.configured, detail: adminDetail.notifications.slack?.configured ? 'webhook set' : 'not configured' },
-                      ].map((c) => (
-                        <div key={c.label} className="flex items-center justify-between border-b border-border/30 pb-1.5">
-                          <span className="font-medium">{c.label}</span>
-                          <span className={`text-xs ${c.on ? 'text-emerald-400' : 'text-muted-foreground'}`}>{c.on ? `✓ ${c.detail}` : c.detail}</span>
-                        </div>
-                      ))}
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
+                        )}
+                        {pwResetDone === u.id && (
+                          <p className="text-[11px] text-emerald-400">Password updated — existing sessions were signed out.</p>
+                        )}
+                      </div>
+                    ))}
+                  </>
+                )}
               </div>
+            </section>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className={sectionClass}>
+              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Scan history</h3></div>
+              <div className={sectionBodyClass}>
+                {adminDetail.failed?.scans ? (
+                  <p className="px-2 py-1.5 text-[12px] text-red-400/80">Scan history unavailable — the request failed.</p>
+                ) : (
+                  <>
+                    {adminDetail.scans.length === 0 && <p className="px-2 py-1.5 text-[12px] text-muted-foreground">No scans yet.</p>}
+                    {adminDetail.scans.map((s: any) => {
+                      const scanDomain = adminDetail.domains.find((d: any) => d.id === s.domain_id);
+                      return (
+                        <div key={s.id} className="flex items-center justify-between gap-2 rounded px-2 py-1.5 text-[12px] transition-colors hover:bg-white/[0.02]">
+                          <span className="truncate font-mono text-[11.5px]">{scanDomain?.name || s.domain_id}</span>
+                          <span className="flex flex-shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+                            {typeof s.score === 'number' && <Badge variant="outline" className="tabular-nums">{s.score}</Badge>}
+                            {formatDateTime(s.scanned_at)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            </section>
+
+            <section className={sectionClass}>
+              <div className={sectionHeadClass}><h3 className="text-[12px] font-medium">Channels</h3></div>
+              <div className="space-y-1 p-2">
+                {adminDetail.failed?.notifications ? (
+                  <p className="px-2 py-1.5 text-[12px] text-red-400/80">Channel status unavailable — the request failed.</p>
+                ) : (
+                  <>
+                    {[
+                      { label: 'SMTP', on: !!adminDetail.notifications.smtp, detail: adminDetail.notifications.smtp ? `${adminDetail.notifications.smtp.host || '—'}${adminDetail.notifications.smtp.pass_configured ? ' · pass set' : ''}` : 'not configured' },
+                      { label: 'Resend', on: !!adminDetail.notifications.resend, detail: adminDetail.notifications.resend ? (adminDetail.notifications.resend.from || 'configured') : 'not configured' },
+                      { label: 'Slack', on: !!adminDetail.notifications.slack?.configured, detail: adminDetail.notifications.slack?.configured ? 'webhook set' : 'not configured' },
+                    ].map((c) => (
+                      <div key={c.label} className="flex items-center justify-between rounded px-2 py-1.5 text-[12px] transition-colors hover:bg-white/[0.02]">
+                        <span className="font-medium">{c.label}</span>
+                        <span className={`text-[11px] ${c.on ? 'text-emerald-400' : 'text-muted-foreground'}`}>{c.on ? `✓ ${c.detail}` : c.detail}</span>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border px-5 py-4">
+            <h3 className="flex items-center gap-2 text-[14px] font-semibold">
+              <Building2 className="h-4 w-4 text-muted-foreground" /> Customer organizations
+            </h3>
+            <p className="mt-0.5 text-[12px] text-muted-foreground">All hosted organizations — read-only support access, every view is audited.</p>
+          </div>
+          <div className="p-4">
+            {adminLoading ? (
+              <p className="py-2 text-[12px] text-muted-foreground">Loading organization…</p>
+            ) : adminOrgsError ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[12px] text-red-400/80">{adminOrgsError}</p>
+                <Button size="sm" variant="outline" className="h-7" onClick={() => loadAdminOrgs()}>Retry</Button>
+              </div>
+            ) : adminOrgs === null ? (
+              <p className="py-2 text-[12px] text-muted-foreground">Loading organizations…</p>
+            ) : adminOrgs.length === 0 ? (
+              <p className="py-2 text-[12px] text-muted-foreground">No organizations found.</p>
             ) : (
-              <Card className="border-border/40 bg-white/[0.02]">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2"><Building2 className="w-4 h-4" /> Customer organizations</CardTitle>
-                  <CardDescription>All hosted organizations — read-only support access, every view is audited.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {adminLoading ? (
-                    <p className="text-sm text-muted-foreground">Loading organization…</p>
-                  ) : adminOrgsError ? (
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm text-red-400/80">{adminOrgsError}</p>
-                      <Button size="sm" variant="outline" className="h-7" onClick={() => loadAdminOrgs()}>Retry</Button>
-                    </div>
-                  ) : adminOrgs === null ? (
-                    <p className="text-sm text-muted-foreground">Loading organizations…</p>
-                  ) : adminOrgs.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No organizations found.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs uppercase tracking-wider text-muted-foreground border-b border-border/40">
-                            <th className="py-2 pr-4 font-medium">Organization</th>
-                            <th className="py-2 pr-4 font-medium">Plan</th>
-                            <th className="py-2 pr-4 font-medium">Domains</th>
-                            <th className="py-2 pr-4 font-medium">Users</th>
-                            <th className="py-2 pr-4 font-medium">Scans</th>
-                            <th className="py-2 pr-4 font-medium">Last activity</th>
-                            <th className="py-2 font-medium"></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {adminOrgs.map((o) => (
-                            <tr key={o.id} className="border-b border-border/20 hover:bg-white/[0.02] transition-colors">
-                              <td className="py-2.5 pr-4">
-                                <p className="font-medium truncate">{o.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{o.slug}</p>
-                              </td>
-                              <td className="py-2.5 pr-4">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
-                              <td className="py-2.5 pr-4 tabular-nums">{o.domain_count}</td>
-                              <td className="py-2.5 pr-4 tabular-nums">{o.user_count}</td>
-                              <td className="py-2.5 pr-4 tabular-nums">{o.scan_count}</td>
-                              <td className="py-2.5 pr-4 text-xs text-muted-foreground">{o.last_activity ? new Date(o.last_activity).toLocaleString() : '—'}</td>
-                              <td className="py-2.5 text-right">
-                                <Button size="sm" variant="ghost" className="h-7" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5 ml-1" /></Button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+              <div className="overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="border-b border-border bg-white/[0.02] text-left text-[12px] font-medium text-muted-foreground">
+                      <th className="px-3 py-2.5 font-medium">Organization</th>
+                      <th className="px-3 py-2.5 font-medium">Plan</th>
+                      <th className="px-3 py-2.5 font-medium">Domains</th>
+                      <th className="px-3 py-2.5 font-medium">Users</th>
+                      <th className="px-3 py-2.5 font-medium">Scans</th>
+                      <th className="px-3 py-2.5 font-medium">Last activity</th>
+                      <th className="px-3 py-2.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminOrgs.map((o) => (
+                      <tr key={o.id} className="border-b border-border transition-colors last:border-0 hover:bg-white/[0.02]">
+                        <td className="px-3 py-2.5">
+                          <p className="truncate font-medium">{o.name}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">{o.slug}</p>
+                        </td>
+                        <td className="px-3 py-2.5">{o.plan ? <Badge variant="outline">{o.plan}</Badge> : <span className="text-muted-foreground">—</span>}</td>
+                        <td className="px-3 py-2.5 tabular-nums">{o.domain_count}</td>
+                        <td className="px-3 py-2.5 tabular-nums">{o.user_count}</td>
+                        <td className="px-3 py-2.5 tabular-nums">{o.scan_count}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-[11px] text-muted-foreground">{o.last_activity ? formatDateTime(o.last_activity) : '—'}</td>
+                        <td className="px-3 py-2.5 text-right">
+                          <Button size="sm" variant="ghost" className="h-7" onClick={() => openAdminOrg(o.id)}>View<ChevronRight className="w-3.5 h-3.5" /></Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

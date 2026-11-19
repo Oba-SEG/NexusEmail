@@ -2,63 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-/* T156 — Palette aligned with segbytes.co.za commercial shell.
-   T159 — Premium pass: typography, focus rings, scrollbar, transitions,
-          surface tokens, premium card class.
-   Background: #090b12 (segbytes --seg-bg)
-   Primary:    operational green #16a34a (uupm Dark Mode OLED design system) */
+/* Nexus design system.
+   Graphite surfaces, one warm signal color (#ff9d52), semantic status
+   colors reserved for pass / warn / fail. Public Sans carries the UI;
+   IBM Plex Mono is used only for data (domains, DNS records, selectors). */
 
 @layer base {
   :root {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 220 28% 12%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 32% 10%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 142 72% 37%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 142 60% 45%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 215 25% 17%;
-    --muted-foreground: 213 18% 76%;
-    --accent: 142 72% 45%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 45%;
+    --background: 240 6% 6%;
+    --foreground: 40 12% 93%;
+    --card: 240 6% 8%;
+    --card-foreground: 40 12% 93%;
+    --popover: 240 6% 9%;
+    --popover-foreground: 40 12% 93%;
+    --primary: 25 100% 66%;
+    --primary-foreground: 28 48% 8%;
+    --secondary: 240 5% 14%;
+    --secondary-foreground: 40 12% 93%;
+    --muted: 240 5% 13%;
+    --muted-foreground: 240 5% 62%;
+    --accent: 240 5% 16%;
+    --accent-foreground: 40 12% 93%;
+    --destructive: 0 64% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 25% 27%;
-    --input: 215 25% 22%;
-    --ring: 142 72% 45%;
-    --radius: 0.75rem;
-    /* Motion tokens: exponential ease-out only, no bounce. */
+    --border: 240 5% 18%;
+    --input: 240 5% 22%;
+    --ring: 25 100% 66%;
+    --radius: 0.5rem;
+    /* Motion: exponential ease-out only, no bounce. */
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
     --motion-fast: 110ms;
     --motion-base: 160ms;
     --motion-slow: 220ms;
-  }
-
-  .dark {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 220 28% 12%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 32% 10%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 142 72% 37%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 142 60% 45%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 215 25% 17%;
-    --muted-foreground: 213 18% 76%;
-    --accent: 142 72% 45%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 72% 45%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 215 25% 27%;
-    --input: 215 25% 22%;
-    --ring: 142 72% 45%;
-    --radius: 0.75rem;
   }
 }
 
@@ -66,8 +42,7 @@
   * { @apply border-border; }
 
   html {
-    /* Use Inter for body, Manrope as display face. Both injected as CSS
-       variables by next/font in app/layout.tsx. */
+    color-scheme: dark;
     font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
                  Roboto, "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
@@ -75,8 +50,6 @@
     text-rendering: optimizeLegibility;
   }
 
-  /* uupm checklist: pointer affordance on every interactive element
-     (Radix roles don't get it from the UA stylesheet). */
   [role="button"], [role="tab"], [role="menuitem"], [role="option"], [role="checkbox"],
   select, summary, label, a {
     cursor: pointer;
@@ -84,145 +57,106 @@
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
-    background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
-    background-attachment: fixed;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    background: hsl(var(--background));
     min-height: 100vh;
   }
 
-  /* T159 — Premium focus ring: a soft orange halo replacing the default
-     browser outline. Visible only via :focus-visible so mouse users don't
-     see it on click. */
   :focus-visible {
-    outline: 2px solid hsl(var(--primary) / 0.55);
+    outline: 2px solid hsl(var(--primary) / 0.7);
     outline-offset: 2px;
     border-radius: 6px;
   }
 
-  /* T159 — Selection: subtle warm tint, never sets foreground to a colour
-     that would clash with text. */
   ::selection {
-    background: hsl(var(--primary) / 0.28);
+    background: hsl(var(--primary) / 0.3);
     color: hsl(var(--foreground));
   }
 
-  /* T159 — Custom scrollbar (WebKit + Firefox). Stays out of the way and
-     warms up on hover. */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted)) transparent;
-  }
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb {
-    background: hsl(var(--muted));
-    border-radius: 999px;
-    border: 2px solid transparent;
-    background-clip: padding-box;
-    transition: background-color 200ms ease;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--primary) / 0.5);
-    background-clip: padding-box;
-  }
-
-  /* T159 — Universal smooth transitions for interactive elements.
-     Filter is included so press dimming fades instead of snapping. */
+  /* State changes crossfade; everything else is static. */
   button, a, input, select, textarea, [role="tab"], [role="button"] {
-    transition-property: background-color, border-color, color, opacity, box-shadow, transform, filter;
+    transition-property: background-color, border-color, color, opacity, box-shadow;
     transition-duration: var(--motion-base);
     transition-timing-function: var(--ease-out-expo);
   }
 
-  /* T159 — Headings use the display face with tighter tracking. */
   h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: var(--font-display), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: -0.025em;
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.012em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  table {
+    border-collapse: collapse;
   }
 }
 
 @layer components {
-  /* T159 — Premium surface: layered glass + inner highlight + soft shadow
-     stack. Apply to top-tier cards (hero, primary panels). */
+  /* Flat surface used by premium panels: one hairline, no glow. */
   .premium-surface.premium-surface {
-    background: rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    box-shadow: none;
   }
 
-  /* Hover lift for premium cards. */
   .premium-card.premium-card {
-    transition: border-color 160ms ease;
+    transition: border-color var(--motion-base) var(--ease-out-expo);
   }
   .premium-card.premium-card:hover {
-    border-color: rgba(34, 197, 94, 0.30);
+    border-color: hsl(var(--border));
   }
 
-  /* Brand mark (the green rounded square). Reusable across
-     navbar, loader, modals. Matches the favicon. */
+  /* Product mark. Flat signal color, dark glyph. */
   .nbp-mark {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #34d399 0%, #15803d 100%);
-    color: #052e14;
-    font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    border-radius: 12px;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.25) inset,
-      0 8px 22px -6px rgba(22, 163, 74, 0.35),
-      0 2px 8px -2px rgba(22, 163, 74, 0.25);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    border-radius: 8px;
   }
 
-  /* Premium primary button — refined gradient, inner highlight, hover lift. */
+  /* Primary action. Flat, no gradient, no lift. */
   .btn-premium-primary {
-    background: linear-gradient(135deg, #34d399 0%, #15803d 100%);
-    color: #052e14;
-    font-weight: 700;
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.25) inset,
-      0 8px 22px -6px rgba(22, 163, 74, 0.35);
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    font-weight: 600;
   }
   .btn-premium-primary:hover {
-    background: linear-gradient(135deg, #6ee7b7 0%, #16a34a 100%);
-    transform: translateY(-1px);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.3) inset,
-      0 12px 28px -8px rgba(22, 163, 74, 0.45);
-  }
-  .btn-premium-primary:active {
-    transform: translateY(0);
+    background: hsl(var(--primary) / 0.9);
   }
 
-  /* T159 — Eyebrow text (small uppercase labels above titles). */
   .eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    font-size: 11px;
-    font-weight: 600;
-    color: hsl(var(--primary));
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 12px;
+    font-weight: 500;
+    color: hsl(var(--muted-foreground));
   }
 
-  /* T159 — Hairline divider in section headers. */
   .hairline {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    background: hsl(var(--border));
   }
 }
 
-  /* uupm checklist: reduced-motion guard — kill transforms/animations.
-     Color/opacity feedback still crossfades instantly so states stay legible. */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
-    }
-    button, a, input, select, textarea, [role="tab"], [role="button"] {
-      transform: none !important;
     }
   }
 
@@ -243,42 +177,24 @@
   }
 
   /* Content hand-off when a tab becomes active: short fade + 4px rise.
-     Radix mounts only the active panel, so this plays on every switch. */
+     No fill-mode: a retained transform turns the panel into a containing
+     block for position:fixed drawers rendered inside it. */
   .tab-panel-enter {
-    /* No fill-mode: Chrome keeps the final keyframe's identity matrix under
-       `both`, and a retained transform turns the panel into a containing
-       block for position:fixed drawers rendered inside it. */
     animation: tab-panel-in var(--motion-base) var(--ease-out-quart);
   }
   @keyframes tab-panel-in {
     from { opacity: 0; transform: translateY(4px); }
-    /* `none`, not translateY(0): a retained transform makes the panel a
-       containing block for position:fixed drawers inside it. */
     to { opacity: 1; transform: none; }
   }
 
-  /* Press feedback for controls that are not the shared Button (rows,
-     chips, switch tracks): a quick inward scale plus dim. */
+  /* Press feedback for controls that are not the shared Button. */
   .pressable {
     transition: transform var(--motion-fast) var(--ease-out-quart),
-                filter var(--motion-fast) var(--ease-out-quart),
                 background-color var(--motion-base) var(--ease-out-expo),
                 border-color var(--motion-base) var(--ease-out-expo);
   }
   .pressable:active:not(:disabled) {
-    transform: scale(0.96);
-    filter: brightness(0.9);
-  }
-
-  /* Every plain button gets the same press tick, including ones that do not
-     use the shared <Button> (filter chips, copy buttons, icon controls).
-     Class-based utilities still win when a component defines its own. */
-  @media (prefers-reduced-motion: no-preference) {
-    button:not(:disabled):active,
-    [role="button"]:not([aria-disabled="true"]):active {
-      transform: scale(0.97);
-      filter: brightness(0.92);
-    }
+    transform: scale(0.98);
   }
 
 @layer utilities {

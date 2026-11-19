@@ -167,10 +167,10 @@ export function recordState(scan: any, key: 'spf' | 'dkim' | 'dmarc'): { label: 
 }
 
 export const recordToneClass: Record<string, string> = {
-  pass: 'border-emerald-500 bg-emerald-500/10',
-  fail: 'border-red-500 bg-red-500/10',
-  warn: 'border-amber-500 bg-amber-500/10',
-  none: 'border-white/10 bg-white/5'
+  pass: 'border-emerald-500/25 bg-emerald-500/10',
+  fail: 'border-red-500/25 bg-red-500/10',
+  warn: 'border-amber-500/25 bg-amber-500/10',
+  none: 'border-border bg-white/[0.03]'
 };
 
 // --- DNS evidence rows: prove what the scanner actually queried ---

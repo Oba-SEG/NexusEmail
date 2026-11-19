@@ -6,10 +6,11 @@ import {
   Zap, Eye, ChevronRight, Bell, Trash2, Save
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify, describeApiError } from "@/components/ui/status";
+import { TabHeader } from "@/components/dashboard/settings-ui";
+import { formatDateTime } from "@/lib/format";
 import {
   Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
 } from "@/components/ui/dialog";
@@ -19,6 +20,9 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
+const selectClass = "mt-1 flex h-9 w-full rounded-md border border-input bg-white/[0.02] px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
+const textareaClass = "mt-1 w-full rounded-md border border-input bg-white/[0.02] px-3 py-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
 
 const ISSUE_LABELS: Record<string, string> = {
   typosquatting: 'Typosquatting',
@@ -337,39 +341,37 @@ export default function BrandsTab({
 
   return (
     <>
-<div>
-  <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Watch for impersonation</h2>
-  <p className="text-sm text-muted-foreground">Detect typosquats, look-alikes, and brand abuse on domains you own.</p>
-</div>
+<TabHeader
+  title="Brand protection"
+  description="Detect typosquats, look-alikes, and brand abuse on the domains you operate."
+/>
 
-<Card className="premium-surface premium-card">
-  <CardHeader className="flex flex-row items-center justify-between gap-3">
+<div className="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+  <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
     <div>
-      <CardTitle className="font-display tracking-tight flex items-center gap-2">
-        <Shield className="w-4 h-4 text-emerald-400" /> Monitored brands
-      </CardTitle>
-      <CardDescription>Each brand is tied to a verified domain you own.</CardDescription>
+      <h3 className="text-[14px] font-semibold">Monitored brands</h3>
+      <p className="mt-0.5 text-[12px] text-muted-foreground">Each brand is tied to a verified domain you own.</p>
     </div>
-    <div className="flex gap-2 flex-shrink-0">
+    <div className="flex flex-wrap gap-2">
       {brandAlerts.length > 0 && (
-        <Button variant="outline" size="sm" className="border-red-500/30 bg-red-500/5 text-red-300 hover:bg-red-500/10 hover:border-red-500/50" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
-          <Bell className="w-4 h-4 mr-1.5" /> Alerts
-          <span className="ml-2 px-1.5 py-0.5 rounded-md bg-red-500 text-white text-[11px] font-bold leading-none">{brandAlerts.length}</span>
+        <Button variant="outline" size="sm" className="text-red-300 hover:bg-red-500/10 hover:text-red-200" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
+          <Bell className="w-3.5 h-3.5" /> Alerts
+          <span className="ml-1.5 rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-red-300">{brandAlerts.length}</span>
         </Button>
       )}
-      <Button variant="outline" size="sm" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
-        {bulkScanning ? <RefreshCw className="w-4 h-4 mr-1.5 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-1.5" />}
+      <Button variant="outline" size="sm" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
+        <RefreshCw className={`w-3.5 h-3.5 ${bulkScanning ? 'animate-spin' : ''}`} />
         Scan all
       </Button>
-      <Button className="btn-premium-primary border-0" size="sm" onClick={() => setShowAddBrand(true)}>
-        <Plus className="w-4 h-4 mr-1.5" /> Add brand
+      <Button size="sm" onClick={() => setShowAddBrand(true)}>
+        <Plus className="w-3.5 h-3.5" /> Add brand
       </Button>
     </div>
-  </CardHeader>
-  <CardContent>
+  </div>
+  <div className="p-5">
     {showAddBrand && (
-      <div className="mb-6 p-4 bg-muted/30 rounded-lg border">
-        <p className="font-medium mb-3">Add Brand to Monitor</p>
+      <div className="mb-5 rounded-md border border-border bg-white/[0.02] p-4">
+        <p className="mb-3 text-[13px] font-medium">Add a brand to monitor</p>
         {domains.filter((d: any) => d.verified).length === 0 ? (
           <div className="space-y-3">
             <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm text-amber-300">
@@ -393,7 +395,7 @@ export default function BrandsTab({
         ) : (
           <div className="grid gap-3">
             <div>
-              <label className="text-sm text-muted-foreground">Domain</label>
+              <label className="text-[12px] text-muted-foreground">Domain</label>
               <select
                 value={newBrandDomain}
                 onChange={(e) => {
@@ -406,7 +408,7 @@ export default function BrandsTab({
                     setNewBrandName(v.split('.')[0]);
                   }
                 }}
-                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className={selectClass}
               >
                 <option value="">Select a verified domain…</option>
                 {domains
@@ -420,7 +422,7 @@ export default function BrandsTab({
               </p>
             </div>
             <div>
-              <label className="text-sm text-muted-foreground">Brand Name (optional)</label>
+              <label className="text-[12px] text-muted-foreground">Brand name (optional)</label>
               <Input
                 placeholder="My Company"
                 value={newBrandName}
@@ -429,12 +431,12 @@ export default function BrandsTab({
               />
             </div>
             <div>
-              <label htmlFor="new-brand-schedule" className="text-sm text-muted-foreground">Automatic scans</label>
+              <label htmlFor="new-brand-schedule" className="text-[12px] text-muted-foreground">Automatic scans</label>
               <select
                 id="new-brand-schedule"
                 value={newBrandSchedule}
                 onChange={(e) => setNewBrandSchedule(e.target.value)}
-                className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                className={selectClass}
               >
                 <option value="daily">Daily</option>
                 <option value="weekly">Weekly</option>
@@ -472,7 +474,7 @@ export default function BrandsTab({
                   });
                 }}
               >
-                <Save className="w-4 h-4 mr-1" /> Save
+                <Save className="w-3.5 h-3.5" /> Save
               </Button>
               <Button variant="ghost" size="sm" onClick={() => {
                 setShowAddBrand(false);
@@ -489,39 +491,41 @@ export default function BrandsTab({
     )}
 
     {brands.length === 0 && !showAddBrand ? (
-      <div className="text-center py-10 text-muted-foreground">
-        <Shield className="w-12 h-12 mx-auto mb-4 opacity-50" />
-        <p>No brands being monitored</p>
-        <p className="text-sm">Add a brand to start monitoring for typosquatting and impersonation</p>
+      <div className="py-14 text-center">
+        <Shield className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
+        <p className="text-[13px] font-medium">No brands monitored yet</p>
+        <p className="mt-1 text-[12px] text-muted-foreground">Add a brand to start watching for typosquatting and impersonation.</p>
       </div>
     ) : (
-      <div className="space-y-3">
+      <div className="divide-y divide-border overflow-hidden rounded-md border border-border">
         {brands.map((brand: any) => (
-          <div key={brand.id} className="flex items-center justify-between p-4 border rounded-lg">
+          <div key={brand.id} className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
-              <Shield className="w-5 h-5 text-emerald-400" />
-              <div>
-                <p className="font-medium">{brand.domain}</p>
-                <p className="text-sm text-muted-foreground">
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Shield className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-mono text-[12.5px] font-medium">{brand.domain}</p>
+                <p className="text-[12px] text-muted-foreground">
                   {brand.brand_name}
                   {(brand.threats?.length || 0) > 0 && (
-                    <span className="ml-2 text-amber-400">{brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked</span>
+                    <span className="ml-2 text-amber-300">{brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked</span>
                   )}
                 </p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {brand.last_scan ? `Last scan ${new Date(brand.last_scan).toLocaleString()}` : 'Never scanned'}
-                  {brand.next_scan ? ` · Next ${new Date(brand.next_scan).toLocaleString()}` : ''}
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {brand.last_scan ? `Last scan ${formatDateTime(brand.last_scan)}` : 'Never scanned'}
+                  {brand.next_scan ? ` · Next ${formatDateTime(brand.next_scan)}` : ''}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 sm:flex-shrink-0">
               <label htmlFor={`brand-schedule-${brand.id}`} className="sr-only">Scan schedule for {brand.domain}</label>
               <select
                 id={`brand-schedule-${brand.id}`}
                 value={brand.scan_schedule || 'manual'}
                 onChange={(e) => updateBrandSchedule(brand.id, e.target.value)}
                 disabled={savingSchedules.has(brand.id)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-xs disabled:opacity-50"
+                className="h-8 rounded-md border border-input bg-white/[0.02] px-2 text-[12px] text-muted-foreground disabled:opacity-50"
               >
                 <option value="manual">Manual</option>
                 <option value="daily">Daily</option>
@@ -547,13 +551,13 @@ export default function BrandsTab({
                   if (gen === sessionGenRef.current) setBrandScanning(false);
                 }
               }} disabled={brandScanning || bulkScanning}>
-                <Search className="w-4 h-4 mr-1" /> Scan
+                <Search className="w-3.5 h-3.5" /> Scan
               </Button>
-              <Button variant="outline" size="sm" onClick={(e) => { brandDetailsOpenerRef.current = e.currentTarget; openBrandDetails(brand); }}>
-                <Eye className="w-4 h-4" />
+              <Button variant="outline" size="sm" className="px-2" aria-label={`Open details for ${brand.domain}`} onClick={(e) => { brandDetailsOpenerRef.current = e.currentTarget; openBrandDetails(brand); }}>
+                <Eye className="w-3.5 h-3.5" />
               </Button>
-              <Button variant="ghost" size="sm" aria-label={`Delete brand ${brand.domain}`} onClick={(e) => { brandDeleteOpenerRef.current = e.currentTarget; setBrandToDelete(brand); }}>
-                <Trash2 className="w-4 h-4 text-rose-500" />
+              <Button variant="ghost" size="sm" className="px-2" aria-label={`Delete brand ${brand.domain}`} onClick={(e) => { brandDeleteOpenerRef.current = e.currentTarget; setBrandToDelete(brand); }}>
+                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
               </Button>
             </div>
           </div>
@@ -573,10 +577,10 @@ export default function BrandsTab({
             : ''}
     </span>
     {brandScanning && (
-      <div className="mt-4 p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
+      <div className="mt-4 rounded-md border border-border bg-white/[0.02] p-4">
         <div className="flex items-center gap-3">
-          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm font-medium">Scanning brand surface…</span>
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-[13px] font-medium">Scanning brand surface…</span>
         </div>
         {/* Honest status: the backend reports progress only when the scan
             completes, so a stepwise checklist here would be a lie. An
@@ -588,25 +592,25 @@ export default function BrandsTab({
     )}
 
     {brandScanResult && !brandScanning && (
-      <div className="mt-4 p-4 bg-muted/30 rounded-lg border">
-        <div className="flex items-center justify-between mb-3">
-          <p className="font-medium">Brand Protection Results</p>
+      <div className="mt-4 rounded-md border border-border bg-white/[0.02] p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-[13px] font-medium">Brand protection results</p>
           <Button variant="ghost" size="sm" onClick={() => setBrandScanResult(null)}>Clear</Button>
         </div>
         {brandScanResult.error ? (
-          <p className="text-sm text-rose-500">{brandScanResult.error}</p>
+          <p className="text-[12px] text-red-400">{brandScanResult.error}</p>
         ) : (
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="p-2 bg-emerald-500/10 rounded">
+            <div className="grid grid-cols-2 gap-2 text-[12px]">
+              <div className="rounded-md bg-white/[0.03] p-2.5">
                 <p className="text-muted-foreground">Score</p>
-                <p className="font-bold text-lg">{brandScanResult.score}/100</p>
+                <p className="text-[15px] font-semibold tabular-nums">{brandScanResult.score}/100</p>
               </div>
-              <div className="p-2 bg-muted rounded">
-                <p className="text-muted-foreground">DNS Provider</p>
+              <div className="rounded-md bg-white/[0.03] p-2.5">
+                <p className="text-muted-foreground">DNS provider</p>
                 <p className="font-medium">{brandScanResult.dns_provider?.name || 'Unknown'}</p>
               </div>
-              <div className="p-2 bg-muted rounded">
+              <div className="rounded-md bg-white/[0.03] p-2.5">
                 <p className="text-muted-foreground">TLD coverage</p>
                 <p className="font-medium tabular-nums">
                   {brandScanResult.tld_count ? `${brandScanResult.tld_count} TLDs checked` : 'Pending'}
@@ -614,7 +618,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Typosquatting */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('typo')}>
+              <div className="cursor-pointer rounded-md bg-white/[0.03] p-2.5 transition-colors hover:bg-white/[0.05]" {...sectionToggleProps('typo')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Typosquatting
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('typo') ? 'rotate-90' : ''}`} />
@@ -641,7 +645,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Lookalikes */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('lookalike')}>
+              <div className="cursor-pointer rounded-md bg-white/[0.03] p-2.5 transition-colors hover:bg-white/[0.05]" {...sectionToggleProps('lookalike')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Lookalikes
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('lookalike') ? 'rotate-90' : ''}`} />
@@ -668,7 +672,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Impersonation */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('impersonation')}>
+              <div className="cursor-pointer rounded-md bg-white/[0.03] p-2.5 transition-colors hover:bg-white/[0.05]" {...sectionToggleProps('impersonation')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Impersonation
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('impersonation') ? 'rotate-90' : ''}`} />
@@ -684,7 +688,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: Homographs */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('homograph')}>
+              <div className="cursor-pointer rounded-md bg-white/[0.03] p-2.5 transition-colors hover:bg-white/[0.05]" {...sectionToggleProps('homograph')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   Homographs
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('homograph') ? 'rotate-90' : ''}`} />
@@ -703,7 +707,7 @@ export default function BrandsTab({
               </div>
 
               {/* Clickable: NS Records */}
-              <div className="p-2 bg-muted rounded cursor-pointer hover:bg-muted/80" {...sectionToggleProps('ns')}>
+              <div className="cursor-pointer rounded-md bg-white/[0.03] p-2.5 transition-colors hover:bg-white/[0.05]" {...sectionToggleProps('ns')}>
                 <p className="text-muted-foreground flex items-center gap-1">
                   NS Records
                   <ChevronRight className={`w-3 h-3 transition-transform ${expandedSections.includes('ns') ? 'rotate-90' : ''}`} />
@@ -721,18 +725,18 @@ export default function BrandsTab({
             </div>
             {brandScanResult.issues?.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-medium">Issues:</p>
+                <p className="text-[13px] font-medium">Issues</p>
                 {brandScanResult.issues.map((issue: any, i: number) => (
-                  <div key={i} className="flex items-center gap-2 text-sm">
-                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  <div key={i} className="flex items-center gap-2 text-[12px]">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
                     <span>{ISSUE_LABELS[issue.type] || issue.type}: {issue.count} {issue.count === 1 ? 'issue' : 'issues'}</span>
                   </div>
                 ))}
               </div>
             )}
             {brandScanResult.recommendations?.length > 0 && (
-              <div className="text-sm text-muted-foreground">
-                <p className="font-medium mb-1">Recommendations:</p>
+              <div className="text-[12px] text-muted-foreground">
+                <p className="mb-1 font-medium text-foreground">Recommendations</p>
                 <ul className="list-disc list-inside">
                   {brandScanResult.recommendations.map((rec: string, i: number) => (
                     <li key={i}>{rec}</li>
@@ -744,59 +748,57 @@ export default function BrandsTab({
         )}
       </div>
     )}
-  </CardContent>
-</Card>
+    </div>
+</div>
 
 {/* Brand Details Modal */}
 {selectedBrand && (
   <Dialog open onOpenChange={(o) => { if (!o) setSelectedBrand(null); }}>
-    <DialogContent className="bg-background rounded-lg w-full max-w-2xl max-h-[80vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(brandDetailsOpenerRef)}>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <DialogTitle className="text-lg font-bold">{selectedBrand.domain}</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground">{selectedBrand.brand_name}</DialogDescription>
-        </div>
+    <DialogContent className="max-h-[80vh] w-full max-w-2xl overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(brandDetailsOpenerRef)}>
+      <div>
+        <DialogTitle className="font-mono text-[15px]">{selectedBrand.domain}</DialogTitle>
+        <DialogDescription>{selectedBrand.brand_name}</DialogDescription>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="flex gap-2">
           <Button size="sm" onClick={(e) => { takedownOpenerRef.current = e.currentTarget; setShowTakedownModal(true); }}>
-            <Zap className="w-4 h-4 mr-1" /> Submit Takedown
+            <Zap className="w-3.5 h-3.5" /> Submit takedown
           </Button>
           <Button variant="outline" size="sm" onClick={(e) => { threatOpenerRef.current = e.currentTarget; setShowThreatModal(true); }}>
-            <AlertTriangle className="w-4 h-4 mr-1" /> Add Threat
+            <AlertTriangle className="w-3.5 h-3.5" /> Add threat
           </Button>
         </div>
 
         <div>
-          <h4 className="font-medium mb-3 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500" />
-            Tracked Threats ({brandThreats.length})
+          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+            Tracked threats ({brandThreats.length})
           </h4>
           {brandThreats.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No threats tracked</p>
+            <p className="text-[12px] text-muted-foreground">No threats tracked.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {brandThreats.map((threat: any) => (
-                <div key={threat.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
-                  <div>
-                    <p className="font-medium text-sm">{threat.domain}</p>
-                    <div className="flex gap-2 mt-1">
-                      <Badge variant={threat.severity === 'high' ? 'destructive' : threat.severity === 'medium' ? 'default' : 'secondary'} className="text-xs">
+                <div key={threat.id} className="flex items-center justify-between rounded-md border border-border bg-white/[0.02] p-3">
+                  <div className="min-w-0">
+                    <p className="break-all font-mono text-[12px] font-medium">{threat.domain}</p>
+                    <div className="mt-1 flex gap-1.5">
+                      <Badge variant={threat.severity === 'high' ? 'destructive' : threat.severity === 'medium' ? 'default' : 'secondary'}>
                         {threat.threat_type}
                       </Badge>
-                      <Badge variant="outline" className="text-xs">{threat.severity}</Badge>
+                      <Badge variant="outline">{threat.severity}</Badge>
                     </div>
                   </div>
-                  <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" title="Mark as Safe" onClick={() => markAsSafe(selectedBrand.id, threat.domain)}>
-                      <CheckCircle className="w-4 h-4 text-emerald-500" />
+                  <div className="flex gap-0.5">
+                    <Button variant="ghost" size="sm" className="px-2" title="Mark as safe" aria-label={`Mark ${threat.domain} as safe`} onClick={() => markAsSafe(selectedBrand.id, threat.domain)}>
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                     </Button>
-                    <Button variant="ghost" size="sm" title="Submit Takedown" onClick={() => {
+                    <Button variant="ghost" size="sm" className="px-2" title="Submit takedown" aria-label={`Submit takedown for ${threat.domain}`} onClick={() => {
                       setTakedownForm({ ...takedownForm, domain: threat.domain });
                       setShowTakedownModal(true);
                     }}>
-                      <Zap className="w-4 h-4 text-amber-500" />
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
                     </Button>
                   </div>
                 </div>
@@ -806,26 +808,26 @@ export default function BrandsTab({
         </div>
 
         <div>
-          <h4 className="font-medium mb-3 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-emerald-400" />
-            Takedown Requests ({brandTakedowns.length})
+          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+            <Zap className="w-3.5 h-3.5 text-muted-foreground" />
+            Takedown requests ({brandTakedowns.length})
           </h4>
           {brandTakedowns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No takedown requests</p>
+            <p className="text-[12px] text-muted-foreground">No takedown requests.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {brandTakedowns.map((takedown: any) => (
-                <div key={takedown.id} className="p-3 border rounded-lg bg-muted/30">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-sm">{takedown.domain}</p>
-                      <p className="text-xs text-muted-foreground">{takedown.threat_type} • {takedown.provider}</p>
+                <div key={takedown.id} className="rounded-md border border-border bg-white/[0.02] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-[12px] font-medium">{takedown.domain}</p>
+                      <p className="text-[11px] text-muted-foreground">{takedown.threat_type} · {takedown.provider}</p>
                     </div>
                     <Badge variant={takedown.status === 'completed' ? 'default' : takedown.status === 'in_progress' ? 'secondary' : 'outline'}>
                       {takedown.status}
                     </Badge>
                   </div>
-                  {takedown.notes && <p className="text-xs text-muted-foreground mt-2">{takedown.notes}</p>}
+                  {takedown.notes && <p className="mt-2 text-[11px] text-muted-foreground">{takedown.notes}</p>}
                 </div>
               ))}
             </div>
@@ -833,31 +835,31 @@ export default function BrandsTab({
         </div>
 
         <div>
-          <h4 className="font-medium mb-3 flex items-center gap-2">
-            <Search className="w-4 h-4 text-emerald-400" />
-            Scan History ({brandHistory.length})
+          <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+            <Search className="w-3.5 h-3.5 text-muted-foreground" />
+            Scan history ({brandHistory.length})
           </h4>
           {historyState === 'loading' ? (
-            <p className="text-sm text-muted-foreground">Loading scan history…</p>
+            <p className="text-[12px] text-muted-foreground">Loading scan history…</p>
           ) : historyState === 'error' ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Scan history couldn't be loaded.{' '}
               <button
                 type="button"
-                className="underline text-emerald-400"
+                className="text-primary underline underline-offset-2"
                 onClick={() => selectedBrand && loadBrandHistory(selectedBrand.id)}
               >
                 Retry
               </button>
             </p>
           ) : brandHistory.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No saved scans yet — run a scan or set an automatic schedule.</p>
+            <p className="text-[12px] text-muted-foreground">No saved scans yet — run a scan or set an automatic schedule.</p>
           ) : (
-            <div className="space-y-1 max-h-56 overflow-y-auto">
+            <div className="max-h-56 space-y-1 overflow-y-auto">
               {[...brandHistory].reverse().map((scan: any) => (
-                <div key={scan.id} className="flex items-center justify-between p-2 border rounded-lg bg-muted/30 text-xs">
-                  <span className="text-muted-foreground">{new Date(scan.scanned_at).toLocaleString()}</span>
-                  <span className="tabular-nums">
+                <div key={scan.id} className="flex items-center justify-between gap-3 rounded-md border border-border bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+                  <span className="whitespace-nowrap text-muted-foreground">{formatDateTime(scan.scanned_at)}</span>
+                  <span className="truncate tabular-nums text-foreground/80">
                     Score {scan.score}/100 · typo {scan.typosquatting} · lookalike {scan.lookalikes} · subdomain {scan.impersonation} · homograph {scan.homographs}
                     {scan.tld_count ? ` · ${scan.tld_count} TLDs` : ''}
                   </span>
@@ -869,13 +871,13 @@ export default function BrandsTab({
 
         {selectedBrand.safe_list && selectedBrand.safe_list.length > 0 && (
           <div>
-            <h4 className="font-medium mb-3 flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-emerald-500" />
-              Safe List ({selectedBrand.safe_list.length})
+            <h4 className="mb-2 flex items-center gap-2 text-[13px] font-medium">
+              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+              Safe list ({selectedBrand.safe_list.length})
             </h4>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {selectedBrand.safe_list.map((domain: string, i: number) => (
-                <Badge key={i} variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600">
+                <Badge key={i} variant="outline" className="border-emerald-500/25 bg-emerald-500/10 font-mono text-emerald-300">
                   {domain}
                 </Badge>
               ))}
@@ -889,32 +891,32 @@ export default function BrandsTab({
 
 {showTakedownModal && (
   <Dialog open onOpenChange={(o) => { if (!o) setShowTakedownModal(false); }}>
-    <DialogContent className="bg-background rounded-lg w-full max-w-md max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(takedownOpenerRef)}>
-      <DialogTitle className="text-lg font-bold mb-4">Submit Takedown Request</DialogTitle>
-      <div className="space-y-4">
+    <DialogContent className="max-h-[85vh] w-full max-w-md overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(takedownOpenerRef)}>
+      <DialogTitle>Submit takedown request</DialogTitle>
+      <div className="space-y-3">
         <div>
-          <label className="text-sm">Domain</label>
-          <Input value={takedownForm.domain} onChange={(e) => setTakedownForm({ ...takedownForm, domain: e.target.value })} placeholder="bad-domain.com" />
+          <label className="text-[12px] text-muted-foreground">Domain</label>
+          <Input className="mt-1 font-mono" value={takedownForm.domain} onChange={(e) => setTakedownForm({ ...takedownForm, domain: e.target.value })} placeholder="bad-domain.com" />
         </div>
         <div>
-          <label className="text-sm">Threat Type</label>
-          <select className="w-full p-2 border rounded" value={takedownForm.threat_type} onChange={(e) => setTakedownForm({ ...takedownForm, threat_type: e.target.value })}>
+          <label className="text-[12px] text-muted-foreground">Threat type</label>
+          <select className={selectClass} value={takedownForm.threat_type} onChange={(e) => setTakedownForm({ ...takedownForm, threat_type: e.target.value })}>
             <option value="impersonation">Impersonation</option>
             <option value="typosquatting">Typosquatting</option>
             <option value="phishing">Phishing</option>
-            <option value="fake_store">Fake Store</option>
+            <option value="fake_store">Fake store</option>
           </select>
         </div>
         <div>
-          <label className="text-sm">Evidence / Notes</label>
-          <textarea className="w-full p-2 border rounded" rows={3} value={takedownForm.evidence} onChange={(e) => setTakedownForm({ ...takedownForm, evidence: e.target.value })} placeholder="Describe the abuse..." />
+          <label className="text-[12px] text-muted-foreground">Evidence / notes</label>
+          <textarea className={textareaClass} rows={3} value={takedownForm.evidence} onChange={(e) => setTakedownForm({ ...takedownForm, evidence: e.target.value })} placeholder="Describe the abuse…" />
         </div>
         <div>
-          <label className="text-sm">Contact Email</label>
-          <Input value={takedownForm.contact_email} onChange={(e) => setTakedownForm({ ...takedownForm, contact_email: e.target.value })} placeholder="legal@yourbrand.com" />
+          <label className="text-[12px] text-muted-foreground">Contact email</label>
+          <Input className="mt-1" value={takedownForm.contact_email} onChange={(e) => setTakedownForm({ ...takedownForm, contact_email: e.target.value })} placeholder="legal@yourbrand.com" />
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => submitTakedown(selectedBrand?.id)}>Submit Request</Button>
+        <div className="flex gap-2 pt-1">
+          <Button onClick={() => submitTakedown(selectedBrand?.id)}>Submit request</Button>
           <Button variant="ghost" onClick={() => setShowTakedownModal(false)}>Cancel</Button>
         </div>
       </div>
@@ -924,16 +926,16 @@ export default function BrandsTab({
 
 {showThreatModal && (
   <Dialog open onOpenChange={(o) => { if (!o) setShowThreatModal(false); }}>
-    <DialogContent className="bg-background rounded-lg w-full max-w-md max-h-[85vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(threatOpenerRef)}>
-      <DialogTitle className="text-lg font-bold mb-4">Add Manual Threat</DialogTitle>
-      <div className="space-y-4">
+    <DialogContent className="max-h-[85vh] w-full max-w-md overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(threatOpenerRef)}>
+      <DialogTitle>Add manual threat</DialogTitle>
+      <div className="space-y-3">
         <div>
-          <label className="text-sm">Domain</label>
-          <Input value={threatForm.domain} onChange={(e) => setThreatForm({ ...threatForm, domain: e.target.value })} placeholder="fake-brand.com" />
+          <label className="text-[12px] text-muted-foreground">Domain</label>
+          <Input className="mt-1 font-mono" value={threatForm.domain} onChange={(e) => setThreatForm({ ...threatForm, domain: e.target.value })} placeholder="fake-brand.com" />
         </div>
         <div>
-          <label className="text-sm">Threat Type</label>
-          <select className="w-full p-2 border rounded" value={threatForm.threat_type} onChange={(e) => setThreatForm({ ...threatForm, threat_type: e.target.value })}>
+          <label className="text-[12px] text-muted-foreground">Threat type</label>
+          <select className={selectClass} value={threatForm.threat_type} onChange={(e) => setThreatForm({ ...threatForm, threat_type: e.target.value })}>
             <option value="manual">Manual</option>
             <option value="impersonation">Impersonation</option>
             <option value="typosquatting">Typosquatting</option>
@@ -941,19 +943,19 @@ export default function BrandsTab({
           </select>
         </div>
         <div>
-          <label className="text-sm">Severity</label>
-          <select className="w-full p-2 border rounded" value={threatForm.severity} onChange={(e) => setThreatForm({ ...threatForm, severity: e.target.value })}>
+          <label className="text-[12px] text-muted-foreground">Severity</label>
+          <select className={selectClass} value={threatForm.severity} onChange={(e) => setThreatForm({ ...threatForm, severity: e.target.value })}>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
           </select>
         </div>
         <div>
-          <label className="text-sm">Notes</label>
-          <textarea className="w-full p-2 border rounded" rows={2} value={threatForm.notes} onChange={(e) => setThreatForm({ ...threatForm, notes: e.target.value })} />
+          <label className="text-[12px] text-muted-foreground">Notes</label>
+          <textarea className={textareaClass} rows={2} value={threatForm.notes} onChange={(e) => setThreatForm({ ...threatForm, notes: e.target.value })} />
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => addThreat(selectedBrand?.id)}>Add Threat</Button>
+        <div className="flex gap-2 pt-1">
+          <Button onClick={() => addThreat(selectedBrand?.id)}>Add threat</Button>
           <Button variant="ghost" onClick={() => setShowThreatModal(false)}>Cancel</Button>
         </div>
       </div>
@@ -963,23 +965,21 @@ export default function BrandsTab({
 
 {showAlertsModal && (
   <Dialog open onOpenChange={(o) => { if (!o) setShowAlertsModal(false); }}>
-    <DialogContent className="bg-background rounded-lg w-full max-w-lg max-h-[80vh] overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(alertsOpenerRef)}>
-      <div className="flex items-center justify-between mb-4">
-        <DialogTitle className="text-lg font-bold">Threat Alerts ({brandAlerts.length})</DialogTitle>
-      </div>
+    <DialogContent className="max-h-[80vh] w-full max-w-lg overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(alertsOpenerRef)}>
+      <DialogTitle>Threat alerts ({brandAlerts.length})</DialogTitle>
       {brandAlerts.length === 0 ? (
-        <p className="text-muted-foreground text-center py-8">No alerts</p>
+        <p className="py-8 text-center text-[12px] text-muted-foreground">No alerts.</p>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {brandAlerts.map((alert: any) => (
-            <div key={alert.id} className={`p-3 border rounded-lg ${alert.severity === 'high' ? 'bg-rose-500/10 border-rose-500/30' : 'bg-amber-500/10 border-amber-500/30'}`}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-medium text-sm">{alert.domain}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{alert.message}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{alert.brand_name} • {new Date(alert.timestamp).toLocaleString()}</p>
+            <div key={alert.id} className={`rounded-md border p-3 ${alert.severity === 'high' ? 'border-red-500/25 bg-red-500/10' : 'border-amber-500/25 bg-amber-500/10'}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate font-mono text-[12px] font-medium">{alert.domain}</p>
+                  <p className="mt-1 text-[12px] text-muted-foreground">{alert.message}</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{alert.brand_name} · {formatDateTime(alert.timestamp)}</p>
                 </div>
-                <Badge variant={alert.severity === 'high' ? 'destructive' : 'default'} className="text-xs">
+                <Badge variant={alert.severity === 'high' ? 'destructive' : 'default'}>
                   {alert.severity}
                 </Badge>
               </div>

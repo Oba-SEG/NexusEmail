@@ -35,7 +35,7 @@ export default function ProviderModal({
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent
-        className="premium-surface rounded-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0"
+        className="w-full max-w-lg max-h-[88vh] overflow-y-auto p-0 gap-0"
         onCloseAutoFocus={openerRef ? dialogFocusReturn(openerRef, fallbackRef) : undefined}
       >
       {/* Hero — provider brand strip */}
@@ -43,19 +43,19 @@ export default function ProviderModal({
         const brand = providerBrand(selectedProvider.name);
         const meta = PROVIDER_METADATA[selectedProvider.name];
         return (
-          <div className="relative px-6 pt-6 pb-5 border-b border-white/5">
+          <div className="relative border-b border-border px-5 pt-5 pb-4">
             <div className="absolute inset-0 opacity-[0.08]" style={{ background: brand.bg }} />
             <div className="relative flex items-start gap-4">
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0 font-display font-bold text-base shadow-2xl"
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border border-border text-[14px] font-semibold"
                 style={{ background: brand.bg, color: brand.text, letterSpacing: '-0.02em' }}
               >
                 {brand.mono}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-medium mb-1">Connect provider · {meta?.category}</p>
-                <DialogTitle className="font-display text-xl font-bold tracking-tight">{selectedProvider.name}</DialogTitle>
-                <DialogDescription className="text-xs text-muted-foreground mt-1 leading-relaxed">{meta?.summary}</DialogDescription>
+                <p className="mb-1 text-[11px] text-muted-foreground">Connect provider · {meta?.category}</p>
+                <DialogTitle className="text-[17px] font-semibold tracking-[-0.01em]">{selectedProvider.name}</DialogTitle>
+                <DialogDescription className="mt-1 text-[12px] leading-relaxed">{meta?.summary}</DialogDescription>
               </div>
               <span aria-hidden="true" className="w-8 h-8" />
             </div>
@@ -63,17 +63,17 @@ export default function ProviderModal({
         );
       })()}
 
-      <div className="p-6">
+      <div className="p-5">
         {/* Field stack */}
         <div className="space-y-4">
           {(PROVIDER_METADATA[selectedProvider.name]?.fields || []).map((field: ProviderField) => (
             <div key={field.key}>
               <div className="flex items-baseline justify-between mb-1.5">
-                <label htmlFor={`provider-field-${field.key}`} className="text-xs font-semibold uppercase tracking-wider text-foreground">
+                <label htmlFor={`provider-field-${field.key}`} className="text-[12px] font-medium text-foreground">
                   {field.label}
-                  {field.required && <span className="ml-1.5 text-emerald-400 normal-case" title="Required">*</span>}
+                  {field.required && <span className="ml-1.5 text-primary" title="Required">*</span>}
                 </label>
-                {!field.required && <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Optional</span>}
+                {!field.required && <span className="text-[11px] text-muted-foreground">Optional</span>}
               </div>
               <Input
                 id={`provider-field-${field.key}`}
@@ -81,7 +81,7 @@ export default function ProviderModal({
                 value={providerCreds[field.key] || ''}
                 onChange={(e) => onCredsChange({...providerCreds, [field.key]: e.target.value})}
                 placeholder={field.placeholder}
-                className="bg-background/50 border-white/10 focus-visible:border-emerald-500/40 font-mono text-sm"
+                className="font-mono text-[12px]"
                 autoComplete="off"
                 spellCheck={false}
               />
@@ -91,15 +91,15 @@ export default function ProviderModal({
         </div>
 
         {/* Docs deep-link + security note */}
-        <div className="mt-5 p-3 rounded-lg bg-white/[0.03] border border-white/5 flex items-start gap-3">
-          <Key className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+        <div className="mt-4 flex items-start gap-3 rounded-md border border-border bg-white/[0.02] p-3">
+          <Key className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
           <div className="flex-1 text-[11px] text-muted-foreground leading-relaxed">
             <p className="mb-1">
               <a
                 href={PROVIDER_METADATA[selectedProvider.name]?.docsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-300 hover:text-emerald-200 font-medium underline underline-offset-2"
+                className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
               >
                 Open {selectedProvider.name} API settings ↗
               </a>
@@ -109,9 +109,9 @@ export default function ProviderModal({
         </div>
 
         {/* Actions */}
-        <div className="flex gap-2 mt-5">
+        <div className="mt-5 flex gap-2">
           <Button
-            className="btn-premium-primary border-0 flex-1"
+            className="flex-1"
             onClick={onSave}
             disabled={
               savingProvider ||
@@ -122,7 +122,7 @@ export default function ProviderModal({
           >
             {savingProvider ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Saving…</> : <><CheckCircle className="w-4 h-4 mr-2" /> Save credentials</>}
           </Button>
-          <Button variant="outline" className="border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
         </div>

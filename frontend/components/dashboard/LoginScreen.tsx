@@ -1,8 +1,6 @@
 "use client";
 
-import { Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { StatusViewport } from "@/components/ui/status";
 
@@ -18,20 +16,72 @@ interface LoginScreenProps {
  * expiry toasts (shown right after logout) stay visible. */
 export default function LoginScreen({ loginForm, onFormChange, onSubmit, loggingIn, loginError }: LoginScreenProps) {
   return (
-    <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-6">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "radial-gradient(560px 300px at 50% -8%, hsl(var(--primary) / 0.09), transparent 70%)" }}
+      />
       <StatusViewport />
-      <Card className="w-full max-w-md bg-slate-900 border-slate-800 text-white">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5" /> Nexus Brand Protection</CardTitle>
-          <CardDescription>Sign in through your Segbytes client account.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Input placeholder="Email" value={loginForm.email} onChange={(e) => onFormChange({ ...loginForm, email: e.target.value })} />
-          <Input placeholder="Password" type="password" value={loginForm.password} onChange={(e) => onFormChange({ ...loginForm, password: e.target.value })} onKeyDown={(e) => e.key === 'Enter' && onSubmit()} />
-          {loginError && <p className="text-sm text-red-400">{loginError}</p>}
-          <Button className="w-full" onClick={onSubmit} disabled={loggingIn}>{loggingIn ? 'Signing in...' : 'Sign in'}</Button>
-        </CardContent>
-      </Card>
+
+      <div className="relative w-full max-w-[360px]">
+        <div className="mb-6 flex items-center gap-3">
+          <div className="nbp-mark h-9 w-9 text-[12px]">N</div>
+          <div className="leading-tight">
+            <p className="text-[13.5px] font-semibold">Nexus</p>
+            <p className="text-[11px] text-muted-foreground">Brand protection</p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-6">
+          <h1 className="text-[18px] font-semibold tracking-[-0.015em]">Sign in</h1>
+          <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+            Use your Segbytes client account to continue.
+          </p>
+
+          <form
+            className="mt-5 space-y-4"
+            onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
+          >
+            <div>
+              <label htmlFor="login-email" className="text-[12px] font-medium text-muted-foreground">Email</label>
+              <Input
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                placeholder="Email"
+                className="mt-1.5"
+                value={loginForm.email}
+                onChange={(e) => onFormChange({ ...loginForm, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="login-password" className="text-[12px] font-medium text-muted-foreground">Password</label>
+              <Input
+                id="login-password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="Password"
+                className="mt-1.5"
+                value={loginForm.password}
+                onChange={(e) => onFormChange({ ...loginForm, password: e.target.value })}
+              />
+            </div>
+
+            {loginError && (
+              <p className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-300" role="alert">
+                {loginError}
+              </p>
+            )}
+
+            <Button className="w-full" type="submit" disabled={loggingIn} aria-busy={loggingIn}>
+              {loggingIn ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+        </div>
+
+        <p className="mt-4 text-center text-[11px] text-muted-foreground">Domain security console</p>
+      </div>
     </main>
   );
 }

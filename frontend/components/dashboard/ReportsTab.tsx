@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { BarChart3, Download, FileText, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Download, FileText, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { notify, describeError } from "@/components/ui/status";
+import { TabHeader } from "@/components/dashboard/settings-ui";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
+const selectClass = "h-9 w-full rounded-md border border-input bg-white/[0.02] px-3 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
 
 interface ReportsTabProps {
   domains: any[];
@@ -77,63 +79,69 @@ const exportJSON = async () => {
 
   return (
     <>
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              <div>
-                <h2 className="font-display text-2xl font-bold tracking-tight mb-1">Generate &amp; export</h2>
-                <p className="text-sm text-muted-foreground">Per-domain HTML reports for stakeholders. Bulk CSV / JSON exports for archive.</p>
-              </div>
-            </div>
+      <TabHeader
+        title="Reports"
+        description="Per-domain HTML reports for stakeholders, plus bulk exports for archive."
+      />
 
-            <div className="grid md:grid-cols-2 gap-5">
-              <Card className="premium-surface premium-card">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-emerald-400" /> Single domain report
-                  </CardTitle>
-                  <CardDescription>Detailed HTML breakdown of one domain&rsquo;s SPF / DKIM / DMARC posture.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <select
-                    className="w-full h-10 px-3 rounded-md border border-white/10 bg-background/50 text-sm focus-visible:outline-none focus-visible:border-emerald-500/40"
-                    value={reportDomainId || ''}
-                    onChange={(e) => setReportDomainId(Number(e.target.value))}
-                  >
-                    <option value="">Select a domain&hellip;</option>
-                    {domains.map((d: any) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                  <Button
-                    className="w-full btn-premium-primary border-0"
-                    onClick={() => reportDomainId && generateReport(reportDomainId)}
-                    disabled={!reportDomainId || generatingReport}
-                    title={!reportDomainId ? 'Select a domain above first' : undefined}
-                  >
-                    {generatingReport ? <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Generating&hellip;</> : <><FileText className="w-4 h-4 mr-2" /> Generate report</>}
-                  </Button>
-                  {!reportDomainId && (
-                    <p className="text-xs text-muted-foreground">Select a domain above to enable report generation.</p>
-                  )}
-                </CardContent>
-              </Card>
+      <div className="mt-6 grid overflow-hidden rounded-lg border border-border bg-card md:grid-cols-2">
+        <section className="border-b border-border p-5 md:border-b-0 md:border-r">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-[14px] font-semibold">Single domain report</h3>
+          </div>
+          <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+            Detailed HTML breakdown of one domain&rsquo;s SPF, DKIM and DMARC posture.
+          </p>
+          <div className="mt-4 space-y-3">
+            <select
+              className={selectClass}
+              value={reportDomainId || ''}
+              onChange={(e) => setReportDomainId(Number(e.target.value))}
+              aria-label="Domain for report"
+            >
+              <option value="">Select a domain…</option>
+              {domains.map((d: any) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <Button
+              className="w-full"
+              onClick={() => reportDomainId && generateReport(reportDomainId)}
+              disabled={!reportDomainId || generatingReport}
+              title={!reportDomainId ? 'Select a domain above first' : undefined}
+            >
+              {generatingReport ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Generating…</> : <><FileText className="w-3.5 h-3.5" /> Generate report</>}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              {reportDomainId ? 'Downloads as a self-contained HTML file.' : 'Select a domain to enable report generation.'}
+            </p>
+          </div>
+        </section>
 
-              <Card className="premium-surface premium-card">
-                <CardHeader>
-                  <CardTitle className="font-display tracking-tight flex items-center gap-2">
-                    <Download className="w-4 h-4 text-emerald-400" /> Bulk export
-                  </CardTitle>
-                  <CardDescription>Download every domain&rsquo;s latest scan as a single archive.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <Button variant="outline" className="w-full border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={exportCSV}>
-                    <Download className="w-4 h-4 mr-2" /> CSV &mdash; spreadsheet-friendly
-                  </Button>
-                  <Button variant="outline" className="w-full border-white/10 hover:border-emerald-500/40 hover:bg-emerald-500/5" onClick={exportJSON}>
-                    <Download className="w-4 h-4 mr-2" /> JSON &mdash; full structured data
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
+        <section className="p-5">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-[14px] font-semibold">Bulk export</h3>
+          </div>
+          <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+            Download every domain&rsquo;s latest scan as a single archive.
+          </p>
+          <div className="mt-4 space-y-2">
+            <Button variant="outline" className="w-full justify-between" onClick={exportCSV}>
+              <span className="flex items-center gap-2"><Download className="w-3.5 h-3.5" /> CSV</span>
+              <span className="text-[11px] text-muted-foreground">Spreadsheet-friendly</span>
+            </Button>
+            <Button variant="outline" className="w-full justify-between" onClick={exportJSON}>
+              <span className="flex items-center gap-2"><Download className="w-3.5 h-3.5" /> JSON</span>
+              <span className="text-[11px] text-muted-foreground">Full structured data</span>
+            </Button>
+          </div>
+          <p className="mt-3 text-[11px] text-muted-foreground">
+            Exports include the latest scan per domain and are safe to archive.
+          </p>
+        </section>
+      </div>
     </>
   );
 }
