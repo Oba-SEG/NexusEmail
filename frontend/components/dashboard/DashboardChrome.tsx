@@ -108,7 +108,7 @@ export default function DashboardChrome({
   const brand = (
     <div className="flex items-center gap-2.5 min-w-0">
       <div className="nbp-mark w-8 h-8 text-[11px] flex-shrink-0">N</div>
-      <div className="leading-tight min-w-0">
+      <div className="hidden leading-tight min-w-0 sm:block">
         <h1 className="text-[13.5px] font-semibold tracking-[-0.01em] text-foreground">Nexus</h1>
         <p className="text-[11px] text-muted-foreground">Brand protection</p>
       </div>
@@ -130,11 +130,15 @@ export default function DashboardChrome({
       )}
       {user?.organization?.name && (
         <div
-          className="hidden items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-[11px] text-muted-foreground md:flex"
+          className="group flex items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-[11px] text-muted-foreground focus-visible:border-primary/60 focus-visible:outline-none"
           title={`Workspace: ${user.organization.name}`}
+          tabIndex={0}
+          aria-label={`Workspace: ${user.organization.name}`}
         >
           <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
-          <span className="max-w-[160px] truncate">{user.organization.name}</span>
+          <span className="max-w-[84px] truncate sm:max-w-[160px] sm:group-focus-visible:max-w-[240px] sm:group-focus-visible:whitespace-normal">
+            {user.organization.name}
+          </span>
         </div>
       )}
       {user?.email && (
@@ -143,7 +147,7 @@ export default function DashboardChrome({
           <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">{user.email}</p>
         </div>
       )}
-      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.04] text-[11px] font-semibold text-foreground">
+      <div className="hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-border bg-white/[0.04] text-[11px] font-semibold text-foreground sm:flex">
         {(user?.name || user?.email || 'OB').slice(0, 2).toUpperCase()}
       </div>
       <Button
