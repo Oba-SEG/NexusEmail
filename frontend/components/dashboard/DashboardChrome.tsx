@@ -53,6 +53,7 @@ export default function DashboardChrome({
   children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0, onOpenSearch,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
   // Close on selection, pointer or keyboard. If the keyboard focused a
   // trigger inside the mobile strip, it is about to unmount, so move
@@ -129,17 +130,19 @@ export default function DashboardChrome({
         <span className="text-[11px] text-amber-400 max-w-[220px] leading-tight" role="alert">{logoutNotice}</span>
       )}
       {user?.organization?.name && (
-        <div
-          className="group flex items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-[11px] text-muted-foreground focus-visible:border-primary/60 focus-visible:outline-none"
-          title={`Workspace: ${user.organization.name}`}
-          tabIndex={0}
+        <button
+          type="button"
+          onClick={() => setWorkspaceExpanded((o) => !o)}
+          aria-expanded={workspaceExpanded}
           aria-label={`Workspace: ${user.organization.name}`}
+          title={`Workspace: ${user.organization.name}`}
+          className="flex max-w-[180px] items-center gap-1.5 rounded-md border border-border bg-white/[0.02] px-2 py-1 text-left text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.04] focus-visible:border-primary/60 focus-visible:outline-none"
         >
           <Building2 className="h-3.5 w-3.5 flex-shrink-0" />
-          <span className="max-w-[84px] truncate sm:max-w-[160px] sm:group-focus-visible:max-w-[240px] sm:group-focus-visible:whitespace-normal">
+          <span className={workspaceExpanded ? "whitespace-normal break-words" : "max-w-[84px] truncate sm:max-w-[160px]"}>
             {user.organization.name}
           </span>
-        </div>
+        </button>
       )}
       {user?.email && (
         <div className="hidden sm:block text-right leading-tight">
