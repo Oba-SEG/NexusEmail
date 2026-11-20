@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatusViewport } from "@/components/ui/status";
@@ -11,6 +11,8 @@ interface LoginScreenProps {
   onSubmit: () => void;
   loggingIn: boolean;
   loginError: string | null;
+  onCreateAccount: () => void;
+  onBackToHome: () => void;
 }
 
 const PROOF_POINTS = [
@@ -21,106 +23,127 @@ const PROOF_POINTS = [
 
 /** Signed-out gate. The status viewport renders here too so session
  * expiry toasts (shown right after logout) stay visible. */
-export default function LoginScreen({ loginForm, onFormChange, onSubmit, loggingIn, loginError }: LoginScreenProps) {
+export default function LoginScreen({
+  loginForm, onFormChange, onSubmit, loggingIn, loginError, onCreateAccount, onBackToHome,
+}: LoginScreenProps) {
   return (
-    <main className="min-h-screen bg-background">
+    <main className="min-h-screen bg-[#f5f0e9] text-[#211511]">
       <StatusViewport />
 
-      <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
-      <section className="hidden flex-col justify-between border-r border-border bg-[#08080a] px-12 py-10 lg:flex">
-        <div className="flex items-center gap-2.5">
-          <div className="nbp-mark flex h-9 w-9 items-center justify-center text-[12px]">N</div>
-          <div className="leading-tight">
-            <p className="text-[13.5px] font-semibold">Nexus</p>
-            <p className="text-[11px] text-muted-foreground">Brand protection</p>
+      <div className="grid min-h-screen lg:grid-cols-[1.02fr_1fr]">
+        <section className="relative hidden flex-col justify-between overflow-hidden bg-[#20120f] px-12 py-9 text-[#f6ece4] lg:flex">
+          <div aria-hidden="true" className="pointer-events-none absolute -bottom-40 -right-32 h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,#ff9d52_0%,#c05b25_38%,transparent_70%)] opacity-35 blur-2xl" />
+          <button type="button" onClick={onBackToHome} className="relative z-10 flex w-fit items-center gap-2.5">
+            <span className="nbp-mark flex h-9 w-9 items-center justify-center text-[12px]">N</span>
+            <span className="leading-tight">
+              <span className="block text-[13.5px] font-semibold">Nexus</span>
+              <span className="block text-[11px] text-[#b7a397]">Brand protection</span>
+            </span>
+          </button>
+
+          <div className="relative z-10 max-w-[440px]">
+            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#d58b5d]">The operator&apos;s console</p>
+            <h1 className="mt-5 font-serif text-[48px] leading-[0.98] tracking-[-0.03em]">
+              Your perimeter,
+              <br />
+              in one place.
+            </h1>
+            <p className="mt-5 text-[13.5px] leading-6 text-[#c9b6a9]">
+              Sign in to see posture, threats and the next fix across every
+              domain your team owns.
+            </p>
+            <ul className="mt-8 space-y-3">
+              {PROOF_POINTS.map((point) => (
+                <li key={point} className="flex items-start gap-2.5 text-[12.5px] leading-5 text-[#c9b6a9]">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#ff9d52]" aria-hidden="true" />
+                  {point}
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
 
-        <div className="max-w-[440px]">
-          <h1 className="text-[34px] font-semibold leading-[1.15] tracking-[-0.03em]">
-            Email security,
-            <br />
-            without the noise.
-          </h1>
-          <p className="mt-4 text-[13.5px] leading-6 text-muted-foreground">
-            One console for domain authentication, brand monitoring and the
-            evidence your team needs to act.
-          </p>
-          <ul className="mt-8 space-y-3">
-            {PROOF_POINTS.map((point) => (
-              <li key={point} className="flex items-start gap-2.5 text-[12.5px] leading-5 text-muted-foreground">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary/80" aria-hidden="true" />
-                {point}
-              </li>
-            ))}
-          </ul>
-        </div>
+          <p className="relative z-10 text-[11px] text-[#7f6a5d]">Segbytes · Domain security console</p>
+        </section>
 
-        <p className="text-[11px] text-muted-foreground">Segbytes · Domain security console</p>
-      </section>
-
-      <section className="flex min-h-screen items-center justify-center px-6 py-10">
-        <div className="w-full max-w-[368px]">
-          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <div className="nbp-mark flex h-9 w-9 items-center justify-center text-[12px]">N</div>
-            <div className="leading-tight">
-              <p className="text-[13.5px] font-semibold">Nexus</p>
-              <p className="text-[11px] text-muted-foreground">Brand protection</p>
+        <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8">
+          <div className="w-full max-w-[390px]">
+            <div className="mb-10 flex items-center justify-between lg:hidden">
+              <div className="flex items-center gap-2.5">
+                <span className="nbp-mark flex h-9 w-9 items-center justify-center text-[12px]">N</span>
+                <span className="leading-tight">
+                  <span className="block text-[13.5px] font-semibold">Nexus</span>
+                  <span className="block text-[11px] text-[#8b7567]">Brand protection</span>
+                </span>
+              </div>
+              <button type="button" onClick={onBackToHome} className="text-[11.5px] text-[#8b7567] hover:text-[#211511]">
+                Home
+              </button>
             </div>
-          </div>
 
-          <div className="border-t border-border pt-6">
-            <h2 className="text-[22px] font-semibold tracking-[-0.02em]">Sign in</h2>
-            <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
-              Use your Segbytes client account to continue.
+            <button type="button" onClick={onBackToHome} className="mb-8 hidden items-center gap-1.5 text-[11.5px] text-[#8b7567] transition-colors hover:text-[#211511] lg:inline-flex">
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to homepage
+            </button>
+
+            <h2 className="text-[28px] font-semibold tracking-[-0.03em]">Sign in</h2>
+            <p className="mt-2 text-[12.5px] leading-5 text-[#6b584c]">
+              Use your Nexus workspace account to continue.
             </p>
 
             <form
-              className="mt-6 space-y-4"
+              className="mt-7 space-y-4"
               onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
             >
               <div>
-                <label htmlFor="login-email" className="text-[12px] font-medium text-muted-foreground">Email</label>
+                <label htmlFor="login-email" className="text-[11.5px] font-medium text-[#5e4c42]">Email</label>
                 <Input
                   id="login-email"
                   type="email"
                   autoComplete="email"
                   placeholder="you@company.com"
-                  className="mt-1.5"
+                  className="mt-1.5 h-11 rounded-lg border-[#d9cdc1] bg-white/70 text-[#211511] placeholder:text-[#a08472] focus-visible:ring-[#ff9d52]"
                   value={loginForm.email}
                   onChange={(e) => onFormChange({ ...loginForm, email: e.target.value })}
                 />
               </div>
               <div>
-                <label htmlFor="login-password" className="text-[12px] font-medium text-muted-foreground">Password</label>
+                <label htmlFor="login-password" className="text-[11.5px] font-medium text-[#5e4c42]">Password</label>
                 <Input
                   id="login-password"
                   type="password"
                   autoComplete="current-password"
                   placeholder="Password"
-                  className="mt-1.5"
+                  className="mt-1.5 h-11 rounded-lg border-[#d9cdc1] bg-white/70 text-[#211511] placeholder:text-[#a08472] focus-visible:ring-[#ff9d52]"
                   value={loginForm.password}
                   onChange={(e) => onFormChange({ ...loginForm, password: e.target.value })}
                 />
               </div>
 
               {loginError && (
-                <p className="border-l border-red-500/50 py-1 pl-3 text-[12px] text-red-300" role="alert">
+                <p className="border-l-2 border-red-400/70 py-1 pl-3 text-[12px] text-red-700" role="alert">
                   {loginError}
                 </p>
               )}
 
-              <Button className="w-full" type="submit" disabled={loggingIn} aria-busy={loggingIn}>
+              <Button
+                className="h-11 w-full rounded-full bg-[#ff9d52] text-[13px] font-semibold text-[#28140a] hover:bg-[#ffad6d]"
+                type="submit"
+                disabled={loggingIn}
+                aria-busy={loggingIn}
+              >
                 {loggingIn ? "Signing in…" : "Sign in"}
               </Button>
             </form>
-          </div>
 
-          <p className="mt-5 text-center text-[11px] text-muted-foreground lg:hidden">
-            Segbytes · Domain security console
-          </p>
-        </div>
-      </section>
+            <div className="mt-7 border-t border-[#d9cdc1] pt-5">
+              <p className="text-[12px] text-[#6b584c]">
+                New to Nexus?{" "}
+                <button type="button" onClick={onCreateAccount} className="inline-flex items-center gap-1 font-medium text-[#a34e1d] underline-offset-4 hover:underline">
+                  Create a workspace <ArrowRight className="h-3 w-3" />
+                </button>
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   );

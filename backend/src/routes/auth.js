@@ -3,6 +3,7 @@ const router = express.Router();
 const db = require('../db/database');
 const { sign, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin, hashPassword } = require('../auth');
 const { captureException } = require('../capture');
+const provisioning = require('../services/provisioning');
 const rateLimit = require('express-rate-limit');
 
 // Credential endpoints get their own tight budget so password guessing
@@ -14,6 +15,16 @@ const credentialLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many authentication attempts, try again later' }
+});
+
+// Self-serve workspaces are far more expensive than a login and are the
+// easiest endpoint to farm, so they get their own hourly budget.
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many workspace registrations, try again later' }
 });
 
 router.post('/login', credentialLimiter, async (req, res, next) => {
@@ -28,6 +39,61 @@ router.post('/login', credentialLimiter, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// Self-serve registration: one workspace + its first owner. The org and
+// owner are created in a single transaction so a duplicate email or slug can
+// never leave an ownerless tenant behind.
+router.post('/register', registrationLimiter, async (req, res, next) => {
+  try {
+    if (process.env.REGISTRATION_ENABLED === 'false') {
+      return res.status(403).json({ error: 'Self-serve registration is disabled' });
+    }
+    const organizationName = typeof req.body?.organization_name === 'string' ? req.body.organization_name.trim() : '';
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+
+    const error = provisioning.tenantNameError(organizationName)
+      || (!provisioning.isValidEmail(email) ? 'Enter a valid work email.' : null)
+      || provisioning.ownerNameError(name)
+      || provisioning.passwordError(password);
+    if (error) return res.status(400).json({ error });
+
+    if (await db.getUserByEmail(email)) {
+      return res.status(409).json({ error: 'An account with this email already exists' });
+    }
+
+    const slug = await provisioning.uniqueSlug(organizationName);
+    let user;
+    try {
+      user = await db.withTransaction(async (tx) => {
+        const org = await db.addOrganization({ name: organizationName, slug }, tx);
+        const owner = await db.addUser({
+          org_id: org.id,
+          email,
+          name: name || email,
+          role: 'owner',
+          password_hash: hashPassword(password)
+        }, tx);
+        await db.insertAuditLog({
+          actorUserId: owner.id,
+          actorEmail: email,
+          action: 'auth.workspace.registered',
+          targetOrgId: org.id,
+          detail: { slug: org.slug, name: org.name }
+        }, tx);
+        return owner;
+      });
+    } catch (e) {
+      if (e.code === '23505') return res.status(409).json({ error: 'That workspace or email is already taken' });
+      throw e;
+    }
+
+    const fresh = await db.getUser(user.id);
+    const token = sign({ sub: fresh.id, org_id: fresh.org_id, role: fresh.role, tv: fresh.token_version ?? 1 });
+    res.status(201).json({ token, user: await publicUser(fresh) });
+  } catch (err) { next(err); }
+});
+
 router.get('/me', requireAuth, async (req, res, next) => {
   try {
     res.json({ user: await publicUser(req.user) });
@@ -38,6 +104,12 @@ router.get('/me', requireAuth, async (req, res, next) => {
 // previously issued JWT (on any device) stops verifying immediately.
 router.post('/revoke', requireAuth, async (req, res, next) => {
   try {
+    // Support signing out of an impersonation session must not revoke the
+    // target customer's long-lived sessions. Discard the short-lived
+    // impersonation token instead; normal-session revocation is unchanged.
+    if (req.actor) {
+      return res.json({ success: true, impersonation_ended: true });
+    }
     await db.bumpUserTokenVersion(req.user.id);
     res.json({ success: true });
   } catch (err) { next(err); }

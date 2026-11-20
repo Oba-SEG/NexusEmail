@@ -18,6 +18,8 @@ interface DashboardChromeProps {
   isAdmin: boolean;
   alertCount?: number;
   onOpenSearch: () => void;
+  impersonation?: { name?: string; email?: string } | null;
+  onStopImpersonating: () => void;
 }
 
 const MONITORING_NAV = [
@@ -46,6 +48,7 @@ const ALL_NAV = [...MONITORING_NAV, ...OUTPUT_NAV, ...CONFIG_NAV, ...ADMIN_NAV];
  * context in the top bar, not a second card competing with navigation. */
 export default function DashboardChrome({
   children, user, logoutNotice, onLogout, activeTab, onTabChange, isAdmin, alertCount = 0, onOpenSearch,
+  impersonation = null, onStopImpersonating,
 }: DashboardChromeProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const toggleRef = useRef<HTMLButtonElement>(null);
@@ -167,6 +170,20 @@ export default function DashboardChrome({
             <p className="text-[11px] leading-tight text-amber-300" role="alert">{logoutNotice}</p>
           </div>
         )}
+        {impersonation && (
+          <div className="flex items-center gap-2 border-t border-[#ff9d52]/25 bg-[#ff9d52]/10 px-4 py-2" role="status">
+            <p className="min-w-0 flex-1 truncate text-[11px] text-[#ffc99f]">
+              Viewing as <span className="font-semibold text-[#ffe1c7]">{user?.email}</span>
+            </p>
+            <button
+              type="button"
+              onClick={onStopImpersonating}
+              className="flex-shrink-0 rounded-full border border-[#ff9d52]/40 px-2.5 py-1 text-[10.5px] font-semibold text-[#ffc99f] hover:bg-[#ff9d52]/15"
+            >
+              Return to admin
+            </button>
+          </div>
+        )}
         {mobileNavOpen && (
           <div data-mobile-nav className="border-t border-border px-3 pb-4 pt-3">
             <p className="px-2.5 pb-2 text-[11px] text-muted-foreground">{organization?.name || "Personal workspace"}</p>
@@ -216,6 +233,23 @@ export default function DashboardChrome({
           )}
           <div className="ml-auto">{searchButton}</div>
         </div>
+        {impersonation && (
+          <div className="sticky top-14 z-20 hidden lg:flex min-h-10 items-center gap-3 border-b border-[#ff9d52]/25 bg-[#2a1a12]/95 px-8 py-2 text-[11.5px] text-[#ffc99f] backdrop-blur" role="status">
+            <p className="min-w-0 truncate">
+              Viewing as <span className="font-semibold text-[#ffe1c7]">{user?.name || user?.email}</span>
+              {user?.name && user?.email ? <span className="text-[#e7c4a8]"> · {user.email}</span> : null}
+              {organization?.name ? <span className="text-[#c8aa95]"> · {organization.name}</span> : null}
+              {impersonation.email ? <span className="text-[#a98b76]"> · signed in from {impersonation.email}</span> : null}
+            </p>
+            <button
+              type="button"
+              onClick={onStopImpersonating}
+              className="ml-auto flex-shrink-0 rounded-full border border-[#ff9d52]/40 px-3 py-1 text-[10.5px] font-semibold text-[#ffc99f] hover:bg-[#ff9d52]/15"
+            >
+              Return to admin
+            </button>
+          </div>
+        )}
         <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           {children}
         </main>

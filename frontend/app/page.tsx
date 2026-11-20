@@ -27,6 +27,8 @@ import ReportsTab from "@/components/dashboard/ReportsTab";
 import AdminPanel from "@/components/dashboard/AdminPanel";
 import DomainsTab from "@/components/dashboard/DomainsTab";
 import LoginScreen from "@/components/dashboard/LoginScreen";
+import RegisterScreen from "@/components/dashboard/RegisterScreen";
+import HomePage from "@/components/marketing/HomePage";
 import DashboardChrome from "@/components/dashboard/DashboardChrome";
 import BrandsTab from "@/components/dashboard/BrandsTab";
 import ThreatAlertsTab from "@/components/dashboard/ThreatAlertsTab";
@@ -44,6 +46,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 const TAB_VALUES = ['domains', 'brands', 'threats', 'reports', 'integrations', 'notifications', 'settings', 'admin'] as const;
 type TabValue = typeof TAB_VALUES[number];
+type AuthView = 'home' | 'login' | 'register';
 
 interface UrlState { tab: TabValue; domain: number | null; brand: number | null }
 
@@ -150,8 +153,21 @@ export default function Dashboard() {
   // Form-operation generation: bumped whenever the open reset form or
   // organization changes; a password response from an earlier form
   // generation must not touch the current one's state.
+  const [authView, setAuthViewState] = useState<AuthView>('home');
+  const authAttemptRef = useRef(0);
+  const setAuthView = (view: AuthView) => {
+    authAttemptRef.current += 1;
+    setLoggingIn(false);
+    setRegistering(false);
+    setAuthViewState(view);
+  };
+  useEffect(() => () => { authAttemptRef.current += 1; }, []);
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [loginError, setLoginError] = useState('');
+  const [registerForm, setRegisterForm] = useState({ organization_name: '', name: '', email: '', password: '' });
+  const [registerError, setRegisterError] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [impersonation, setImpersonation] = useState<any>(null);
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -233,8 +249,10 @@ export default function Dashboard() {
   const handleAuthFailure = (requestToken?: string | null) => {
     if (tokenRefreshPendingRef.current) return;
     if (requestToken !== undefined && requestToken !== tokenRef.current) return;
-    localStorage.removeItem('nexusemail_token');
-    localStorage.removeItem('nexusemail_user');
+    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
+    storage.removeItem('nexusemail_token');
+    storage.removeItem('nexusemail_user');
+    sessionStorage.removeItem('nexusemail_impersonator');
     tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
@@ -247,17 +265,34 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
+    setImpersonation(null);
+    setAuthView('login');
+    setLoginForm((form) => ({ ...form, password: '' }));
+    setRegisterForm((form) => ({ ...form, password: '' }));
     setConfigLoaded(false);
     setConfigError('');
   };
 
   // Load local session.
   useEffect(() => {
-    const storedToken = localStorage.getItem('nexusemail_token');
-    const storedUser = localStorage.getItem('nexusemail_user');
+    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
+    const storedToken = storage.getItem('nexusemail_token');
+    const storedUser = storage.getItem('nexusemail_user');
     if (storedToken) {
       tokenRef.current = storedToken;
       setToken(storedToken);
+      try {
+        const marker = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
+        if (marker?.targetToken === storedToken) {
+          setImpersonation(marker.actor || null);
+        } else {
+          sessionStorage.removeItem('nexusemail_impersonator');
+        }
+      } catch {
+        sessionStorage.removeItem('nexusemail_impersonator');
+      }
+    } else {
+      sessionStorage.removeItem('nexusemail_impersonator');
     }
     if (storedUser) setUser(JSON.parse(storedUser));
     setLoading(false);
@@ -366,7 +401,31 @@ export default function Dashboard() {
     }
   }, [activeTab, isAdmin, loading, token]);
 
+  const installSession = (data: any) => {
+    // New identity: invalidate any in-flight settings and tenant responses.
+    sessionGenRef.current += 1;
+    clearStatusQueue();
+    setSettings(null);
+    setConfigLoaded(false);
+    setConfigError('');
+    resetDomainState();
+    resetBrandState();
+    if (activeTab === 'admin') setActiveTab('domains');
+    sessionStorage.removeItem('nexusemail_impersonator');
+    sessionStorage.removeItem('nexusemail_token');
+    sessionStorage.removeItem('nexusemail_user');
+    setImpersonation(null);
+    setLoginForm((form) => ({ ...form, password: '' }));
+    setRegisterForm({ organization_name: '', name: '', email: '', password: '' });
+    tokenRef.current = data.token;
+    localStorage.setItem('nexusemail_token', data.token);
+    localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
+  };
+
   const login = async () => {
+    const attempt = ++authAttemptRef.current;
     setLoggingIn(true);
     setLoginError('');
     try {
@@ -377,25 +436,92 @@ export default function Dashboard() {
       });
       if (!res.ok) throw new Error('Invalid email or password');
       const data = await res.json();
-      // New identity: invalidate any in-flight settings responses.
-      sessionGenRef.current += 1;
-      clearStatusQueue();
-      setSettings(null);
-      setConfigLoaded(false);
-      setConfigError('');
-      resetDomainState();
-      resetBrandState();
-      if (activeTab === 'admin') setActiveTab('domains');
-      tokenRef.current = data.token;
-      localStorage.setItem('nexusemail_token', data.token);
-      localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
-      setToken(data.token);
-      setUser(data.user);
+      if (attempt !== authAttemptRef.current) return;
+      installSession(data);
     } catch (e: any) {
+      if (attempt !== authAttemptRef.current) return;
       setLoginError(e.message || 'Login failed');
     } finally {
-      setLoggingIn(false);
+      if (attempt === authAttemptRef.current) setLoggingIn(false);
     }
+  };
+
+  const register = async () => {
+    const attempt = ++authAttemptRef.current;
+    setRegistering(true);
+    setRegisterError('');
+    try {
+      const res = await apiFetch(`${API_BASE}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(registerForm)
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || 'Could not create your workspace');
+      }
+      const data = await res.json();
+      if (attempt !== authAttemptRef.current) return;
+      installSession(data);
+    } catch (e: any) {
+      if (attempt !== authAttemptRef.current) return;
+      setRegisterError(e.message || 'Could not create your workspace');
+    } finally {
+      if (attempt === authAttemptRef.current) setRegistering(false);
+    }
+  };
+
+  const startImpersonation = (data: any) => {
+    const adminToken = tokenRef.current;
+    if (!adminToken) return;
+    sessionStorage.setItem('nexusemail_impersonator', JSON.stringify({
+      token: adminToken,
+      user,
+      actor: data.user?.impersonated_by || null,
+      targetToken: data.token,
+    }));
+    sessionGenRef.current += 1;
+    clearStatusQueue();
+    setSettings(null);
+    setConfigLoaded(false);
+    setConfigError('');
+    resetDomainState();
+    resetBrandState();
+    setActiveTabState('domains');
+    tokenRef.current = data.token;
+    sessionStorage.setItem('nexusemail_token', data.token);
+    sessionStorage.setItem('nexusemail_user', JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
+    setImpersonation(data.user?.impersonated_by || null);
+  };
+
+  const stopImpersonating = () => {
+    let saved: any = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
+    } catch {
+      saved = null;
+    }
+    sessionStorage.removeItem('nexusemail_impersonator');
+    sessionStorage.removeItem('nexusemail_token');
+    sessionStorage.removeItem('nexusemail_user');
+    setImpersonation(null);
+    if (!saved?.token || !saved?.user) return;
+
+    sessionGenRef.current += 1;
+    clearStatusQueue();
+    setSettings(null);
+    setConfigLoaded(false);
+    setConfigError('');
+    resetDomainState();
+    resetBrandState();
+    tokenRef.current = saved.token;
+    localStorage.setItem('nexusemail_token', saved.token);
+    localStorage.setItem('nexusemail_user', JSON.stringify(saved.user));
+    setToken(saved.token);
+    setUser(saved.user);
+    setActiveTabState('admin');
   };
 
   const logout = async () => {
@@ -424,8 +550,10 @@ export default function Dashboard() {
     }
     if (gen !== sessionGenRef.current) return;
     setLogoutNotice(null);
-    localStorage.removeItem('nexusemail_token');
-    localStorage.removeItem('nexusemail_user');
+    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
+    storage.removeItem('nexusemail_token');
+    storage.removeItem('nexusemail_user');
+    sessionStorage.removeItem('nexusemail_impersonator');
     tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
@@ -438,16 +566,43 @@ export default function Dashboard() {
     if (activeTab === 'admin') setActiveTab('domains');
     setToken(null);
     setUser(null);
+    setImpersonation(null);
+    setAuthView('login');
+    setLoginForm((form) => ({ ...form, password: '' }));
+    setRegisterForm((form) => ({ ...form, password: '' }));
   };
 
   if (!token) {
+    if (authView === 'login') {
+      return (
+        <LoginScreen
+          loginForm={loginForm}
+          onFormChange={setLoginForm}
+          onSubmit={login}
+          loggingIn={loggingIn}
+          loginError={loginError}
+          onCreateAccount={() => { setLoginError(''); setAuthView('register'); }}
+          onBackToHome={() => { setLoginError(''); setAuthView('home'); }}
+        />
+      );
+    }
+    if (authView === 'register') {
+      return (
+        <RegisterScreen
+          registerForm={registerForm}
+          onFormChange={setRegisterForm}
+          onSubmit={register}
+          registering={registering}
+          registerError={registerError}
+          onSignIn={() => { setRegisterError(''); setAuthView('login'); }}
+          onBackToHome={() => { setRegisterError(''); setAuthView('home'); }}
+        />
+      );
+    }
     return (
-      <LoginScreen
-        loginForm={loginForm}
-        onFormChange={setLoginForm}
-        onSubmit={login}
-        loggingIn={loggingIn}
-        loginError={loginError}
+      <HomePage
+        onSignIn={() => setAuthView('login')}
+        onCreateAccount={() => setAuthView('register')}
       />
     );
   }
@@ -977,6 +1132,8 @@ export default function Dashboard() {
             isAdmin={isAdmin}
             alertCount={alertCount}
             onOpenSearch={() => setShowSearch(true)}
+            impersonation={impersonation}
+            onStopImpersonating={stopImpersonating}
           >
 
             <TabsContent value="domains" className="space-y-4">
@@ -1076,16 +1233,29 @@ export default function Dashboard() {
                     return { ...cur, organization: { ...(cur.organization || {}), name } };
                   });
                   try {
-                    const stored = JSON.parse(localStorage.getItem('nexusemail_user') || 'null');
+                    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
+                    const stored = JSON.parse(storage.getItem('nexusemail_user') || 'null');
                     if (stored) {
                       stored.organization = { ...(stored.organization || {}), name };
-                      localStorage.setItem('nexusemail_user', JSON.stringify(stored));
+                      storage.setItem('nexusemail_user', JSON.stringify(stored));
                     }
                   } catch {}
                 }}
                 onTokenRefreshed={(nextToken) => {
+                  const previousToken = tokenRef.current;
+                  const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
+                  storage.setItem('nexusemail_token', nextToken);
+                  try {
+                    const marker = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
+                    if (marker?.targetToken === previousToken) {
+                      sessionStorage.setItem('nexusemail_impersonator', JSON.stringify({ ...marker, targetToken: nextToken }));
+                    } else {
+                      sessionStorage.removeItem('nexusemail_impersonator');
+                    }
+                  } catch {
+                    sessionStorage.removeItem('nexusemail_impersonator');
+                  }
                   tokenRef.current = nextToken;
-                  localStorage.setItem('nexusemail_token', nextToken);
                   setToken(nextToken);
                 }}
               />
@@ -1128,6 +1298,7 @@ export default function Dashboard() {
                 tokenRef={tokenRef}
                 apiFetch={apiFetch}
                 onAuthFailure={handleAuthFailure}
+                onImpersonate={startImpersonation}
               />
             </TabsContent>
 
