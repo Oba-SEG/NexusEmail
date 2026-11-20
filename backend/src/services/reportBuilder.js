@@ -75,7 +75,17 @@ function deriveStatus(obj, flat) {
 function normalizeDnsResults(scan) {
   if (!scan) return {};
   const breakdown = parse(scan.score_breakdown, null);
-  const present = (obj, ...flatKeys) => !!(obj || flatKeys.some((k) => scan[k] != null));
+  // A persisted "null" (or blank) is absence of data, not a negative lookup:
+  // only decoded evidence or a numeric score-breakdown value counts.
+  const present = (obj, ...flatKeys) => !!obj || flatKeys.some((k) => {
+    const value = scan[k];
+    if (value == null) return false;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === 'null' || trimmed === 'undefined') return false;
+    }
+    return true;
+  });
 
   const spf = parse(scan.spf, null) || parse(scan.spf_record, null);
   const dkim = parse(scan.dkim, null);
@@ -197,6 +207,16 @@ function statusTone(status, policy) {
   return '#15803d';
 }
 
+/** SPF/DMARC only count as green when the policy actually enforces:
+ * a FOUND record with no policy is a warning, not a pass. */
+function recordTone(kind, node) {
+  const pass = kind === 'SPF' ? spfPassClass(node) : kind === 'DMARC' ? dmarcPassClass(node) : null;
+  if (pass == null) return statusTone(node.status, node.policy || node.mode);
+  if (pass === 'pass') return '#15803d';
+  const status = String(node.status || '').toUpperCase();
+  return status === 'FOUND' || status === 'PASS' ? '#b45309' : '#b91c1c';
+}
+
 function dmarcSummary(reports) {
   const rows = Array.isArray(reports) ? reports : [];
   const seen = new Map();
@@ -287,7 +307,7 @@ function recordRow(label, node, extra) {
   if (!node) {
     return `<tr><td>${escapeHtml(label)}</td><td class="status" style="color:#78716c"><span class="dot" style="background:#a8a29e"></span>Not checked</td><td class="muted">No scan data</td></tr>`;
   }
-  const color = statusTone(node.status, node.policy || node.mode);
+  const color = recordTone(label, node);
   const evidence = extra
     ? `<div class="mono">${escapeHtml(extra)}</div>`
     : '<span class="muted">—</span>';

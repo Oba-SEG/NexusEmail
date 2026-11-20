@@ -225,9 +225,15 @@ class NotificationService {
   async sendViaResend(to, subject, html, options = {}) {
     try {
       if (!this.resend) return { success: false, error: 'Resend not configured' };
+      // Resend wants one entry per address; SMTP callers may pass a
+      // comma-separated string, the scheduler passes an array.
+      const recipients = (Array.isArray(to) ? to : String(to ?? '').split(/[,;]/))
+        .map((value) => String(value).trim())
+        .filter(Boolean);
+      if (!recipients.length) return { success: false, error: 'No recipient' };
       const payload = {
         from: this.resend.from,
-        to: [to],
+        to: recipients,
         subject,
         html,
         text: this.stripHtml(html)

@@ -506,7 +506,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
                 label="Scheduled digest"
                 description="Runs hourly checks; delivery happens when the selected interval has elapsed."
                 on={schedule.enabled}
-                onClick={() => setSchedule({ ...schedule, enabled: !schedule.enabled })}
+                onClick={() => { if (!savingSchedule) setSchedule({ ...schedule, enabled: !schedule.enabled }); }}
               />
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -515,6 +515,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
                   <select
                     id="schedule-frequency"
                     className={`${selectClass} mt-1.5`}
+                    disabled={savingSchedule}
                     value={schedule.frequency}
                     onChange={(e) => setSchedule({ ...schedule, frequency: e.target.value as ReportSchedule['frequency'] })}
                   >
@@ -528,6 +529,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
                   <Input
                     id="schedule-recipients"
                     className="mt-1.5"
+                    disabled={savingSchedule}
                     placeholder="security@example.com, ops@example.com"
                     value={schedule.recipients}
                     onChange={(e) => setSchedule({ ...schedule, recipients: e.target.value })}
@@ -539,6 +541,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
                 <input
                   type="checkbox"
                   className="h-3.5 w-3.5 accent-[hsl(var(--primary))]"
+                  disabled={savingSchedule}
                   checked={schedule.slack}
                   onChange={(e) => setSchedule({ ...schedule, slack: e.target.checked })}
                 />

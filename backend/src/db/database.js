@@ -364,6 +364,28 @@ async function getScans(domainId, limit = 30, orgId) {
   const rows = await all(orgId ? 'SELECT * FROM scans WHERE domain_id = $1 AND org_id = $2 ORDER BY scanned_at DESC LIMIT $3' : 'SELECT * FROM scans WHERE domain_id = $1 ORDER BY scanned_at DESC LIMIT $2', orgId ? [domainId, orgId, limit] : [domainId, limit]);
   return rows.map(hydrateScan).reverse();
 }
+async function getScansInRange(domainId, orgId, from, to, limit = 500) {
+  const conditions = ['domain_id = $1'];
+  const params = [domainId];
+  if (orgId) {
+    params.push(orgId);
+    conditions.push(`org_id = $${params.length}`);
+  }
+  if (from) {
+    params.push(from);
+    conditions.push(`scanned_at >= $${params.length}`);
+  }
+  if (to) {
+    params.push(to);
+    conditions.push(`scanned_at <= $${params.length}`);
+  }
+  params.push(limit);
+  const rows = await all(
+    `SELECT * FROM scans WHERE ${conditions.join(' AND ')} ORDER BY scanned_at DESC LIMIT $${params.length}`,
+    params
+  );
+  return rows.map(hydrateScan).reverse();
+}
 async function getLatestScan(domainId, orgId) {
   return hydrateScan(await one(orgId ? 'SELECT * FROM scans WHERE domain_id = $1 AND org_id = $2 ORDER BY scanned_at DESC LIMIT 1' : 'SELECT * FROM scans WHERE domain_id = $1 ORDER BY scanned_at DESC LIMIT 1', orgId ? [domainId, orgId] : [domainId]));
 }
@@ -1104,7 +1126,7 @@ async function getOrgScans(orgId, limit = 100) {
 
 module.exports = {
   getDomains, addDomain, getDomain, updateDomain, deleteDomain, countActiveDomains,
-  addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
+  addScan, getScans, getScansInRange, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   addDmarcReport, getDmarcReports,
   mergeSetting, removeSettingKey, parseField, withTransaction,
   getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports, getReportById, deleteReport,

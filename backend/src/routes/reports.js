@@ -18,7 +18,9 @@ const {
 } = require('../services/reportBuilder');
 
 function shareSecret() {
-  return process.env.REPORT_SHARE_SECRET || process.env.JWT_SECRET || 'dev-report-share-secret';
+  const secret = process.env.REPORT_SHARE_SECRET || process.env.JWT_SECRET || process.env.NEXUSEMAIL_JWT_SECRET;
+  if (!secret) throw new Error('REPORT_SHARE_SECRET or JWT_SECRET must be set to enable report sharing');
+  return secret;
 }
 
 function appBaseUrl() {
@@ -144,8 +146,7 @@ router.get('/export/csv', async (req, res) => {
 
     let rows = 0;
     for (const domain of domains) {
-      const scans = (await db.getScans(domain.id, 500, req.orgId))
-        .filter((s) => inRange(s.scanned_at, from, to));
+      const scans = await db.getScansInRange(domain.id, req.orgId, from, to, 500);
       for (const scan of scans) {
         if (rows >= 10000) break;
         const n = normalizeDnsResults(scan);
@@ -202,8 +203,7 @@ router.get('/export/json', async (req, res) => {
     };
 
     for (const domain of domains) {
-      const scans = (await db.getScans(domain.id, 500, req.orgId))
-        .filter((s) => inRange(s.scanned_at, from, to));
+      const scans = await db.getScansInRange(domain.id, req.orgId, from, to, 500);
       const latest = scans[scans.length - 1] || null;
       payload.domains.push({
         id: domain.id,

@@ -175,6 +175,27 @@ test('MTA-STS and TLS-RPT absent from both writers -> null rows (render "Not che
   assert.equal(r.tls_rpt, null);
 });
 
+test('serialized null MTA-STS/TLS-RPT without a breakdown -> null rows', () => {
+  const r = normalizeDnsResults({ mta_sts_record: 'null', tls_rpt_record: 'null' });
+  assert.equal(r.mta_sts, null);
+  assert.equal(r.tls_rpt, null);
+});
+
+test('serialized null MTA-STS with an explicit zero breakdown -> NOT_FOUND', () => {
+  const r = normalizeDnsResults({
+    mta_sts_record: 'null',
+    tls_rpt_record: 'null',
+    score_breakdown: '{"mta_sts":0,"tls_rpt":0}'
+  });
+  assert.equal(r.mta_sts.status, 'NOT_FOUND');
+  assert.equal(r.tls_rpt.status, 'NOT_FOUND');
+});
+
+test('decoded negative MTA-STS lookup stays NOT_FOUND', () => {
+  const r = normalizeDnsResults({ mta_sts_record: '{"found":false,"record":null}' });
+  assert.equal(r.mta_sts.status, 'NOT_FOUND');
+});
+
 test('passClass accepts FOUND and pass, rejects everything else', () => {
   assert.equal(passClass('FOUND'), 'pass');
   assert.equal(passClass('pass'), 'pass');

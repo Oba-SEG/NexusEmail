@@ -212,7 +212,7 @@ async function collectDigestRows(orgId) {
   return rows;
 }
 
-async function deliverReportDigest(org, schedule) {
+async function deliverReportDigest(org, schedule, channels = ['email', 'slack']) {
   const rows = await collectDigestRows(org.id);
   const built = buildPortfolioReport({ orgName: org.name, rows, rangeDays: 30 });
   const date = new Date().toISOString().slice(0, 10);
@@ -220,8 +220,9 @@ async function deliverReportDigest(org, schedule) {
 
   const recipients = parseRecipients(schedule.recipients);
   let email = { skipped: true };
-  if (recipients.length) {
-    email = await svc.sendNotification(recipients.join(', '), built.subject, built.html, {
+  if (channels.includes('email') && recipients.length) {
+    // Keep the array: the Resend adapter needs one entry per address.
+    email = await svc.sendNotification(recipients, built.subject, built.html, {
       attachments: [{
         filename: `nexus-portfolio-${date}.html`,
         content: Buffer.from(built.html, 'utf8'),
@@ -231,7 +232,7 @@ async function deliverReportDigest(org, schedule) {
   }
 
   let slack = { skipped: true };
-  if (schedule.slack && svc.slackWebhook) {
+  if (channels.includes('slack') && schedule.slack && svc.slackWebhook) {
     slack = await svc.sendSlack({
       text: `📊 *Email authentication digest — ${org.name}*\nAverage ${built.average ?? '—'}/100 · ${built.atRisk} domain${built.atRisk === 1 ? '' : 's'} below 50\n<${APP_BASE_URL}/?tab=reports|Open reports>`,
     });
@@ -245,6 +246,10 @@ function channelState(result) {
   if (result.success) return 'sent';
   if (result.skipped) return 'skipped';
   return result.error || 'failed';
+}
+
+function channelFailed(result) {
+  return !!result && result.success !== true && result.skipped !== true;
 }
 
 /** Hourly tick: delivers any org schedule that is due. The legacy
@@ -263,15 +268,41 @@ async function runReportSchedules(now = Date.now()) {
 
     if (schedule && schedule.enabled) {
       if (!isScheduleDue(schedule, now)) continue;
+      const active = [];
+      if (parseRecipients(schedule.recipients).length) active.push('email');
+      if (schedule.slack) active.push('slack');
+      if (!active.length) continue;
+      // Failed channels stay pending and retry on the next hourly tick;
+      // successful channels are not re-sent for the same interval.
+      const pending = Array.isArray(schedule.pending)
+        ? schedule.pending.filter((channel) => active.includes(channel))
+        : [];
+      const channels = pending.length ? pending : active;
       try {
-        const outcome = await deliverReportDigest(org, schedule);
-        const next = {
-          ...schedule,
-          last_run: new Date(now).toISOString(),
-          last_result: { email: channelState(outcome.email), slack: channelState(outcome.slack) },
+        const outcome = await deliverReportDigest(org, schedule, channels);
+        const previous = schedule.last_result || {};
+        const states = {
+          email: channels.includes('email') ? channelState(outcome.email) : (previous.email || 'skipped'),
+          slack: channels.includes('slack') ? channelState(outcome.slack) : (previous.slack || 'skipped'),
         };
+        const failed = channels.filter((channel) => channelFailed(outcome[channel]));
+        const attemptedAt = new Date(now).toISOString();
+        // Re-read the setting so completion metadata never overwrites an
+        // edit (disable, new recipients) made while delivery was in flight.
+        let fresh = null;
+        try {
+          const raw = await getSetting('report_schedule', org.id);
+          fresh = raw ? JSON.parse(raw) : null;
+        } catch {}
+        const next = {
+          ...(fresh && typeof fresh === 'object' ? fresh : schedule),
+          last_result: states,
+          last_attempted_at: attemptedAt,
+          pending: failed,
+        };
+        if (!failed.length) next.last_run = attemptedAt;
         await setSetting('report_schedule', JSON.stringify(next), org.id);
-        results.push({ org: org.id, ...next.last_result });
+        results.push({ org: org.id, ...states, pending: failed });
       } catch (error) {
         captureException(error);
         results.push({ org: org.id, error: error.message });
@@ -291,9 +322,10 @@ async function runReportSchedules(now = Date.now()) {
     if (!users.length) continue;
 
     try {
-      const outcome = await deliverReportDigest(org, { ...legacy, recipients: users.map((u) => u.email).join(', ') });
-      await setSetting('notify_weekly_report_last_run', new Date(now).toISOString(), org.id);
-      results.push({ org: org.id, email: channelState(outcome.email), slack: channelState(outcome.slack) });
+      const outcome = await deliverReportDigest(org, { ...legacy, recipients: users.map((u) => u.email).join(', ') }, ['email']);
+      const delivered = outcome.email?.success === true || outcome.email?.skipped === true;
+      if (delivered) await setSetting('notify_weekly_report_last_run', new Date(now).toISOString(), org.id);
+      results.push({ org: org.id, email: channelState(outcome.email) });
     } catch (error) {
       captureException(error);
       results.push({ org: org.id, error: error.message });
