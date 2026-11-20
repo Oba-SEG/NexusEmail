@@ -103,6 +103,8 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  const tokenRef = useRef<string | null>(null);
+  const tokenRefreshPendingRef = useRef(false);
   const notificationsRevRef = useRef(0);
   const [configLoaded, setConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState('');
@@ -195,7 +197,7 @@ export default function Dashboard() {
     ...options,
     headers: {
       ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {})
     }
   });
 
@@ -228,9 +230,12 @@ export default function Dashboard() {
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
   // path and must NOT trigger session reset).
-  const handleAuthFailure = () => {
+  const handleAuthFailure = (requestToken?: string | null) => {
+    if (tokenRefreshPendingRef.current) return;
+    if (requestToken !== undefined && requestToken !== tokenRef.current) return;
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
@@ -250,10 +255,17 @@ export default function Dashboard() {
   useEffect(() => {
     const storedToken = localStorage.getItem('nexusemail_token');
     const storedUser = localStorage.getItem('nexusemail_user');
-    if (storedToken) setToken(storedToken);
+    if (storedToken) {
+      tokenRef.current = storedToken;
+      setToken(storedToken);
+    }
     if (storedUser) setUser(JSON.parse(storedUser));
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -374,6 +386,7 @@ export default function Dashboard() {
       resetDomainState();
       resetBrandState();
       if (activeTab === 'admin') setActiveTab('domains');
+      tokenRef.current = data.token;
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -413,6 +426,7 @@ export default function Dashboard() {
     setLogoutNotice(null);
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
@@ -440,12 +454,13 @@ export default function Dashboard() {
 
   const loadBrands = async (gen: number = sessionGenRef.current) => {
     const seq = ++brandsLoadSeqRef.current;
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
       if (gen !== sessionGenRef.current) return;
       if (seq !== brandsLoadSeqRef.current) return;
       if (res.status === 401) {
-        handleAuthFailure();
+        handleAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {
@@ -475,6 +490,7 @@ export default function Dashboard() {
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
     const listGen = domainListGenRef.current;
+    const requestToken = tokenRef.current;
     try {
       const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
         domains,
@@ -489,7 +505,11 @@ export default function Dashboard() {
       // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
       if (result.kind === 'auth') {
-        handleAuthFailure();
+        if (requestToken !== tokenRef.current && tokenRef.current) {
+          void loadDomains(gen);
+          return;
+        }
+        handleAuthFailure(requestToken);
         return;
       }
       if (result.kind !== 'ok') {
@@ -1037,13 +1057,36 @@ export default function Dashboard() {
             <TabsContent value="settings" className="space-y-6">
               <SettingsTab
                 settings={settings}
+                user={user}
+                sessionGenRef={sessionGenRef}
+                tokenRefreshPendingRef={tokenRefreshPendingRef}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
+                onGoToNotifications={() => setActiveTab('notifications')}
+                onGoToReports={() => setActiveTab('reports')}
                 onGoToIntegrations={() => {
                   // One-time request consumed by Integrations on mount, so
                   // ordinary tab switches never move focus.
                   setFocusIntegrationsOnMount(true);
                   setActiveTab('integrations');
+                }}
+                onOrganizationRenamed={(name) => {
+                  setUser((cur: any) => {
+                    if (!cur) return cur;
+                    return { ...cur, organization: { ...(cur.organization || {}), name } };
+                  });
+                  try {
+                    const stored = JSON.parse(localStorage.getItem('nexusemail_user') || 'null');
+                    if (stored) {
+                      stored.organization = { ...(stored.organization || {}), name };
+                      localStorage.setItem('nexusemail_user', JSON.stringify(stored));
+                    }
+                  } catch {}
+                }}
+                onTokenRefreshed={(nextToken) => {
+                  tokenRef.current = nextToken;
+                  localStorage.setItem('nexusemail_token', nextToken);
+                  setToken(nextToken);
                 }}
               />
             </TabsContent>
@@ -1055,6 +1098,7 @@ export default function Dashboard() {
                 loadBrands={loadBrands}
                 apiFetch={apiFetch}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 onGoToDomains={() => setActiveTab('domains')}
                 onAuthFailure={handleAuthFailure}
                 openBrandId={openBrandId}
@@ -1066,6 +1110,7 @@ export default function Dashboard() {
               <ThreatAlertsTab
                 apiFetch={apiFetch}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 onAuthFailure={handleAuthFailure}
                 onAlertCountChange={setAlertCount}
                 onOpenBrand={(brandId) => {
@@ -1080,6 +1125,7 @@ export default function Dashboard() {
                 token={token}
                 isAdmin={isAdmin}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 apiFetch={apiFetch}
                 onAuthFailure={handleAuthFailure}
               />

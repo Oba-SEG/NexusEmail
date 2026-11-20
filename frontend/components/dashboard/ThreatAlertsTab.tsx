@@ -18,7 +18,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 interface ThreatAlertsTabProps {
   apiFetch: (url: string, options?: any) => Promise<Response>;
   sessionGenRef: { current: number };
-  onAuthFailure: () => void;
+  tokenRef: { current: string | null };
+  onAuthFailure: (requestToken?: string | null) => void;
   onAlertCountChange?: (count: number) => void;
   onOpenBrand?: (brandId: number) => void;
 }
@@ -33,7 +34,7 @@ const severityClass = (severity?: string) => {
  * carry a link back to the monitored brand, and can be dismissed — the
  * e-mail/Slack notifications deep-link here instead of a dead end. */
 export default function ThreatAlertsTab({
-  apiFetch, sessionGenRef, onAuthFailure, onAlertCountChange, onOpenBrand,
+  apiFetch, sessionGenRef, tokenRef, onAuthFailure, onAlertCountChange, onOpenBrand,
 }: ThreatAlertsTabProps) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -49,11 +50,12 @@ export default function ThreatAlertsTab({
     const seq = ++loadSeqRef.current;
     setState('loading');
     setError('');
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
       if (gen !== sessionGenRef.current || seq !== loadSeqRef.current) return;
       if (res.status === 401) {
-        onAuthFailure();
+        onAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {

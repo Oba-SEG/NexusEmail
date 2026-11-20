@@ -156,8 +156,8 @@ const testProviderConnection = async (provider: any) => {
         </p>
         <p className="text-[11px] text-muted-foreground sm:ml-auto">
           {connected === 0
-            ? 'Connect a provider to unlock auto-remediation.'
-            : 'Auto-remediation runs on detected issues for connected providers.'}
+            ? 'Connect a provider to use its credentials for remediation reviews.'
+            : 'Connected providers supply credentials for scans and remediation reviews.'}
         </p>
       </div>
 

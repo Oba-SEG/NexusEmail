@@ -38,8 +38,9 @@ interface BrandsTabProps {
   loadBrands: (gen?: number) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
   sessionGenRef: { current: number };
+  tokenRef: { current: string | null };
   onGoToDomains: () => void;
-  onAuthFailure: () => void;
+  onAuthFailure: (requestToken?: string | null) => void;
   openBrandId?: number | null;
   onBrandSelectionChange?: (id: number | null) => void;
 }
@@ -48,7 +49,7 @@ interface BrandsTabProps {
  * the brand-details / takedown / threat / alerts overlays. State is
  * owned here so it resets with the tab (identity change included). */
 export default function BrandsTab({
-  brands, domains, loadBrands, apiFetch, sessionGenRef, onGoToDomains, onAuthFailure,
+  brands, domains, loadBrands, apiFetch, sessionGenRef, tokenRef, onGoToDomains, onAuthFailure,
   openBrandId = null, onBrandSelectionChange,
 }: BrandsTabProps) {
   const brandDetailsRef = useRef<number | null>(null);
@@ -107,12 +108,13 @@ export default function BrandsTab({
   const alertsLoadSeqRef = useRef(0);
   const loadAlerts = async (gen: number = sessionGenRef.current) => {
     const seq = ++alertsLoadSeqRef.current;
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/alerts`);
       if (gen !== sessionGenRef.current) return;
       if (seq !== alertsLoadSeqRef.current) return;
       if (res.status === 401) {
-        onAuthFailure();
+        onAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {
@@ -147,11 +149,12 @@ export default function BrandsTab({
   };
 
   const loadBrandThreats = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/threats`);
       if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
-        onAuthFailure();
+        onAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {
@@ -176,11 +179,12 @@ export default function BrandsTab({
   };
 
   const loadBrandTakedowns = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/takedowns`);
       if (gen !== sessionGenRef.current) return;
       if (res.status === 401) {
-        onAuthFailure();
+        onAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {
@@ -206,10 +210,15 @@ export default function BrandsTab({
 
   const loadBrandHistory = async (brandId: number, gen: number = sessionGenRef.current, sel: number = brandDetailsGenRef.current) => {
     if (gen === sessionGenRef.current && sel === brandDetailsGenRef.current) setHistoryState('loading');
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/history`);
       if (gen !== sessionGenRef.current) return;
-      if (res.status === 401) { onAuthFailure(); return; }
+      if (res.status === 401) {
+        onAuthFailure(requestToken);
+        if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
+        return;
+      }
       if (!res.ok) {
         console.error(`Failed to load history: HTTP ${res.status}`);
         if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');

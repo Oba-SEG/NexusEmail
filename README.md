@@ -82,9 +82,9 @@ All settings are configurable via the web interface - no `.env` editing required
 
 ### Connecting DNS Providers
 
-1. Go to **Settings**
+1. Go to **DNS providers**
 2. Add your provider credentials
-3. Enable auto-remediation for automatic fixes
+3. Generate fix recommendations from a domain's remediation panel; records are applied manually
 
 ## Architecture
 
