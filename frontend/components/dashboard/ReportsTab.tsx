@@ -82,11 +82,11 @@ const exportJSON = async () => {
     <>
       <TabHeader
         title="Reports"
-        description="Per-domain HTML reports for stakeholders, plus bulk exports for archive."
+        description="Per-domain HTML reports and bulk exports of the latest scan data."
       />
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-        <section className="min-w-0 rounded-xl border border-border bg-card p-5">
+      <div className="mt-7 grid gap-x-10 gap-y-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        <section className="min-w-0 border-t border-border pt-5">
           <div>
             <h3 className="text-[14px] font-semibold">Single domain report</h3>
             <p className="mt-1 max-w-[55ch] text-[12.5px] leading-5 text-muted-foreground">
@@ -118,7 +118,7 @@ const exportJSON = async () => {
               </Button>
             </div>
           </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-3">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
             <Button
               variant="ghost"
               size="sm"
@@ -134,7 +134,7 @@ const exportJSON = async () => {
           </div>
         </section>
 
-        <section className="rounded-xl border border-border bg-card p-5">
+        <section className="border-t border-border pt-5">
           <div>
             <h3 className="text-[14px] font-semibold">Bulk export</h3>
             <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">

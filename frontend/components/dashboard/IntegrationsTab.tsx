@@ -141,13 +141,13 @@ const testProviderConnection = async (provider: any) => {
       {/* Connection summary + provider search */}
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative w-full sm:w-[260px]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search providers"
             aria-label="Search DNS providers"
-            className="h-9 w-full pl-8 text-[12.5px]"
+            className="h-8 w-full border-0 border-b border-border bg-transparent pl-8 text-[12.5px] focus-visible:border-primary focus-visible:ring-0"
           />
         </div>
         <p className="text-[12px] text-muted-foreground">
@@ -168,7 +168,7 @@ const testProviderConnection = async (provider: any) => {
         );
         if (matching.length === 0) {
           return (
-            <div className="mt-6 rounded-xl border border-border bg-card px-6 py-12 text-center">
+            <div className="mt-6 border-y border-border px-6 py-12 text-center">
               <p className="text-[13px] font-medium">No providers match &ldquo;{query}&rdquo;</p>
               <button onClick={() => setQuery('')} className="mt-1 text-[12px] text-primary underline-offset-2 hover:underline">
                 Clear search
@@ -191,31 +191,26 @@ const testProviderConnection = async (provider: any) => {
                 <h3 className="section-label">{category}</h3>
                 <span className="text-[11px] tabular-nums text-muted-foreground/70">{providersInCategory.length} provider{providersInCategory.length === 1 ? '' : 's'}</span>
               </div>
-              <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+              <div className="divide-y divide-border border-y border-border">
                 {providersInCategory.map((provider: any) => {
                   const isConnected = settings?.provider_credentials?.[provider.name.toLowerCase()];
                   const meta = PROVIDER_METADATA[provider.name];
                   const requiredCount = meta?.fields.filter((f: ProviderField) => f.required).length || 0;
                   return (
-                    <div key={provider.name} className="flex flex-col gap-2 px-4 py-3.5 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-white/[0.03] text-[11px] font-semibold tracking-[-0.02em] text-muted-foreground">
-                          {provider.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
+                    <div key={provider.name} className="flex flex-col gap-2 py-3.5 transition-colors hover:bg-white/[0.015] sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="truncate text-[13px] font-medium">{provider.name}</p>
                             {isConnected ? (
-                              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-300">
+                              <span className="inline-flex items-center gap-1.5 text-[10.5px] font-medium text-emerald-300">
                                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                                 Connected
                               </span>
                             ) : (
-                              <span className="text-[11px] text-muted-foreground">{requiredCount} field{requiredCount === 1 ? '' : 's'} required</span>
+                              <span className="text-[10.5px] text-muted-foreground">{requiredCount} field{requiredCount === 1 ? '' : 's'} required</span>
                             )}
                           </div>
                           <p className="truncate text-[11.5px] text-muted-foreground">{provider.summary}</p>
-                        </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-1.5 sm:flex-shrink-0">
                         {isConnected ? (

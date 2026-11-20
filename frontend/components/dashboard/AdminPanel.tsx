@@ -207,9 +207,9 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   }
 };
 
-  const sectionClass = "overflow-hidden rounded-xl border border-border bg-card";
-  const sectionHeadClass = "flex items-center justify-between border-b border-border bg-white/[0.015] px-4 py-2.5";
-  const sectionBodyClass = "max-h-72 space-y-1 overflow-y-auto p-2";
+  const sectionClass = "border-t border-border pt-4";
+  const sectionHeadClass = "flex items-center justify-between border-b border-border pb-2";
+  const sectionBodyClass = "max-h-72 overflow-y-auto";
 
   return (
     <>
@@ -223,7 +223,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
           Platform admin access required.
         </div>
       ) : adminDetail ? (
-        <div className="mt-6 space-y-4">
+        <div className="space-y-6">
           <div className="flex items-center gap-3">
             <Button size="icon" variant="ghost" onClick={closeAdminOrg} title="Back to organizations">
               <ArrowLeft className="w-4 h-4" />
@@ -236,7 +236,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-card md:grid-cols-4">
+          <div className="grid grid-cols-2 overflow-hidden border-y border-border md:grid-cols-4">
             {[
               { label: 'Domains', value: adminDetail.org.counts?.domain_count ?? adminDetail.domains.length, small: false },
               { label: 'Users', value: adminDetail.org.counts?.user_count ?? adminDetail.users.length, small: false },
@@ -386,8 +386,8 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
           </div>
         </div>
       ) : (
-        <div className="mt-6 overflow-hidden rounded-xl border border-border bg-card">
-          <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="border-y border-border">
+          <div className="flex flex-col gap-3 border-b border-border py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="flex items-center gap-2 text-[14px] font-semibold">
                 <Building2 className="h-4 w-4 text-muted-foreground" /> Customer organizations
@@ -400,7 +400,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
               </span>
             )}
           </div>
-          <div className="p-4">
+          <div>
             {adminLoading ? (
               <p className="py-2 text-[12px] text-muted-foreground">Loading organization…</p>
             ) : adminOrgsError ? (
@@ -416,7 +416,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
               <div className="overflow-x-auto">
                 <table className="w-full text-[12px]">
                   <thead>
-                    <tr className="border-b border-border bg-white/[0.015] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    <tr className="border-b border-border text-left">
                       <th className="px-4 py-2.5 font-medium">Organization</th>
                       <th className="px-4 py-2.5 font-medium">Plan</th>
                       <th className="px-4 py-2.5 font-medium">Domains</th>

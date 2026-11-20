@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-/** Shared chrome for the settings-style tabs (Integrations, Notifications,
- * Settings) so page headers, section headers, toggle rows and save/test
- * actions stay identical instead of being copy-pasted per tab. */
+/** Shared page and section chrome. A page is a document, not a stack of
+ * cards: headers stand on whitespace, sections divide with a single rule. */
 
 export function TabHeader({
   title,
@@ -24,10 +23,10 @@ export function TabHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-b border-border pb-5">
+    <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-7">
       <div className="min-w-0">
         <h2 id={headingId} ref={headingRef} tabIndex={headingId ? -1 : undefined} className="page-title">{title}</h2>
-        <p className="page-description mt-1.5">{description}</p>
+        <p className="page-description mt-2">{description}</p>
       </div>
       {action ? <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-shrink-0">{action}</div> : null}
     </div>
@@ -40,7 +39,7 @@ export function SettingsSection({
   description,
   actions,
   children,
-  contentClassName = "space-y-4",
+  contentClassName = "space-y-0",
 }: {
   icon?: LucideIcon;
   title: string;
@@ -50,18 +49,18 @@ export function SettingsSection({
   contentClassName?: string;
 }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-border px-5 py-4">
+    <section className="border-t border-border pt-5">
+      <header className="flex flex-wrap items-start justify-between gap-x-5 gap-y-2">
         <div className="min-w-0">
           <h3 className="flex items-center gap-2 text-[14px] font-semibold tracking-[-0.01em]">
-            {Icon ? <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" /> : null}
+            {Icon ? <Icon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" /> : null}
             {title}
           </h3>
-          {description ? <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">{description}</p> : null}
+          {description ? <p className="mt-1 max-w-[68ch] text-[12.5px] leading-5 text-muted-foreground">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </header>
-      <div className={cn("px-5 py-4", contentClassName)}>{children}</div>
+      <div className={cn("mt-3", contentClassName)}>{children}</div>
     </section>
   );
 }
@@ -89,16 +88,12 @@ export function ToggleRow({
 }) {
   const labelId = useId();
   return (
-    <div className={cn("flex items-center justify-between gap-4 py-3.5", className)}>
+    <div className={cn("flex items-center justify-between gap-6 border-b border-border/70 py-4 last:border-0", className)}>
       <div className="min-w-0">
         <p id={labelId} className="text-[13px] font-medium">{label}</p>
-        <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">{description}</p>
+        <p className="mt-0.5 max-w-[62ch] text-[12px] leading-5 text-muted-foreground">{description}</p>
       </div>
-      <span className="flex shrink-0 items-center gap-3">
-        <span role="status" aria-live="polite" className="min-w-[4.5rem] text-right text-[12px] font-medium text-muted-foreground">
-          {pending ? 'Saving…' : on ? onLabel : offLabel}
-        </span>
-        <button
+      <button
         type="button"
         role="switch"
         aria-checked={on}
@@ -124,8 +119,7 @@ export function ToggleRow({
           )}
         />
         <span className="sr-only">{on ? onLabel : offLabel}</span>
-        </button>
-      </span>
+      </button>
     </div>
   );
 }
@@ -140,7 +134,7 @@ export function FormField({
   const inputId = id || generatedId;
   return (
     <div className={className}>
-      <label htmlFor={inputId} className="text-[12px] font-medium text-muted-foreground">{label}</label>
+      <label htmlFor={inputId} className="text-[11.5px] font-medium text-muted-foreground">{label}</label>
       <Input id={inputId} {...props} className="mt-1.5" />
     </div>
   );
