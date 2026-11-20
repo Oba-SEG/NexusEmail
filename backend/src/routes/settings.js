@@ -5,9 +5,18 @@ const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
 const { requireRole } = require('../auth');
-const { parseRecipients } = require('../services/reportBuilder');
+const { parseRecipients, scheduleConfigHash } = require('../services/reportBuilder');
 
 const REPORT_FREQUENCIES = ['daily', 'weekly', 'monthly'];
+const REPORT_STATE_KEY = 'report_schedule_state';
+
+async function readReportState(orgId, config) {
+  const raw = await db.getOrgSetting(REPORT_STATE_KEY, orgId);
+  let state = null;
+  try { state = raw ? JSON.parse(raw) : null; } catch { state = null; }
+  if (!state || state.config_hash !== scheduleConfigHash(config)) return null;
+  return state;
+}
 
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
@@ -262,13 +271,17 @@ router.get('/report-schedule', async (req, res, next) => {
     const raw = await db.getOrgSetting('report_schedule', req.orgId);
     let saved = {};
     try { saved = raw ? JSON.parse(raw) : {}; } catch {}
-    res.json({
+    const config = {
       enabled: saved.enabled === true,
       frequency: REPORT_FREQUENCIES.includes(saved.frequency) ? saved.frequency : 'weekly',
       recipients: typeof saved.recipients === 'string' ? saved.recipients : '',
       slack: saved.slack === true,
-      last_run: saved.last_run || null,
-      last_result: saved.last_result || null,
+    };
+    const state = await readReportState(req.orgId, config);
+    res.json({
+      ...config,
+      last_run: state?.last_run || null,
+      last_result: state?.last_result || null,
     });
   } catch (err) { next(err); }
 });
@@ -287,24 +300,26 @@ router.post('/report-schedule', async (req, res, next) => {
     }
     const prevRecipients = typeof prev.recipients === 'string' ? prev.recipients : '';
     const prevSlack = prev.slack === true;
-    const channelConfigChanged = recipients !== prevRecipients
+    const configChanged = recipients !== prevRecipients
       || slack !== prevSlack
-      || (enabled && prev.enabled !== true);
+      || enabled !== (prev.enabled === true);
     const next = {
       enabled,
       frequency,
       recipients,
       slack,
-      // Keep delivery checkpoint/retry metadata when the configuration is
-      // unchanged; a config edit invalidates only the affected progress.
-      last_run: channelConfigChanged ? null : (prev.last_run || null),
-      last_result: prev.last_result || null,
-      pending: channelConfigChanged ? [] : (Array.isArray(prev.pending) ? prev.pending : []),
-      last_attempted_at: channelConfigChanged ? null : (prev.last_attempted_at || null),
       updated_at: new Date().toISOString(),
     };
     await db.setSetting('report_schedule', JSON.stringify(next), req.orgId);
-    res.json(next);
+    // Delivery progress lives under a separate key, so config saves never
+    // resurrect stale checkpoints. Only a delivery-relevant edit resets it.
+    if (configChanged) await db.deleteSetting(REPORT_STATE_KEY, req.orgId);
+    const state = configChanged ? null : await readReportState(req.orgId, next);
+    res.json({
+      ...next,
+      last_run: state?.last_run || null,
+      last_result: state?.last_result || null,
+    });
   } catch (err) { next(err); }
 });
 

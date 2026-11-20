@@ -453,16 +453,6 @@ async function setSetting(key, value, orgId, tx) {
 async function deleteSetting(key, orgId) {
   await q('DELETE FROM settings WHERE org_id = $1 AND key = $2', [orgId || 'global', key]);
 }
-/** Compare-and-set a setting row: writes only when the stored value still
- * matches what the caller read. Returns false when another writer won. */
-async function setSettingIfUnchanged(key, value, orgId, expectedValue, tx) {
-  const exec = tx ? bindTx(tx) : { q };
-  const result = await exec.q(
-    'UPDATE settings SET value = $1, updated_at = $2 WHERE org_id = $3 AND key = $4 AND value = $5',
-    [String(value), now(), orgId || 'global', key, String(expectedValue)]
-  );
-  return (result?.rowCount ?? 0) > 0;
-}
 // Atomic JSON map merge (e.g. provider_credentials) and atomic removal of
 // one key from a stored JSON map. Both seed an org override with the
 // EFFECTIVE map (global fallback), so saving/deleting one provider cannot
@@ -1139,7 +1129,7 @@ module.exports = {
   addScan, getScans, getScansInRange, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   addDmarcReport, getDmarcReports,
   mergeSetting, removeSettingKey, parseField, withTransaction,
-  getSetting, getOrgSetting, setSetting, setSettingIfUnchanged, deleteSetting, addReport, getReports, getReportById, deleteReport,
+  getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports, getReportById, deleteReport,
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,

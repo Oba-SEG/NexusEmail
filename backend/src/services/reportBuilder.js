@@ -558,6 +558,17 @@ function verifyShareToken(token, secret, now = Date.now()) {
   return { reportId: Number(id), expiresAt };
 }
 
+/** Stable fingerprint of the delivery-relevant configuration. Checkpoints
+ * are only honoured while this matches the current schedule. */
+function scheduleConfigHash(schedule) {
+  return crypto.createHash('sha256').update(JSON.stringify({
+    enabled: schedule?.enabled === true,
+    frequency: schedule?.frequency || 'weekly',
+    recipients: schedule?.recipients || '',
+    slack: schedule?.slack === true,
+  })).digest('hex');
+}
+
 function isScheduleDue(schedule, now = Date.now()) {
   if (!schedule || schedule.enabled !== true) return false;
   const interval = SCHEDULE_INTERVALS[schedule.frequency];
@@ -604,4 +615,5 @@ module.exports = {
   verifyShareToken,
   isScheduleDue,
   parseRecipients,
+  scheduleConfigHash,
 };

@@ -12,6 +12,7 @@ const {
   verifyShareToken,
   isScheduleDue,
   parseRecipients,
+  scheduleConfigHash,
   dmarcSummary,
 } = require('../src/services/reportBuilder');
 
@@ -149,6 +150,16 @@ test('isScheduleDue honours frequency and last run', () => {
   assert.equal(isScheduleDue({ enabled: true, frequency: 'weekly', last_run: new Date(now - 7 * day).toISOString() }, now), true);
   assert.equal(isScheduleDue({ enabled: false, frequency: 'daily' }, now), false);
   assert.equal(isScheduleDue({ enabled: true, frequency: 'hourly' }, now), false);
+});
+
+test('scheduleConfigHash tracks delivery config but ignores timestamps', () => {
+  const base = { enabled: true, frequency: 'weekly', recipients: 'a@example.com', slack: false };
+  assert.equal(
+    scheduleConfigHash({ ...base, updated_at: '2026-01-01T00:00:00.000Z' }),
+    scheduleConfigHash({ ...base, updated_at: '2026-06-01T00:00:00.000Z' })
+  );
+  assert.notEqual(scheduleConfigHash(base), scheduleConfigHash({ ...base, recipients: 'b@example.com' }));
+  assert.notEqual(scheduleConfigHash(base), scheduleConfigHash({ ...base, slack: true }));
 });
 
 test('parseRecipients validates, dedupes and caps', () => {

@@ -1,10 +1,10 @@
 const cron = require('node-cron');
-const { getDomains, addScan, getScans, getAllBrands, getOrganizations, getUsers, getSetting, getOrgSetting, setSetting, setSettingIfUnchanged, getLatestScan } = require('../db/database');
+const { getDomains, addScan, getScans, getAllBrands, getOrganizations, getUsers, getSetting, getOrgSetting, setSetting, getLatestScan } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
 const { captureException } = require('../capture');
 const { NotificationService } = require('./notifications');
 const { performBrandScan, isBrandDue } = require('./brandScan');
-const { buildPortfolioReport, normalizeDnsResults, distinctIssues, isScheduleDue, parseRecipients } = require('./reportBuilder');
+const { buildPortfolioReport, normalizeDnsResults, distinctIssues, isScheduleDue, parseRecipients, scheduleConfigHash } = require('./reportBuilder');
 
 const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 'https://brandprotection.segbytes.xyz').replace(/\/$/, '');
 
@@ -261,46 +261,52 @@ async function runReportSchedules(now = Date.now()) {
 
   for (const org of orgs) {
     let schedule = null;
-    let scheduleRaw = null;
     try {
-      scheduleRaw = await getOrgSetting('report_schedule', org.id);
-      schedule = scheduleRaw ? JSON.parse(scheduleRaw) : null;
+      const raw = await getOrgSetting('report_schedule', org.id);
+      schedule = raw ? JSON.parse(raw) : null;
     } catch { schedule = null; }
 
     if (schedule && schedule.enabled) {
-      if (!isScheduleDue(schedule, now)) continue;
+      const configHash = scheduleConfigHash(schedule);
+      let state = null;
+      try {
+        const raw = await getOrgSetting('report_schedule_state', org.id);
+        state = raw ? JSON.parse(raw) : null;
+      } catch { state = null; }
+      // A checkpoint only applies while it belongs to this configuration.
+      if (state && state.config_hash !== configHash) state = null;
+      if (!isScheduleDue({ ...schedule, last_run: state?.last_run || null }, now)) continue;
       const active = [];
       if (parseRecipients(schedule.recipients).length) active.push('email');
       if (schedule.slack) active.push('slack');
       if (!active.length) continue;
       // Failed channels stay pending and retry on the next hourly tick;
       // successful channels are not re-sent for the same interval.
-      const pending = Array.isArray(schedule.pending)
-        ? schedule.pending.filter((channel) => active.includes(channel))
+      const pending = Array.isArray(state?.pending)
+        ? state.pending.filter((channel) => active.includes(channel))
         : [];
       const channels = pending.length ? pending : active;
       try {
         const outcome = await deliverReportDigest(org, schedule, channels);
-        const previous = schedule.last_result || {};
+        const previous = state?.last_result || {};
         const states = {
           email: channels.includes('email') ? channelState(outcome.email) : (previous.email || 'skipped'),
           slack: channels.includes('slack') ? channelState(outcome.slack) : (previous.slack || 'skipped'),
         };
         const failed = channels.filter((channel) => channelFailed(outcome[channel]));
         const attemptedAt = new Date(now).toISOString();
-        const next = {
-          ...schedule,
+        const nextState = {
+          config_hash: configHash,
           last_result: states,
           last_attempted_at: attemptedAt,
+          last_run: failed.length ? (state?.last_run || null) : attemptedAt,
           pending: failed,
         };
-        if (!failed.length) next.last_run = attemptedAt;
-        // Compare-and-set: if the user edited the schedule while providers
-        // were running, keep their configuration untouched and let the next
-        // tick evaluate it instead of marking it delivered.
-        const saved = await setSettingIfUnchanged('report_schedule', JSON.stringify(next), org.id, scheduleRaw);
-        if (!saved) results.push({ org: org.id, config_changed: true, ...states });
-        else results.push({ org: org.id, ...states, pending: failed });
+        // Metadata is a separate row keyed by the config fingerprint: a
+        // concurrent config edit makes this checkpoint stale, so it can
+        // never mark new recipients as already delivered.
+        await setSetting('report_schedule_state', JSON.stringify(nextState), org.id);
+        results.push({ org: org.id, ...states, pending: failed });
       } catch (error) {
         captureException(error);
         results.push({ org: org.id, error: error.message });
