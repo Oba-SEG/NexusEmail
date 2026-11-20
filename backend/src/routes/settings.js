@@ -4,8 +4,9 @@ const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
-const { requireRole } = require('../auth');
+const { sign, hashPassword, verifyPassword, requireRole } = require('../auth');
 const { parseRecipients, scheduleConfigHash } = require('../services/reportBuilder');
+const { isScanEnabledValue } = require('../services/scanSchedule');
 
 const REPORT_FREQUENCIES = ['daily', 'weekly', 'monthly'];
 const REPORT_STATE_KEY = 'report_schedule_state';
@@ -76,11 +77,68 @@ router.get('/config', async (req, res, next) => {
         weekly_report: await db.getSetting('notify_weekly_report', req.orgId) === '1'
       },
       scan_schedule: {
-        enabled: await db.getSetting('scan_schedule_enabled', req.orgId) === 'true',
-        cron: await db.getSetting('scan_schedule_cron', req.orgId) || '0 2 * * *'
-      },
-      auto_remediation: await db.getSetting('auto_remediation_enabled', req.orgId) === 'true'
+        enabled: isScanEnabledValue(await db.getOrgSetting('scan_schedule_enabled', req.orgId))
+      }
     });
+  } catch (err) { next(err); }
+});
+
+// Workspace rename. Owner/admin only; the slug (used in URLs and support
+// references) is intentionally immutable here.
+router.patch('/organization', requireRole('owner', 'admin'), async (req, res, next) => {
+  try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (name.length < 2 || name.length > 80) {
+      return res.status(400).json({ error: 'Workspace name must be between 2 and 80 characters' });
+    }
+    const org = await db.updateOrganization(req.orgId, { name });
+    if (!org) return res.status(404).json({ error: 'Workspace not found' });
+    await db.insertAuditLog({
+      actorUserId: req.user.id,
+      actorEmail: req.user.email,
+      action: 'organization.renamed',
+      targetOrgId: req.orgId,
+      detail: { name }
+    });
+    res.json({ organization: { id: org.id, name: org.name, slug: org.slug } });
+  } catch (err) { next(err); }
+});
+
+// Self-service password change. Verifying the current password keeps a
+// borrowed session from locking the real owner out. setUserPassword bumps
+// token_version in the same statement, so every other device is signed out;
+// the fresh token returned here keeps this device signed in.
+router.post('/password', async (req, res, next) => {
+  try {
+    const current = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
+    const nextPassword = typeof req.body?.new_password === 'string' ? req.body.new_password : '';
+    if (!current || !nextPassword) {
+      return res.status(400).json({ error: 'Current and new passwords are required' });
+    }
+    if (nextPassword.length < 8) {
+      return res.status(400).json({ error: 'New password must be at least 8 characters' });
+    }
+    if (!req.user.password_hash || !verifyPassword(current, req.user.password_hash)) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+    let tokenVersion;
+    await db.withTransaction(async (tx) => {
+      tokenVersion = await db.setUserPassword(req.user.id, hashPassword(nextPassword), tx);
+      await db.insertAuditLog({
+        actorUserId: req.user.id,
+        actorEmail: req.user.email,
+        action: 'user.password_changed',
+        targetOrgId: req.orgId,
+        detail: {}
+      }, tx);
+    });
+    const token = sign({
+      sub: req.user.id,
+      org_id: req.user.org_id,
+      role: req.user.role,
+      tv: tokenVersion
+    });
+    res.json({ success: true, token });
   } catch (err) { next(err); }
 });
 
@@ -323,18 +381,14 @@ router.post('/report-schedule', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// Scan schedule
-router.post('/schedule', async (req, res) => {
-  const { enabled, cron } = req.body;
-  if (enabled !== undefined) await db.setSetting('scan_schedule_enabled', enabled.toString(), req.orgId);
-  if (cron) await db.setSetting('scan_schedule_cron', cron, req.orgId);
-  res.json({ success: true });
-});
-
-// Auto remediation
-router.post('/auto-remediation', async (req, res) => {
+// Scan schedule. The scheduler runs daily at 02:00 UTC and honors this
+// per-org opt-out; there is no custom-cron support to advertise.
+router.post('/schedule', requireRole('owner', 'admin'), async (req, res) => {
   const { enabled } = req.body;
-  await db.setSetting('auto_remediation_enabled', enabled ? 'true' : 'false', req.orgId);
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled must be a boolean' });
+  }
+  await db.setSetting('scan_schedule_enabled', enabled ? 'true' : 'false', req.orgId);
   res.json({ success: true });
 });
 

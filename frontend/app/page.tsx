@@ -1037,13 +1037,29 @@ export default function Dashboard() {
             <TabsContent value="settings" className="space-y-6">
               <SettingsTab
                 settings={settings}
+                user={user}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
+                onGoToNotifications={() => setActiveTab('notifications')}
+                onGoToReports={() => setActiveTab('reports')}
                 onGoToIntegrations={() => {
                   // One-time request consumed by Integrations on mount, so
                   // ordinary tab switches never move focus.
                   setFocusIntegrationsOnMount(true);
                   setActiveTab('integrations');
+                }}
+                onOrganizationRenamed={(name) => {
+                  if (!user) return;
+                  const nextUser = {
+                    ...user,
+                    organization: { ...(user.organization || {}), name }
+                  };
+                  localStorage.setItem('nexusemail_user', JSON.stringify(nextUser));
+                  setUser(nextUser);
+                }}
+                onTokenRefreshed={(nextToken) => {
+                  localStorage.setItem('nexusemail_token', nextToken);
+                  setToken(nextToken);
                 }}
               />
             </TabsContent>
