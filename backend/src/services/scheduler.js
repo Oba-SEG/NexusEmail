@@ -1,9 +1,27 @@
 const cron = require('node-cron');
-const { getDomains, addScan, getScans, getAllBrands } = require('../db/database');
+const { getDomains, addScan, getScans, getAllBrands, getOrganizations, getUsers, getSetting, setSetting, getLatestScan } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
 const { captureException } = require('../capture');
 const { NotificationService } = require('./notifications');
 const { performBrandScan, isBrandDue } = require('./brandScan');
+const { buildPortfolioReport, normalizeDnsResults, distinctIssues, isScheduleDue, parseRecipients } = require('./reportBuilder');
+
+const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 'https://brandprotection.segbytes.xyz').replace(/\/$/, '');
+
+function statusWord(status) {
+  switch (String(status || '').toUpperCase()) {
+    case 'FOUND': return 'Found';
+    case 'NOT_FOUND': return 'Missing';
+    case 'ERROR': return 'Error';
+    case 'PASS': return 'Pass';
+    default: return '—';
+  }
+}
+
+function recordLabel(result, policy) {
+  const word = statusWord(result?.status);
+  return policy ? `${word} · ${policy}` : word;
+}
 
 function startScheduledScans() {
   // Run daily at 2 AM
@@ -27,6 +45,16 @@ function startScheduledScans() {
     } catch (error) {
       captureException(error);
       console.error('❌ Brand due scans failed:', error.message);
+    }
+  });
+
+  // Scheduled report digests: hourly tick, per-org frequency decides due.
+  cron.schedule('25 * * * *', async () => {
+    try {
+      await runReportSchedules();
+    } catch (error) {
+      captureException(error);
+      console.error('❌ Report schedules failed:', error.message);
     }
   });
 
@@ -166,4 +194,114 @@ async function runCriticalScans() {
   }
 }
 
-module.exports = { startScheduledScans, runScheduledScans, runDueScans, runBrandDueScans };
+async function collectDigestRows(orgId) {
+  const domains = (await getDomains(orgId)).filter((d) => d.status !== 'archived');
+  const rows = [];
+  for (const domain of domains) {
+    const scan = await getLatestScan(domain.id, orgId);
+    const n = normalizeDnsResults(scan);
+    rows.push({
+      name: domain.name,
+      score: typeof scan?.score === 'number' ? scan.score : null,
+      spf: recordLabel(n.spf, n.spf?.policy),
+      dkim: n.dkim?.status === 'FOUND' ? (n.dkim.selector || 'Found') : recordLabel(n.dkim),
+      dmarc: recordLabel(n.dmarc, n.dmarc?.policy),
+      issues: distinctIssues(scan).length,
+    });
+  }
+  return rows;
+}
+
+async function deliverReportDigest(org, schedule) {
+  const rows = await collectDigestRows(org.id);
+  const built = buildPortfolioReport({ orgName: org.name, rows, rangeDays: 30 });
+  const date = new Date().toISOString().slice(0, 10);
+  const svc = await NotificationService.createForOrg(org.id);
+
+  const recipients = parseRecipients(schedule.recipients);
+  let email = { skipped: true };
+  if (recipients.length) {
+    email = await svc.sendNotification(recipients.join(', '), built.subject, built.html, {
+      attachments: [{
+        filename: `nexus-portfolio-${date}.html`,
+        content: Buffer.from(built.html, 'utf8'),
+        contentType: 'text/html',
+      }],
+    });
+  }
+
+  let slack = { skipped: true };
+  if (schedule.slack && svc.slackWebhook) {
+    slack = await svc.sendSlack({
+      text: `📊 *Email authentication digest — ${org.name}*\nAverage ${built.average ?? '—'}/100 · ${built.atRisk} domain${built.atRisk === 1 ? '' : 's'} below 50\n<${APP_BASE_URL}/?tab=reports|Open reports>`,
+    });
+  }
+
+  return { email, slack };
+}
+
+function channelState(result) {
+  if (!result) return 'skipped';
+  if (result.success) return 'sent';
+  if (result.skipped) return 'skipped';
+  return result.error || 'failed';
+}
+
+/** Hourly tick: delivers any org schedule that is due. The legacy
+ * "weekly summary" notification toggle routes to the org's owners/admins
+ * and shares the same digest builder. */
+async function runReportSchedules(now = Date.now()) {
+  const orgs = await getOrganizations();
+  const results = [];
+
+  for (const org of orgs) {
+    let schedule = null;
+    try {
+      const raw = await getSetting('report_schedule', org.id);
+      schedule = raw ? JSON.parse(raw) : null;
+    } catch { schedule = null; }
+
+    if (schedule && schedule.enabled) {
+      if (!isScheduleDue(schedule, now)) continue;
+      try {
+        const outcome = await deliverReportDigest(org, schedule);
+        const next = {
+          ...schedule,
+          last_run: new Date(now).toISOString(),
+          last_result: { email: channelState(outcome.email), slack: channelState(outcome.slack) },
+        };
+        await setSetting('report_schedule', JSON.stringify(next), org.id);
+        results.push({ org: org.id, ...next.last_result });
+      } catch (error) {
+        captureException(error);
+        results.push({ org: org.id, error: error.message });
+      }
+      continue;
+    }
+
+    const legacyWeekly = (await getSetting('notify_weekly_report', org.id)) === '1';
+    if (!legacyWeekly) continue;
+    const lastRun = await getSetting('notify_weekly_report_last_run', org.id);
+    const legacy = { enabled: true, frequency: 'weekly', recipients: '', slack: false, last_run: lastRun || null };
+    if (!isScheduleDue(legacy, now)) continue;
+
+    const users = (await getUsers(org.id)).filter(
+      (u) => u.status === 'active' && (u.role === 'owner' || u.role === 'admin') && u.email
+    );
+    if (!users.length) continue;
+
+    try {
+      const outcome = await deliverReportDigest(org, { ...legacy, recipients: users.map((u) => u.email).join(', ') });
+      await setSetting('notify_weekly_report_last_run', new Date(now).toISOString(), org.id);
+      results.push({ org: org.id, email: channelState(outcome.email), slack: channelState(outcome.slack) });
+    } catch (error) {
+      captureException(error);
+      results.push({ org: org.id, error: error.message });
+    }
+  }
+
+  if (results.length) console.log(`📬 Report digests processed: ${results.length}`);
+  return { delivered: results.length, results };
+}
+
+module.exports = { startScheduledScans, runScheduledScans, runDueScans, runBrandDueScans, runReportSchedules };

@@ -574,12 +574,34 @@ async function getDmarcReports(domainId, orgId, limit = 20) {
   return rows.map((r) => parseField(r.data, r));
 }
 async function getReports(domainId, orgId) {
-  if (domainId) {
-    const rows = await all('SELECT * FROM reports WHERE domain_id = $1 AND ($2 IS NULL OR org_id = $2) ORDER BY generated_at DESC', [domainId, orgId || null]);
+  // Explicit branches, not `($1 IS NULL OR ...)`: Postgres cannot infer the
+  // type of a bare `$n IS NULL` placeholder.
+  if (domainId && orgId) {
+    const rows = await all('SELECT * FROM reports WHERE domain_id = $1 AND org_id = $2 ORDER BY generated_at DESC', [domainId, orgId]);
     return rows.map(hydrateReport);
   }
-  const rows = await all('SELECT * FROM reports WHERE ($1 IS NULL OR org_id = $1) ORDER BY generated_at DESC', [orgId || null]);
+  if (domainId) {
+    const rows = await all('SELECT * FROM reports WHERE domain_id = $1 ORDER BY generated_at DESC', [domainId]);
+    return rows.map(hydrateReport);
+  }
+  if (orgId) {
+    const rows = await all('SELECT * FROM reports WHERE org_id = $1 ORDER BY generated_at DESC', [orgId]);
+    return rows.map(hydrateReport);
+  }
+  const rows = await all('SELECT * FROM reports ORDER BY generated_at DESC');
   return rows.map(hydrateReport);
+}
+async function getReportById(id, orgId) {
+  if (!Number.isSafeInteger(Number(id))) return null;
+  const row = await one(
+    `SELECT * FROM reports WHERE id = $1 ${orgId ? 'AND org_id = $2' : ''}`,
+    orgId ? [id, orgId] : [id]
+  );
+  return hydrateReport(row);
+}
+async function deleteReport(id, orgId) {
+  if (!Number.isSafeInteger(Number(id))) return;
+  await q('DELETE FROM reports WHERE id = $1 AND org_id = $2', [id, orgId]);
 }
 
 async function migrateLegacyJsonIfNeeded() {
@@ -1085,7 +1107,7 @@ module.exports = {
   addScan, getScans, getLatestScan, getIntegrations, addIntegration, deleteIntegration,
   addDmarcReport, getDmarcReports,
   mergeSetting, removeSettingKey, parseField, withTransaction,
-  getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports,
+  getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports, getReportById, deleteReport,
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,

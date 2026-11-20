@@ -261,6 +261,9 @@ router.post('/bulk-scan', async (req, res, next) => {
           spf_record: JSON.stringify(audit.spf),
           dkim_selectors: JSON.stringify(audit.dkim?.selectors || []),
           dmarc_record: JSON.stringify(audit.dmarc),
+          mta_sts_record: JSON.stringify(audit.mta_sts || null),
+          tls_rpt_record: JSON.stringify(audit.tls_rpt || null),
+          recommendations: JSON.stringify(audit.recommendations || []),
           issues: JSON.stringify(audit.issues || []),
           score_breakdown: audit.score_breakdown || null
         }, req.orgId);
@@ -435,6 +438,9 @@ router.post('/:id/scan', async (req, res) => {
       spf_record: JSON.stringify(audit.spf),
       dkim_selectors: JSON.stringify(audit.dkim?.selectors || []),
       dmarc_record: JSON.stringify(audit.dmarc),
+      mta_sts_record: JSON.stringify(audit.mta_sts || null),
+      tls_rpt_record: JSON.stringify(audit.tls_rpt || null),
+      recommendations: JSON.stringify(audit.recommendations || []),
       issues: JSON.stringify(audit.issues || []),
       score_breakdown: audit.score_breakdown || null
     }, req.orgId);

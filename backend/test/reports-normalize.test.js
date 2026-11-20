@@ -165,12 +165,14 @@ test('no scan -> empty results (table falls back to Not checked)', () => {
   assert.deepEqual(normalizeDnsResults(null), {});
 });
 
-test('MTA-STS and TLS-RPT are absent from both writers -> undefined rows', () => {
+test('MTA-STS and TLS-RPT absent from both writers -> null rows (render "Not checked")', () => {
   const r = normalizeDnsResults({
     spf: { found: true, record: 'v=spf1 -all', status: 'FOUND', policy: 'hardfail' }
   });
-  assert.equal(r.mta_sts, undefined);
-  assert.equal(r.tls_rpt, undefined);
+  // Null (not undefined) is the shared "no data" signal — the report
+  // renders "Not checked" for null rows instead of claiming a missing record.
+  assert.equal(r.mta_sts, null);
+  assert.equal(r.tls_rpt, null);
 });
 
 test('passClass accepts FOUND and pass, rejects everything else', () => {

@@ -5,6 +5,9 @@ const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
 const { requireRole } = require('../auth');
+const { parseRecipients } = require('../services/reportBuilder');
+
+const REPORT_FREQUENCIES = ['daily', 'weekly', 'monthly'];
 
 // Notifications (matches frontend)
 router.get('/notifications', async (req, res, next) => {
@@ -250,6 +253,49 @@ router.post('/notifications', async (req, res, next) => {
     if (critical_alerts !== undefined) await db.setSetting('notify_critical_alerts', critical_alerts ? '1' : '0', req.orgId);
     if (weekly_report !== undefined) await db.setSetting('notify_weekly_report', weekly_report ? '1' : '0', req.orgId);
     res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+// Scheduled report delivery (frequency, recipients, Slack mirror).
+router.get('/report-schedule', async (req, res, next) => {
+  try {
+    const raw = await db.getSetting('report_schedule', req.orgId);
+    let saved = {};
+    try { saved = raw ? JSON.parse(raw) : {}; } catch {}
+    res.json({
+      enabled: saved.enabled === true,
+      frequency: REPORT_FREQUENCIES.includes(saved.frequency) ? saved.frequency : 'weekly',
+      recipients: typeof saved.recipients === 'string' ? saved.recipients : '',
+      slack: saved.slack === true,
+      last_run: saved.last_run || null,
+      last_result: saved.last_result || null,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/report-schedule', async (req, res, next) => {
+  try {
+    const raw = await db.getSetting('report_schedule', req.orgId);
+    let prev = {};
+    try { prev = raw ? JSON.parse(raw) : {}; } catch {}
+    const enabled = req.body?.enabled === true;
+    const frequency = REPORT_FREQUENCIES.includes(req.body?.frequency) ? req.body.frequency : 'weekly';
+    const recipients = parseRecipients(req.body?.recipients).join(', ');
+    const slack = req.body?.slack === true;
+    if (enabled && !recipients && !slack) {
+      return res.status(400).json({ error: 'Add at least one recipient or enable Slack delivery.' });
+    }
+    const next = {
+      enabled,
+      frequency,
+      recipients,
+      slack,
+      last_run: prev.last_run || null,
+      last_result: prev.last_result || null,
+      updated_at: new Date().toISOString(),
+    };
+    await db.setSetting('report_schedule', JSON.stringify(next), req.orgId);
+    res.json(next);
   } catch (err) { next(err); }
 });
 

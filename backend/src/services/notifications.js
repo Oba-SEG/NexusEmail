@@ -236,6 +236,14 @@ class NotificationService {
       if (options.replyTo) payload.reply_to = options.replyTo;
       if (options.cc) payload.cc = Array.isArray(options.cc) ? options.cc : [options.cc];
       if (options.bcc) payload.bcc = Array.isArray(options.bcc) ? options.bcc : [options.bcc];
+      if (Array.isArray(options.attachments) && options.attachments.length) {
+        // Resend expects base64 content; nodemailer accepts Buffers.
+        payload.attachments = options.attachments.map((a) => ({
+          filename: a.filename,
+          content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : String(a.content ?? ''),
+          ...(a.contentType ? { content_type: a.contentType } : {}),
+        }));
+      }
       const response = await fetch(`${this.resend.apiBase}/emails`, {
         method: 'POST',
         headers: {
