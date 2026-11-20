@@ -117,7 +117,7 @@ export default function DashboardChrome({
       <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-border bg-white/[0.04] text-[10.5px] font-semibold text-foreground">
         {(user?.name || user?.email || "OB").slice(0, 2).toUpperCase()}
       </div>
-      <div className="hidden min-w-0 flex-1 leading-tight sm:block">
+      <div className="min-w-0 flex-1 leading-tight">
         <p className="max-w-[140px] truncate text-[12px] font-medium text-foreground">{user?.name || user?.email}</p>
         <p className="max-w-[140px] truncate text-[10.5px] text-muted-foreground">{organization?.name || "Personal workspace"}</p>
       </div>

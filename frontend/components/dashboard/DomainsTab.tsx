@@ -181,6 +181,17 @@ export default function DomainsTab({
   // focus returns to the opener (the Inspect button) on dismissal.
   const drawerRef = useRef<HTMLElement>(null);
   const inspectOpenerRef = useRef<HTMLButtonElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  // Track the mobile breakpoint so modal semantics and the scroll lock
+  // follow viewport changes, not just the open/close state.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const sync = () => setIsMobileViewport(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   // onClosePanel is recreated by the parent each render — keep the latest
   // in a ref so the focus lifecycle below keys ONLY on open/close state.
   const onClosePanelRef = useRef(onClosePanel);
@@ -200,15 +211,14 @@ export default function DomainsTab({
     };
   }, [showDetails]);
   useEffect(() => {
-    if (!showDetails) return;
-    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 1023px)').matches) return;
+    if (!showDetails || !isMobileViewport) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
-  }, [showDetails]);
+  }, [showDetails, isMobileViewport]);
   const trapDrawerTab = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
-    if (typeof window.matchMedia === 'function' && !window.matchMedia('(max-width: 1023px)').matches) return;
+    if (!isMobileViewport) return;
     const c = drawerRef.current;
     if (!c) return;
     const focusables = Array.from(
@@ -525,7 +535,7 @@ export default function DomainsTab({
                           )}
                         </div>
                       </td>
-                      <td className="hidden px-4 py-3.5 md:table-cell">
+                      <td className={cn("px-4 py-3.5", showDetails ? "hidden 2xl:table-cell" : "hidden md:table-cell")}>
                         <div className="flex items-center gap-3.5">
                           {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
                             <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium ${recordText(p.v)}`}>
@@ -605,6 +615,8 @@ export default function DomainsTab({
           <aside
             ref={drawerRef}
             onKeyDown={trapDrawerTab}
+            role={isMobileViewport ? 'dialog' : undefined}
+            aria-modal={isMobileViewport ? true : undefined}
             aria-label={`${selectedDomain.name} details`}
             className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-background drawer-slide-in lg:sticky lg:inset-auto lg:top-[72px] lg:z-0 lg:max-h-[calc(100vh-88px)] lg:rounded-xl lg:border lg:border-border lg:bg-card"
           >
