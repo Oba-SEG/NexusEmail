@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Public_Sans, IBM_Plex_Mono } from "next/font/google";
+import { Public_Sans, IBM_Plex_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { cspValue } from "@/lib/csp";
@@ -18,6 +18,14 @@ const plexMono = IBM_Plex_Mono({
   weight: ["400", "500", "600"],
 });
 
+// Editorial face for the public site only. The console keeps Public Sans.
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  variable: "--font-serif",
+  display: "swap",
+  weight: "400",
+});
+
 export const metadata: Metadata = {
   title: "Nexus Brand Protection",
   description: "Brand monitoring, threat detection, and takedowns for your domains.",
@@ -29,7 +37,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={cn(publicSans.variable, plexMono.variable)} suppressHydrationWarning>
+    <html lang="en" className={cn(publicSans.variable, plexMono.variable, instrumentSerif.variable)} suppressHydrationWarning>
       <head>
         {/* Static-export (GitHub Pages) builds can't receive response headers,
             so the CSP ships as a <meta> tag instead. Server builds (Docker/VPS

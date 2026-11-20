@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Building2, ChevronRight, ArrowLeft } from "lucide-react";
+import { Building2, ChevronRight, ArrowLeft, Plus, UserPlus, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { scoreBand } from "@/lib/scores";
 import { TabHeader } from "@/components/dashboard/settings-ui";
 import { formatDateTime } from "@/lib/format";
@@ -18,12 +21,13 @@ interface AdminPanelProps {
   tokenRef: { current: string | null };
   apiFetch: (url: string, options?: any) => Promise<Response>;
   onAuthFailure: (requestToken?: string | null) => void;
+  onImpersonate: (data: any) => void;
 }
 
 /** Admin panel: org drill-down + password reset, with all admin state and
  * request-generation guards owned here. Unmounts with the dashboard
  * branch, so nothing survives an identity change. */
-export default function AdminPanel({ token, isAdmin, sessionGenRef, tokenRef, apiFetch, onAuthFailure }: AdminPanelProps) {
+export default function AdminPanel({ token, isAdmin, sessionGenRef, tokenRef, apiFetch, onAuthFailure, onImpersonate }: AdminPanelProps) {
 const [adminOrgs, setAdminOrgs] = useState<any[] | null>(null);
 const [adminOrgsError, setAdminOrgsError] = useState<string | null>(null);
 const [adminDetail, setAdminDetail] = useState<any>(null);
@@ -33,6 +37,17 @@ const [pwResetValue, setPwResetValue] = useState('');
 const [pwResetError, setPwResetError] = useState<string | null>(null);
 const [pwResetBusy, setPwResetBusy] = useState(false);
 const [pwResetDone, setPwResetDone] = useState<string | null>(null);
+const [createOrgOpen, setCreateOrgOpen] = useState(false);
+const [createOrgForm, setCreateOrgForm] = useState({ name: '', slug: '', owner_name: '', owner_email: '', owner_password: '' });
+const [createOrgError, setCreateOrgError] = useState<string | null>(null);
+const [createOrgBusy, setCreateOrgBusy] = useState(false);
+const [addUserOpen, setAddUserOpen] = useState(false);
+const [addUserForm, setAddUserForm] = useState({ name: '', email: '', role: 'member', password: '' });
+const [addUserError, setAddUserError] = useState<string | null>(null);
+const [addUserBusy, setAddUserBusy] = useState(false);
+const [impersonateTarget, setImpersonateTarget] = useState<any>(null);
+const [impersonateError, setImpersonateError] = useState<string | null>(null);
+const [impersonateBusy, setImpersonateBusy] = useState(false);
 const adminGenRef = useRef(0);
 const pwFormGenRef = useRef(0);
 
@@ -211,6 +226,150 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   }
 };
 
+const readError = async (res: Response, fallback: string) => {
+  try {
+    const data = await res.json();
+    return data?.error || fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const createOrganization = async () => {
+  if (createOrgBusy) return;
+  const hasOwner = !!(createOrgForm.owner_email || createOrgForm.owner_name || createOrgForm.owner_password);
+  if (createOrgForm.name.trim().length < 2) {
+    setCreateOrgError('Workspace name must be at least 2 characters.');
+    return;
+  }
+  if (hasOwner && (!createOrgForm.owner_email.trim() || !createOrgForm.owner_password)) {
+    setCreateOrgError('Add both an owner email and password, or leave the owner fields empty.');
+    return;
+  }
+  if (hasOwner && createOrgForm.owner_password.length < 8) {
+    setCreateOrgError('Owner password must be at least 8 characters.');
+    return;
+  }
+  const sgen = sessionGenRef.current;
+  const requestToken = tokenRef.current;
+  setCreateOrgBusy(true);
+  setCreateOrgError(null);
+  try {
+    const res = await apiFetch(`${API_BASE}/admin/organizations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: createOrgForm.name.trim(),
+        slug: createOrgForm.slug.trim() || undefined,
+        owner_name: hasOwner ? createOrgForm.owner_name.trim() : undefined,
+        owner_email: hasOwner ? createOrgForm.owner_email.trim() : undefined,
+        owner_password: hasOwner ? createOrgForm.owner_password : undefined,
+      }),
+    });
+    if (sgen !== sessionGenRef.current) return;
+    if (res.status === 401) {
+      onAuthFailure(requestToken);
+      return;
+    }
+    if (!res.ok) {
+      setCreateOrgError(await readError(res, `Could not create organization (HTTP ${res.status}).`));
+      return;
+    }
+    const data = await res.json();
+    if (sgen !== sessionGenRef.current) return;
+    setCreateOrgOpen(false);
+    setCreateOrgForm({ name: '', slug: '', owner_name: '', owner_email: '', owner_password: '' });
+    loadAdminOrgs(sgen);
+    if (data?.organization?.id) openAdminOrg(data.organization.id);
+  } catch (e) {
+    console.error('Create organization failed:', e);
+    if (sgen === sessionGenRef.current) setCreateOrgError('Network error.');
+  } finally {
+    setCreateOrgBusy(false);
+  }
+};
+
+const addUser = async () => {
+  if (addUserBusy || !adminDetail) return;
+  if (!addUserForm.name.trim() || !addUserForm.email.trim()) {
+    setAddUserError('Name and email are required.');
+    return;
+  }
+  if (addUserForm.password.length < 8) {
+    setAddUserError('Password must be at least 8 characters.');
+    return;
+  }
+  const orgId = adminDetail.org.id;
+  const sgen = sessionGenRef.current;
+  const requestToken = tokenRef.current;
+  setAddUserBusy(true);
+  setAddUserError(null);
+  try {
+    const res = await apiFetch(`${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: addUserForm.name.trim(),
+        email: addUserForm.email.trim(),
+        role: addUserForm.role,
+        password: addUserForm.password,
+      }),
+    });
+    if (sgen !== sessionGenRef.current) return;
+    if (res.status === 401) {
+      onAuthFailure(requestToken);
+      return;
+    }
+    if (!res.ok) {
+      setAddUserError(await readError(res, `Could not add user (HTTP ${res.status}).`));
+      return;
+    }
+    setAddUserOpen(false);
+    setAddUserForm({ name: '', email: '', role: 'member', password: '' });
+    loadAdminOrgs(sgen);
+    openAdminOrg(orgId);
+  } catch (e) {
+    console.error('Add user failed:', e);
+    if (sgen === sessionGenRef.current) setAddUserError('Network error.');
+  } finally {
+    setAddUserBusy(false);
+  }
+};
+
+const impersonate = async () => {
+  if (impersonateBusy || !adminDetail || !impersonateTarget) return;
+  const orgId = adminDetail.org.id;
+  const userId = impersonateTarget.id;
+  const sgen = sessionGenRef.current;
+  const requestToken = tokenRef.current;
+  setImpersonateBusy(true);
+  setImpersonateError(null);
+  try {
+    const res = await apiFetch(
+      `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}/users/${encodeURIComponent(userId)}/impersonate`,
+      { method: 'POST' }
+    );
+    if (sgen !== sessionGenRef.current) return;
+    if (res.status === 401) {
+      onAuthFailure(requestToken);
+      return;
+    }
+    if (!res.ok) {
+      setImpersonateError(await readError(res, `Could not start impersonation (HTTP ${res.status}).`));
+      return;
+    }
+    const data = await res.json();
+    if (sgen !== sessionGenRef.current) return;
+    setImpersonateTarget(null);
+    onImpersonate(data);
+  } catch (e) {
+    console.error('Impersonation failed:', e);
+    if (sgen === sessionGenRef.current) setImpersonateError('Network error.');
+  } finally {
+    setImpersonateBusy(false);
+  }
+};
+
   const sectionClass = "border-t border-border pt-4";
   const sectionHeadClass = "flex items-center justify-between border-b border-border pb-2";
   const sectionBodyClass = "max-h-72 overflow-y-auto";
@@ -219,7 +378,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
     <>
       <TabHeader
         title="Administration"
-        description="Customer organizations — read-only support access, every view is audited."
+        description="Customer organizations — provisioning, audited support access and controlled impersonation."
       />
 
       {!isAdmin ? (
@@ -238,6 +397,14 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
                 {adminDetail.org.slug} · {adminDetail.org.plan || 'No plan'} · ID {adminDetail.org.id}
               </p>
             </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto h-8 flex-shrink-0 gap-1.5 text-[12px]"
+              onClick={() => { setAddUserError(null); setAddUserOpen(true); }}
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Add user
+            </Button>
           </div>
 
           <div className="grid grid-cols-2 overflow-hidden border-y border-border md:grid-cols-4">
@@ -296,6 +463,14 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
                             <p className="truncate text-[11px] text-muted-foreground">{u.name}</p>
                           </div>
                           <span className="flex flex-shrink-0 items-center gap-2">
+                            {u.status === 'active' && u.platform_role !== 'platform_admin' && (
+                              <button
+                                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground underline-offset-2 hover:text-[#ffc99f] hover:underline"
+                                onClick={() => { setImpersonateError(null); setImpersonateTarget(u); }}
+                              >
+                                <LogIn className="h-3 w-3" /> Impersonate
+                              </button>
+                            )}
                             <button
                               className="text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
                               onClick={() => {
@@ -398,11 +573,20 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
               </h3>
 
             </div>
-            {adminOrgs && adminOrgs.length > 0 && (
-              <span className="text-[11px] tabular-nums text-muted-foreground">
-                {adminOrgs.length} {adminOrgs.length === 1 ? 'organization' : 'organizations'}
-              </span>
-            )}
+            <div className="flex flex-shrink-0 items-center gap-3">
+              {adminOrgs && adminOrgs.length > 0 && (
+                <span className="text-[11px] tabular-nums text-muted-foreground">
+                  {adminOrgs.length} {adminOrgs.length === 1 ? 'organization' : 'organizations'}
+                </span>
+              )}
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 text-[12px]"
+                onClick={() => { setCreateOrgError(null); setCreateOrgOpen(true); }}
+              >
+                <Plus className="h-3.5 w-3.5" /> New organization
+              </Button>
+            </div>
           </div>
           <div>
             {adminLoading ? (
@@ -454,6 +638,163 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
           </div>
         </div>
       )}
+
+      <Dialog open={createOrgOpen} onOpenChange={(open) => { if (!open && !createOrgBusy) setCreateOrgOpen(false); }}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New organization</DialogTitle>
+            <DialogDescription>
+              Create a customer workspace. The first owner is optional; add one now or later.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); createOrganization(); }}>
+            <div>
+              <label htmlFor="admin-org-name" className="text-[11.5px] text-muted-foreground">Workspace name</label>
+              <Input
+                id="admin-org-name"
+                className="mt-1 h-9 text-[12.5px]"
+                placeholder="Acme Security"
+                value={createOrgForm.name}
+                onChange={(e) => setCreateOrgForm({ ...createOrgForm, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="admin-org-slug" className="text-[11.5px] text-muted-foreground">Slug (optional)</label>
+              <Input
+                id="admin-org-slug"
+                className="mt-1 h-9 font-mono text-[12px]"
+                placeholder="auto-generated from the name"
+                value={createOrgForm.slug}
+                onChange={(e) => setCreateOrgForm({ ...createOrgForm, slug: e.target.value })}
+              />
+            </div>
+            <div className="space-y-3 border-t border-border pt-3">
+              <p className="text-[11.5px] font-medium">First owner <span className="font-normal text-muted-foreground">(optional)</span></p>
+              <div>
+                <label htmlFor="admin-owner-name" className="text-[11.5px] text-muted-foreground">Name</label>
+                <Input
+                  id="admin-owner-name"
+                  className="mt-1 h-9 text-[12.5px]"
+                  placeholder="Alex Morgan"
+                  value={createOrgForm.owner_name}
+                  onChange={(e) => setCreateOrgForm({ ...createOrgForm, owner_name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label htmlFor="admin-owner-email" className="text-[11.5px] text-muted-foreground">Email</label>
+                <Input
+                  id="admin-owner-email"
+                  type="email"
+                  className="mt-1 h-9 text-[12.5px]"
+                  placeholder="owner@company.com"
+                  value={createOrgForm.owner_email}
+                  onChange={(e) => setCreateOrgForm({ ...createOrgForm, owner_email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label htmlFor="admin-owner-password" className="text-[11.5px] text-muted-foreground">Temporary password</label>
+                <Input
+                  id="admin-owner-password"
+                  type="password"
+                  className="mt-1 h-9 text-[12.5px]"
+                  placeholder="At least 8 characters"
+                  value={createOrgForm.owner_password}
+                  onChange={(e) => setCreateOrgForm({ ...createOrgForm, owner_password: e.target.value })}
+                />
+              </div>
+            </div>
+            {createOrgError && <p className="text-[11.5px] text-red-400" role="alert">{createOrgError}</p>}
+            <DialogFooter className="gap-2 pt-1">
+              <Button type="button" variant="ghost" onClick={() => setCreateOrgOpen(false)} disabled={createOrgBusy}>Cancel</Button>
+              <Button type="submit" disabled={createOrgBusy}>{createOrgBusy ? 'Creating…' : 'Create organization'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={addUserOpen} onOpenChange={(open) => { if (!open && !addUserBusy) setAddUserOpen(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add user</DialogTitle>
+            <DialogDescription>
+              Add a teammate to {adminDetail?.org?.name || 'this organization'}.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); addUser(); }}>
+            <div>
+              <label htmlFor="admin-user-name" className="text-[11.5px] text-muted-foreground">Name</label>
+              <Input
+                id="admin-user-name"
+                className="mt-1 h-9 text-[12.5px]"
+                placeholder="Alex Morgan"
+                value={addUserForm.name}
+                onChange={(e) => setAddUserForm({ ...addUserForm, name: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="admin-user-email" className="text-[11.5px] text-muted-foreground">Email</label>
+              <Input
+                id="admin-user-email"
+                type="email"
+                className="mt-1 h-9 text-[12.5px]"
+                placeholder="teammate@company.com"
+                value={addUserForm.email}
+                onChange={(e) => setAddUserForm({ ...addUserForm, email: e.target.value })}
+              />
+            </div>
+            <div>
+              <label htmlFor="admin-user-role" className="text-[11.5px] text-muted-foreground">Role</label>
+              <select
+                id="admin-user-role"
+                className="mt-1 h-9 w-full rounded-md border border-border bg-background px-3 text-[12.5px] text-foreground outline-none focus:ring-2 focus:ring-ring"
+                value={addUserForm.role}
+                onChange={(e) => setAddUserForm({ ...addUserForm, role: e.target.value })}
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+                <option value="owner">Owner</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="admin-user-password" className="text-[11.5px] text-muted-foreground">Temporary password</label>
+              <Input
+                id="admin-user-password"
+                type="password"
+                className="mt-1 h-9 text-[12.5px]"
+                placeholder="At least 8 characters"
+                value={addUserForm.password}
+                onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })}
+              />
+            </div>
+            {addUserError && <p className="text-[11.5px] text-red-400" role="alert">{addUserError}</p>}
+            <DialogFooter className="gap-2 pt-1">
+              <Button type="button" variant="ghost" onClick={() => setAddUserOpen(false)} disabled={addUserBusy}>Cancel</Button>
+              <Button type="submit" disabled={addUserBusy}>{addUserBusy ? 'Adding…' : 'Add user'}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!impersonateTarget} onOpenChange={(open) => { if (!open && !impersonateBusy) setImpersonateTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Impersonate user</DialogTitle>
+            <DialogDescription>
+              Act as {impersonateTarget?.email} in a short-lived, audited support session.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-[#ff9d52]/25 bg-[#ff9d52]/[0.06] px-3 py-2.5 text-[11.5px] leading-5 text-[#ffc99f]">
+            You will see the customer workspace as this user. Use Return to admin in the top bar to come back.
+          </div>
+          {impersonateError && <p className="text-[11.5px] text-red-400" role="alert">{impersonateError}</p>}
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setImpersonateTarget(null)} disabled={impersonateBusy}>Cancel</Button>
+            <Button type="button" onClick={impersonate} disabled={impersonateBusy}>
+              {impersonateBusy ? 'Starting…' : 'Start impersonation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

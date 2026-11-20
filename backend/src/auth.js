@@ -22,10 +22,10 @@ function base64url(input) {
   return Buffer.from(input).toString('base64url');
 }
 
-function sign(payload) {
+function sign(payload, ttlSeconds = TOKEN_TTL_SECONDS) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
-  const body = { ...payload, iat: now, exp: now + TOKEN_TTL_SECONDS };
+  const body = { ...payload, iat: now, exp: now + ttlSeconds };
   const unsigned = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(body))}`;
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(unsigned).digest('base64url');
   return `${unsigned}.${sig}`;
