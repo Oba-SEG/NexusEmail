@@ -104,6 +104,7 @@ export default function Dashboard() {
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
   const tokenRef = useRef<string | null>(null);
+  const tokenRefreshPendingRef = useRef(false);
   const notificationsRevRef = useRef(0);
   const [configLoaded, setConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState('');
@@ -196,7 +197,7 @@ export default function Dashboard() {
     ...options,
     headers: {
       ...(options.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
+      ...(tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {})
     }
   });
 
@@ -229,7 +230,9 @@ export default function Dashboard() {
   // not from inside apiFetch itself, because apiFetch is also used by the
   // login flow (where a 401 from /auth/login is the normal "wrong password"
   // path and must NOT trigger session reset).
-  const handleAuthFailure = () => {
+  const handleAuthFailure = (requestToken?: string | null) => {
+    if (tokenRefreshPendingRef.current) return;
+    if (requestToken !== undefined && requestToken !== tokenRef.current) return;
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
     tokenRef.current = null;
@@ -448,13 +451,13 @@ export default function Dashboard() {
 
   const loadBrands = async (gen: number = sessionGenRef.current) => {
     const seq = ++brandsLoadSeqRef.current;
-    const requestToken = token;
+    const requestToken = tokenRef.current;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
       if (gen !== sessionGenRef.current) return;
       if (seq !== brandsLoadSeqRef.current) return;
       if (res.status === 401) {
-        if (requestToken === tokenRef.current) handleAuthFailure();
+        handleAuthFailure(requestToken);
         return;
       }
       if (!res.ok) {
@@ -484,7 +487,7 @@ export default function Dashboard() {
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
     const listGen = domainListGenRef.current;
-    const requestToken = token;
+    const requestToken = tokenRef.current;
     try {
       const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
         domains,
@@ -499,7 +502,11 @@ export default function Dashboard() {
       // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
       if (result.kind === 'auth') {
-        if (requestToken === tokenRef.current) handleAuthFailure();
+        if (requestToken !== tokenRef.current && tokenRef.current) {
+          void loadDomains(gen);
+          return;
+        }
+        handleAuthFailure(requestToken);
         return;
       }
       if (result.kind !== 'ok') {
@@ -1049,6 +1056,7 @@ export default function Dashboard() {
                 settings={settings}
                 user={user}
                 sessionGenRef={sessionGenRef}
+                tokenRefreshPendingRef={tokenRefreshPendingRef}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
                 onGoToNotifications={() => setActiveTab('notifications')}
@@ -1087,6 +1095,7 @@ export default function Dashboard() {
                 loadBrands={loadBrands}
                 apiFetch={apiFetch}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 onGoToDomains={() => setActiveTab('domains')}
                 onAuthFailure={handleAuthFailure}
                 openBrandId={openBrandId}
@@ -1098,6 +1107,7 @@ export default function Dashboard() {
               <ThreatAlertsTab
                 apiFetch={apiFetch}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 onAuthFailure={handleAuthFailure}
                 onAlertCountChange={setAlertCount}
                 onOpenBrand={(brandId) => {
@@ -1112,6 +1122,7 @@ export default function Dashboard() {
                 token={token}
                 isAdmin={isAdmin}
                 sessionGenRef={sessionGenRef}
+                tokenRef={tokenRef}
                 apiFetch={apiFetch}
                 onAuthFailure={handleAuthFailure}
               />

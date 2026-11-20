@@ -15,14 +15,15 @@ interface AdminPanelProps {
   token: string | null;
   isAdmin: boolean;
   sessionGenRef: { current: number };
+  tokenRef: { current: string | null };
   apiFetch: (url: string, options?: any) => Promise<Response>;
-  onAuthFailure: () => void;
+  onAuthFailure: (requestToken?: string | null) => void;
 }
 
 /** Admin panel: org drill-down + password reset, with all admin state and
  * request-generation guards owned here. Unmounts with the dashboard
  * branch, so nothing survives an identity change. */
-export default function AdminPanel({ token, isAdmin, sessionGenRef, apiFetch, onAuthFailure }: AdminPanelProps) {
+export default function AdminPanel({ token, isAdmin, sessionGenRef, tokenRef, apiFetch, onAuthFailure }: AdminPanelProps) {
 const [adminOrgs, setAdminOrgs] = useState<any[] | null>(null);
 const [adminOrgsError, setAdminOrgsError] = useState<string | null>(null);
 const [adminDetail, setAdminDetail] = useState<any>(null);
@@ -46,10 +47,11 @@ const loadAdminOrgs = async (gen: number = sessionGenRef.current) => {
     // error must not flash 'No organizations found.' while the request
     // is still in flight.
     setAdminOrgs(null);
+    const requestToken = tokenRef.current;
     const res = await apiFetch(`${API_BASE}/admin/organizations`);
     if (gen !== sessionGenRef.current) return;
     if (res.status === 401) {
-      onAuthFailure();
+      onAuthFailure(requestToken);
       return;
     }
     if (!res.ok) {
@@ -80,6 +82,7 @@ const openAdminOrg = async (orgId: string) => {
     // session of an identity that signed in later (adminGenRef alone only
     // guards against concurrent detail loads, not identity switches).
     const sgen = sessionGenRef.current;
+    const requestToken = tokenRef.current;
     const base = `${API_BASE}/admin/organizations/${encodeURIComponent(orgId)}`;
     const [orgR, domR, usrR, scnR, ntR] = await Promise.all([
       apiFetch(base),
@@ -92,7 +95,7 @@ const openAdminOrg = async (orgId: string) => {
     if (gen !== adminGenRef.current) return;
     const responses = [orgR, domR, usrR, scnR, ntR];
     if (responses.some((r) => r.status === 401)) {
-      onAuthFailure();
+      onAuthFailure(requestToken);
       return;
     }
     if (!orgR.ok) {
@@ -162,6 +165,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   // must not apply its updates to the current state.
   const sgen = sessionGenRef.current;
   const fgen = pwFormGenRef.current;
+  const requestToken = tokenRef.current;
   setPwResetBusy(true);
   setPwResetError(null);
   try {
@@ -175,7 +179,7 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
     );
     if (sgen !== sessionGenRef.current || fgen !== pwFormGenRef.current) return;
     if (res.status === 401) {
-      onAuthFailure();
+      onAuthFailure(requestToken);
       return;
     }
     if (!res.ok) {

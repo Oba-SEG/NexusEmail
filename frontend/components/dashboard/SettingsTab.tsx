@@ -13,6 +13,7 @@ interface SettingsTabProps {
   settings: any;
   user?: any;
   sessionGenRef: { current: number };
+  tokenRefreshPendingRef: { current: boolean };
   onSettingsChange: (updater: any) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
   onGoToIntegrations?: () => void;
@@ -60,6 +61,7 @@ export default function SettingsTab({
   settings,
   user,
   sessionGenRef,
+  tokenRefreshPendingRef,
   onSettingsChange,
   apiFetch,
   onGoToIntegrations,
@@ -171,6 +173,7 @@ export default function SettingsTab({
     }
     const gen = sessionGenRef.current;
     setSavingPassword(true);
+    tokenRefreshPendingRef.current = true;
     try {
       const res = await apiFetch(`${API_BASE}/settings/password`, {
         method: 'POST',
@@ -192,6 +195,7 @@ export default function SettingsTab({
     } catch (e) {
       notify('Password couldn\'t be changed.', 'error', describeError(e, 'The request failed.'));
     } finally {
+      tokenRefreshPendingRef.current = false;
       setSavingPassword(false);
     }
   };
