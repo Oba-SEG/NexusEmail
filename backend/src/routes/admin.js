@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
-const { requirePlatformAdmin, hashPassword, sign, publicUser } = require('../auth');
+const { auditIdentity, requirePlatformAdmin, hashPassword, sign, publicUser } = require('../auth');
 const provisioning = require('../services/provisioning');
 
 // Every route in this module reads customer data. Gate the whole router so
@@ -13,11 +13,9 @@ router.use(requirePlatformAdmin);
 // audit write fails the request instead of serving unaudited customer data.
 async function audit(req, action, targetOrgId, detail, tx) {
   await db.insertAuditLog({
-    actorUserId: req.user.id,
-    actorEmail: req.user.email,
+    ...auditIdentity(req, detail),
     action,
-    targetOrgId,
-    detail
+    targetOrgId
   }, tx);
 }
 

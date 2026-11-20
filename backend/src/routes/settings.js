@@ -4,7 +4,7 @@ const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
-const { sign, hashPassword, verifyPassword, requireRole } = require('../auth');
+const { auditIdentity, sign, hashPassword, verifyPassword, requireRole } = require('../auth');
 const { parseRecipients, scheduleConfigHash } = require('../services/reportBuilder');
 const { isScanEnabledValue } = require('../services/scanSchedule');
 
@@ -96,11 +96,9 @@ router.patch('/organization', requireRole('owner', 'admin'), async (req, res, ne
       org = await db.updateOrganization(req.orgId, { name }, tx);
       if (!org) return;
       await db.insertAuditLog({
-        actorUserId: req.user.id,
-        actorEmail: req.user.email,
+        ...auditIdentity(req, { name }),
         action: 'organization.renamed',
-        targetOrgId: req.orgId,
-        detail: { name }
+        targetOrgId: req.orgId
       }, tx);
     });
     if (!org) return res.status(404).json({ error: 'Workspace not found' });
@@ -129,19 +127,18 @@ router.post('/password', async (req, res, next) => {
     await db.withTransaction(async (tx) => {
       tokenVersion = await db.setUserPassword(req.user.id, hashPassword(nextPassword), tx);
       await db.insertAuditLog({
-        actorUserId: req.user.id,
-        actorEmail: req.user.email,
+        ...auditIdentity(req),
         action: 'user.password_changed',
-        targetOrgId: req.orgId,
-        detail: {}
+        targetOrgId: req.orgId
       }, tx);
     });
     const token = sign({
       sub: req.user.id,
       org_id: req.user.org_id,
       role: req.user.role,
-      tv: tokenVersion
-    });
+      tv: tokenVersion,
+      ...(req.actor ? { act: { sub: req.actor.id, email: req.actor.email } } : {})
+    }, req.actor ? Math.max(1, req.impersonationExpiresAt - Math.floor(Date.now() / 1000)) : undefined);
     res.json({ success: true, token });
   } catch (err) { next(err); }
 });

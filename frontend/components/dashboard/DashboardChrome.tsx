@@ -234,7 +234,7 @@ export default function DashboardChrome({
           <div className="ml-auto">{searchButton}</div>
         </div>
         {impersonation && (
-          <div className="sticky top-14 z-20 flex min-h-10 items-center gap-3 border-b border-[#ff9d52]/25 bg-[#2a1a12]/95 px-8 py-2 text-[11.5px] text-[#ffc99f] backdrop-blur" role="status">
+          <div className="sticky top-14 z-20 hidden lg:flex min-h-10 items-center gap-3 border-b border-[#ff9d52]/25 bg-[#2a1a12]/95 px-8 py-2 text-[11.5px] text-[#ffc99f] backdrop-blur" role="status">
             <p className="min-w-0 truncate">
               Viewing as <span className="font-semibold text-[#ffe1c7]">{user?.name || user?.email}</span>
               {user?.name && user?.email ? <span className="text-[#e7c4a8]"> · {user.email}</span> : null}

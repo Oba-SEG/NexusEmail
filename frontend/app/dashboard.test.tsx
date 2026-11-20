@@ -80,6 +80,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   localStorage.clear();
+  sessionStorage.clear();
 });
 
 async function renderDashboardWithList() {
@@ -405,4 +406,47 @@ describe('Dashboard (real component) — delete/list races', () => {
     expect(screen.queryByText('Loading aggregate reports…')).toBeNull();
     expect(screen.queryByText(/No aggregate reports ingested yet/)).toBeNull(); // no false empty state below the error
   });
+});
+
+describe('authentication attempt ownership', () => {
+  test.each([['login', 200], ['login', 401], ['register', 200], ['register', 400]])('abandoned %s response (%s) cannot install a session or error', async (kind, status) => {
+    localStorage.clear();
+    sessionStorage.clear();
+    render(<Dashboard />);
+    fireEvent.click((await screen.findAllByRole('button', { name: /sign in/i }))[0]);
+    if (kind === 'register') fireEvent.click(screen.getByRole('button', { name: /create a workspace/i }));
+    const pending = deferred();
+    oneShot.push({ key: `POST /auth/${kind}`, fn: () => pending.promise });
+    const submit = screen.getByRole('button', { name: kind === 'login' ? /^sign in$/i : /^create workspace$/i });
+    fireEvent.submit(submit.closest('form')!);
+    if (kind === 'login') fireEvent.click(screen.getByRole('button', { name: /create a workspace/i }));
+    else fireEvent.click(screen.getByRole('button', { name: /^sign in/i }));
+    await act(async () => { pending.resolve(resp(Number(status), { token: 'obsolete', user: { id: 99 }, error: 'obsolete-error' })); });
+    expect(screen.queryByText(/obsolete-error|Invalid email or password/)).toBeNull();
+    expect(localStorage.getItem('nexusemail_token')).toBeNull();
+    expect(sessionStorage.getItem('nexusemail_token')).toBeNull();
+  });
+});
+
+test('tab impersonation restores independently of the shared admin session', async () => {
+  sessionStorage.setItem('nexusemail_token', 'target-token');
+  sessionStorage.setItem('nexusemail_user', JSON.stringify({ id: 2, email: 'target@example.test' }));
+  sessionStorage.setItem('nexusemail_impersonator', JSON.stringify({ token: 'tok', user: { id: 1 }, actor: { email: 'admin@example.test' }, targetToken: 'target-token' }));
+  render(<Dashboard />);
+  await screen.findAllByText(/target@example.test/);
+  fireEvent.mouseDown(screen.getAllByRole('tab', { name: /settings/i })[0], { button: 0, ctrlKey: false });
+  fireEvent.change(await screen.findByLabelText('Current password'), { target: { value: 'old-password' } });
+  fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'new-password' } });
+  fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'new-password' } });
+  oneShot.push({ key: 'POST /settings/password', fn: () => resp(200, { token: 'refreshed-target' }) });
+  fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
+  await waitFor(() => expect(sessionStorage.getItem('nexusemail_token')).toBe('refreshed-target'));
+  expect(JSON.parse(sessionStorage.getItem('nexusemail_impersonator')!)).toEqual({ token: 'tok', user: { id: 1 }, actor: { email: 'admin@example.test' }, targetToken: 'refreshed-target' });
+  expect(localStorage.getItem('nexusemail_token')).toBe('tok');
+  expect((global.fetch as any).mock.calls.some(([, options]: any[]) => options.headers.Authorization === 'Bearer target-token')).toBe(true);
+  cleanup();
+  sessionStorage.clear();
+  render(<Dashboard />);
+  await screen.findAllByText('x@y.z');
+  expect(localStorage.getItem('nexusemail_token')).toBe('tok');
 });

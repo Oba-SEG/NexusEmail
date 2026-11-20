@@ -101,6 +101,15 @@ async function requireAuth(req, res, next) {
     if (!Number.isInteger(issuedTv) || issuedTv !== Number(user.token_version ?? 1)) {
       return res.status(401).json({ error: 'Session revoked; sign in again' });
     }
+    req.actor = null;
+    if (payload.act) {
+      const actor = await db.getUser(payload.act.sub);
+      if (!actor || actor.status !== 'active' || actor.platform_role !== 'platform_admin') {
+        return res.status(401).json({ error: 'Invalid acting administrator' });
+      }
+      req.actor = actor;
+      req.impersonationExpiresAt = payload.exp;
+    }
     req.user = user;
     req.orgId = user.org_id;
     next();
@@ -108,6 +117,17 @@ async function requireAuth(req, res, next) {
     // Express 4 does not forward rejected async middleware — forward manually.
     next(err);
   }
+}
+
+function auditIdentity(req, detail = {}) {
+  return {
+    actorUserId: (req.actor || req.user).id,
+    actorEmail: (req.actor || req.user).email,
+    detail: req.actor ? {
+      ...detail,
+      impersonated_user: { id: req.user.id, email: req.user.email }
+    } : detail
+  };
 }
 
 function requireRole(...roles) {
@@ -122,4 +142,4 @@ function requirePlatformAdmin(req, res, next) {
   next();
 }
 
-module.exports = { sign, verifyToken, hashPassword, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin };
+module.exports = { auditIdentity, sign, verifyToken, hashPassword, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin };
