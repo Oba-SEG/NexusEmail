@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { createPortal } from "react-dom";
 import {
   Search, AlertTriangle, CheckCircle, Globe, Plus, RefreshCw,
-  Zap, Eye, Clock, Trash2, CheckSquare, Square
+  Zap, Eye, Trash2, CheckSquare, Square
 } from "lucide-react";
 import DomainDetailPanel from "@/components/dashboard/DomainDetailPanel";
 import { Button } from "@/components/ui/button";
@@ -177,11 +176,22 @@ export default function DomainsTab({
     }
   };
 
-  // Slide-over drawer: modal dialog semantics — Escape closes, focus moves
-  // in on open, Tab is contained, and focus returns to the opener (the
-  // Inspect button) on dismissal.
-  const drawerRef = useRef<HTMLDivElement>(null);
+  // Detail pane: a split view on desktop, a full-screen sheet on mobile.
+  // Escape closes, focus moves in on open, Tab is contained on mobile, and
+  // focus returns to the opener (the Inspect button) on dismissal.
+  const drawerRef = useRef<HTMLElement>(null);
   const inspectOpenerRef = useRef<HTMLButtonElement>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  // Track the mobile breakpoint so modal semantics and the scroll lock
+  // follow viewport changes, not just the open/close state.
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const sync = () => setIsMobileViewport(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   // onClosePanel is recreated by the parent each render — keep the latest
   // in a ref so the focus lifecycle below keys ONLY on open/close state.
   const onClosePanelRef = useRef(onClosePanel);
@@ -201,13 +211,22 @@ export default function DomainsTab({
     };
   }, [showDetails]);
   useEffect(() => {
-    if (!showDetails) return;
+    if (!showDetails || !isMobileViewport) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
-  }, [showDetails]);
+  }, [showDetails, isMobileViewport]);
+  useEffect(() => {
+    if (!showDetails || !isMobileViewport) return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && drawer.contains(active)) return;
+    drawer.querySelector<HTMLElement>('button, [href], input')?.focus();
+  }, [showDetails, isMobileViewport]);
   const trapDrawerTab = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
+    if (!isMobileViewport) return;
     const c = drawerRef.current;
     if (!c) return;
     const focusables = Array.from(
@@ -270,7 +289,7 @@ export default function DomainsTab({
 
       {/* Bulk actions */}
       {selectedIds.length > 0 && (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-primary/20 bg-primary/[0.05] px-4 py-2.5">
+        <div className="mt-4 flex flex-wrap items-center gap-3 border-y border-primary/20 bg-primary/[0.04] px-3 py-2">
           <span className="text-[12px] font-medium">
             {selectedIds.length} {selectedIds.length === 1 ? 'domain' : 'domains'} selected
           </span>
@@ -293,10 +312,9 @@ export default function DomainsTab({
         </div>
       )}
 
-      {/* Portfolio band: posture first, then the single next action. */}
+      {/* Portfolio line: posture first, then the single next action. */}
       {domains.length > 0 && (() => {
         const total = domains.length;
-        const verified = domains.filter((d: any) => d.verified).length;
         const scanned = domains.filter((d: any) => typeof d.last_score === 'number');
         const avgScore = scanned.length > 0
           ? Math.round(scanned.reduce((sum: number, d: any) => sum + (d.last_score || 0), 0) / scanned.length)
@@ -306,10 +324,10 @@ export default function DomainsTab({
           ? 'Not scanned'
           : avgScore >= PASSING_SCORE ? 'Healthy' : avgScore >= WARNING_SCORE ? 'Needs attention' : 'Action required';
         const verdictTone = avgScore == null
-          ? 'border-border bg-white/[0.03] text-muted-foreground'
-          : avgScore >= PASSING_SCORE ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
-          : avgScore >= WARNING_SCORE ? 'border-amber-500/25 bg-amber-500/10 text-amber-300'
-          : 'border-red-500/25 bg-red-500/10 text-red-300';
+          ? 'text-muted-foreground'
+          : avgScore >= PASSING_SCORE ? 'text-emerald-300'
+          : avgScore >= WARNING_SCORE ? 'text-amber-300'
+          : 'text-red-300';
         const lastScan = domains
           .map((d: any) => d.last_scan ? new Date(d.last_scan).getTime() : 0)
           .reduce((max: number, t: number) => Math.max(max, t), 0);
@@ -343,123 +361,94 @@ export default function DomainsTab({
           : null;
 
         return (
-          <section className="mt-5 overflow-hidden rounded-xl border border-border bg-card" aria-label="Portfolio health">
-            <div className="flex flex-col gap-5 p-5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-start gap-4">
-                <div className={cn("flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg border text-[17px] font-semibold tabular-nums", verdictTone)}>
+          <div className="mt-5 flex flex-wrap items-end justify-between gap-x-10 gap-y-4 border-b border-border pb-5" aria-label="Portfolio health">
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+              <div className="flex items-baseline gap-1.5">
+                <span className={cn("text-[34px] font-semibold leading-none tracking-[-0.045em] tabular-nums", verdictTone)}>
                   {avgScore == null ? '—' : avgScore}
-                </div>
-                <div className="min-w-0">
-                  <p className="section-label">Portfolio health</p>
-                  <p className="mt-1 text-[16px] font-semibold tracking-[-0.015em]">{verdict}</p>
-                  <p className="mt-0.5 text-[12px] text-muted-foreground">
-                    {total} {total === 1 ? 'domain' : 'domains'} · {atRisk} at risk · {verified} of {total} owned verified
-                  </p>
-                </div>
+                </span>
+                <span className="text-[11px] text-muted-foreground">/100</span>
+                <span className={cn("ml-1 text-[12.5px] font-medium", verdictTone)}>{verdict}</span>
               </div>
-              <dl className="grid grid-cols-3 gap-6 border-t border-border pt-4 text-left lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Average score</dt>
-                  <dd className="mt-1 text-[14px] font-semibold tabular-nums">{avgScore == null ? '—' : `${avgScore}/100`}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Last scan</dt>
-                  <dd className="mt-1 text-[14px] font-semibold">{lastScanAgo}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] text-muted-foreground">Ownership</dt>
-                  <dd className={cn("mt-1 text-[14px] font-semibold", verified === total ? 'text-emerald-300' : 'text-foreground')}>
-                    {verified === total ? 'Verified' : `${total - verified} pending`}
-                  </dd>
-                </div>
-              </dl>
+              <p className="text-[12.5px] text-muted-foreground">
+                {total} {total === 1 ? 'domain' : 'domains'} · {atRisk} at risk · last scan {lastScanAgo}
+              </p>
             </div>
-            {worst && gapCopy && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border bg-white/[0.015] px-5 py-3">
-                <span className="section-label text-primary/90">Next fix</span>
-                <p className="min-w-0 text-[12.5px] text-muted-foreground">
-                  <span className="font-medium text-foreground" title={worst.name}>Lowest-scoring domain</span>
-                  {' · '}{gapCopy}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="ml-auto h-8"
+            {worst && gapCopy ? (
+              <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-[12.5px] text-muted-foreground">
+                <span className="font-medium text-foreground">Next fix</span>
+                <span>{gapCopy} on the lowest-scoring domain</span>
+                <button
+                  type="button"
+                  className="font-medium text-foreground underline decoration-border underline-offset-4 transition-colors hover:decoration-primary"
+                  aria-label={`Open ${worst.name}`}
                   onClick={(e) => { inspectOpenerRef.current = e.currentTarget; viewDomain(worst); }}
                 >
-                  Open domain
-                </Button>
-              </div>
+                  Open
+                </button>
+              </p>
+            ) : avgScore != null ? (
+              <p className="text-[12.5px] text-muted-foreground">
+                {atRisk === 0 ? 'All scored domains passing.' : 'No single record explains the score shortfall.'}
+              </p>
+            ) : (
+              <p className="text-[12.5px] text-muted-foreground">Run the first scan to establish a baseline.</p>
             )}
-            {(!worst || !gapCopy) && avgScore != null && (
-              <div className="border-t border-border bg-white/[0.015] px-5 py-3 text-[12px] text-muted-foreground">
-                {atRisk === 0
-                  ? 'All scored domains are passing. Keep the records published and re-scan after DNS changes.'
-                  : 'No single authentication gap explains the score shortfall. Inspect the lowest-scoring domains below.'}
-              </div>
-            )}
-            {avgScore == null && (
-              <div className="border-t border-border bg-white/[0.015] px-5 py-3 text-[12px] text-muted-foreground">
-                Run the first scan to establish a baseline for this portfolio.
-              </div>
-            )}
-          </section>
+          </div>
         );
       })()}
 
-      {/* Filter */}
-      {domains.length > 0 && (
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-lg border border-border bg-card p-1" role="group" aria-label="Filter domains by score">
-            {[
-              { key: null, label: 'All', count: domains.length },
-              { key: 'passing', label: 'Passing', count: filterByBand(domains, 'passing').length },
-              { key: 'warnings', label: 'Warnings', count: filterByBand(domains, 'warnings').length },
-              { key: 'failed', label: 'Failed', count: filterByBand(domains, 'failed').length },
-            ].map((f) => {
-              const active = domainFilter === f.key;
-              return (
-                <button
-                  key={f.label}
-                  onClick={() => setDomainFilter(f.key as any)}
-                  className={`h-7 rounded-md px-2.5 text-[12px] font-medium transition-colors ${active ? 'bg-white/[0.08] text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                >
-                  {f.label}
-                  <span className={`ml-1.5 tabular-nums ${active ? 'text-muted-foreground' : 'text-muted-foreground/70'}`}>{f.count}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div className="relative ml-auto w-full sm:w-auto">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={domainQuery}
-              onChange={(e) => setDomainQuery(e.target.value)}
-              placeholder="Search domains"
-              aria-label="Search domains"
-              className="h-9 w-full pl-8 text-[12.5px] sm:w-[220px]"
-            />
-          </div>
-        </div>
-      )}
+      <div className={cn("mt-5", showDetails && selectedDomain && "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(400px,43%)] lg:items-start lg:gap-7")}>
+        <div className="min-w-0">
+          {/* Filter */}
+          {domains.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 pb-3">
+              <div className="inline-flex items-center gap-1" role="group" aria-label="Filter domains by score">
+                {[
+                  { key: null, label: 'All', count: domains.length },
+                  { key: 'passing', label: 'Passing', count: filterByBand(domains, 'passing').length },
+                  { key: 'warnings', label: 'Warnings', count: filterByBand(domains, 'warnings').length },
+                  { key: 'failed', label: 'Failed', count: filterByBand(domains, 'failed').length },
+                ].map((f) => {
+                  const active = domainFilter === f.key;
+                  return (
+                    <button
+                      key={f.label}
+                      onClick={() => setDomainFilter(f.key as any)}
+                      className={`h-7 rounded-md px-2 text-[12px] font-medium transition-colors ${active ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:bg-white/[0.03] hover:text-foreground'}`}
+                    >
+                      {f.label}
+                      <span className={`ml-1 tabular-nums ${active ? 'text-muted-foreground' : 'text-muted-foreground/60'}`}>{f.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="relative ml-auto w-full sm:w-auto">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={domainQuery}
+                  onChange={(e) => setDomainQuery(e.target.value)}
+                  placeholder="Search domains"
+                  aria-label="Search domains"
+                  className="h-8 w-full border-0 border-b border-border bg-transparent pl-8 text-[12.5px] focus-visible:border-primary focus-visible:ring-0 sm:w-[200px]"
+                />
+              </div>
+            </div>
+          )}
 
-      {/* Domain table */}
-      {domains.length === 0 ? (
-        <div className="mt-4 rounded-xl border border-border bg-card px-6 py-14 text-center">
-          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Globe className="w-5 h-5" />
-          </div>
-          <h3 className="text-[15px] font-semibold">No domains yet</h3>
-          <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">
-            Add a domain above to start scanning SPF, DKIM and DMARC posture.
-          </p>
-        </div>
-      ) : (
-        <div className="mt-3 overflow-hidden rounded-xl border border-border bg-card">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="border-b border-border bg-white/[0.015] text-left text-[11px] font-medium uppercase tracking-[0.06em] text-muted-foreground">
+          {/* Domain ledger */}
+          {domains.length === 0 ? (
+            <div className="border-y border-border px-6 py-16 text-center">
+              <h3 className="text-[15px] font-semibold">No domains yet</h3>
+              <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">
+                Add a domain above to start scanning SPF, DKIM and DMARC posture.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border-y border-border">
+              <table className="ledger-table w-full">
+                <thead>
+                  <tr className="border-b border-border text-left">
                   <th className="w-10 px-4 py-2.5">
                     <button
                       onClick={() => {
@@ -478,9 +467,9 @@ export default function DomainsTab({
                     </button>
                   </th>
                   <th className="px-4 py-2.5 font-medium">Domain</th>
-                  <th className="hidden px-4 py-2.5 font-medium md:table-cell">Records</th>
+                  <th className={cn("px-4 py-2.5 font-medium", showDetails ? "hidden 2xl:table-cell" : "hidden md:table-cell")}>Records</th>
                   <th className="hidden px-4 py-2.5 font-medium sm:table-cell">Score</th>
-                  <th className="hidden px-4 py-2.5 font-medium lg:table-cell">Last scan</th>
+                  <th className={cn("px-4 py-2.5 font-medium", showDetails ? "hidden 2xl:table-cell" : "hidden lg:table-cell")}>Last scan</th>
                   <th className="px-4 py-2.5 text-right font-medium">Actions</th>
                 </tr>
               </thead>
@@ -490,8 +479,7 @@ export default function DomainsTab({
                   const hasScore = typeof score === 'number';
                   const band = hasScore ? scoreBand(score) : null;
                   const scoreText = band === 'passing' ? 'text-emerald-400' : band === 'warnings' ? 'text-amber-400' : band === 'failed' ? 'text-red-400' : 'text-muted-foreground';
-                  const scoreBar = band === 'passing' ? 'bg-emerald-400' : band === 'warnings' ? 'bg-amber-400' : band === 'failed' ? 'bg-red-400' : 'bg-white/20';
-                  const scoreRing = !hasScore ? 0 : Math.max(0, Math.min(100, score));
+                  const bandLabel = band === 'passing' ? 'Pass' : band === 'warnings' ? 'Warn' : band === 'failed' ? 'Fail' : '';
                   const isSelected = selectedIds.includes(domain.id);
                   const lastScanAgo = (() => {
                     if (!domain.last_scan) return 'Never';
@@ -519,7 +507,7 @@ export default function DomainsTab({
                   return (
                     <tr
                       key={domain.id}
-                      className={`border-b border-border last:border-0 transition-colors hover:bg-white/[0.02] ${isSelected ? 'bg-primary/[0.04]' : ''}`}
+                      className={cn("ledger-row border-b border-border last:border-0", isSelected && "bg-primary/[0.04]")}
                     >
                       <td className="px-4 py-3.5">
                         <button
@@ -540,46 +528,42 @@ export default function DomainsTab({
                           </span>
                           {domain.verified ? (
                             <span
-                              className="inline-flex items-center gap-1 whitespace-nowrap rounded border border-emerald-500/20 bg-emerald-500/[0.07] px-1.5 py-0.5 text-[11px] font-medium text-emerald-300"
+                              className="inline-flex items-center gap-1 whitespace-nowrap text-[10.5px] font-medium text-emerald-300/80"
                               title="Ownership verified: a DNS TXT record proves you control this domain"
                             >
-                              <CheckCircle className="w-3 h-3" /> Owner verified
+                              <CheckCircle className="w-3 h-3" /> Verified
                             </span>
                           ) : (
                             <button
                               onClick={(e) => { verifyOpenerRef.current = e.currentTarget; openVerifyModal(domain); }}
-                              className="inline-flex items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-300 transition-colors hover:bg-amber-500/15"
+                              className="inline-flex items-center gap-1 whitespace-nowrap text-[10.5px] font-medium text-amber-300/90 underline decoration-amber-500/30 underline-offset-2 transition-colors hover:text-amber-200"
                             >
                               <AlertTriangle className="w-3 h-3" /> Verify
                             </button>
                           )}
                         </div>
                       </td>
-                      <td className="hidden px-4 py-3.5 md:table-cell">
+                      <td className={cn("px-4 py-3.5", showDetails ? "hidden 2xl:table-cell" : "hidden md:table-cell")}>
                         <div className="flex items-center gap-3.5">
                           {[{ k: 'SPF', v: spf }, { k: 'DKIM', v: dkim }, { k: 'DMARC', v: dmarc }].map((p) => (
-                            <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1 text-[11.5px] font-medium ${recordText(p.v)}`}>
+                            <span key={p.k} title={p.v.tone === 'none' ? 'No scan data' : p.v.label} className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium ${recordText(p.v)}`}>
                               <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${recordDot(p.v)}`} />
                               {p.k}
-                              {p.v.tone !== 'none' && <span className="text-[10px] opacity-70">{p.v.tone === 'pass' ? '✓' : p.v.tone === 'fail' ? '✕' : '?'}</span>}
+                              <span className="sr-only">{p.v.tone === 'none' ? 'no data' : p.v.label}</span>
                             </span>
                           ))}
                         </div>
                       </td>
                       <td className="hidden px-4 py-3.5 sm:table-cell">
-                        <div className="flex items-center gap-2.5">
-                          <span className={`w-7 text-right text-[12px] font-medium tabular-nums ${scoreText}`}>
+                        <div className="flex items-baseline gap-2">
+                          <span className={`text-[12px] font-medium tabular-nums ${scoreText}`}>
                             {hasScore ? score : '—'}
                           </span>
-                          <div className="h-1 w-12 overflow-hidden rounded-full bg-white/10">
-                            <div className={`h-full rounded-full ${scoreBar}`} style={{ width: `${scoreRing}%` }} />
-                          </div>
+                          {hasScore && <span className="text-[10.5px] text-muted-foreground">{bandLabel}</span>}
                         </div>
                       </td>
-                      <td className="hidden px-4 py-3.5 text-[12px] text-muted-foreground lg:table-cell">
-                        <span className="inline-flex items-center gap-1.5" title={domain.last_scan ? new Date(domain.last_scan).toISOString() : undefined}>
-                          <Clock className="w-3 h-3" /> {lastScanAgo}
-                        </span>
+                      <td className={cn("px-4 py-3.5 text-[12px] text-muted-foreground", showDetails ? "hidden 2xl:table-cell" : "hidden lg:table-cell")}>
+                        <span title={domain.last_scan ? new Date(domain.last_scan).toISOString() : undefined}>{lastScanAgo}</span>
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center justify-end gap-1">
@@ -631,14 +615,19 @@ export default function DomainsTab({
                 )}
               </tbody>
             </table>
-          </div>
+            </div>
+          )}
         </div>
-      )}
 
-      {showDetails && selectedDomain && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`${selectedDomain.name} details`}>
-          <div className="absolute inset-0 bg-black/60 drawer-backdrop" onClick={onClosePanel} />
-          <div ref={drawerRef} onKeyDown={trapDrawerTab} className="absolute inset-y-0 right-0 w-full max-w-[580px] overflow-y-auto border-l border-border bg-card shadow-2xl drawer-slide-in">
+        {showDetails && selectedDomain && (
+          <aside
+            ref={drawerRef}
+            onKeyDown={trapDrawerTab}
+            role={isMobileViewport ? 'dialog' : undefined}
+            aria-modal={isMobileViewport ? true : undefined}
+            aria-label={`${selectedDomain.name} details`}
+            className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-background drawer-slide-in lg:sticky lg:inset-auto lg:top-[72px] lg:z-0 lg:max-h-[calc(100vh-88px)] lg:rounded-xl lg:border lg:border-border lg:bg-card"
+          >
             <DomainDetailPanel
               key={selectedDomain.id}
               apiFetch={apiFetch}
@@ -653,10 +642,9 @@ export default function DomainsTab({
               fixDomain={fixDomain}
               onClose={onClosePanel}
             />
-          </div>
-        </div>,
-        document.body
-      )}
+          </aside>
+        )}
+      </div>
 
       {showVerifyModal && verifyDomain && (
         <Dialog open onOpenChange={(o) => { if (!o) setShowVerifyModal(false); }}>

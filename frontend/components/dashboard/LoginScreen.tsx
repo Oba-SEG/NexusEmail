@@ -69,8 +69,8 @@ export default function LoginScreen({ loginForm, onFormChange, onSubmit, logging
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-6">
-            <h2 className="text-[19px] font-semibold tracking-[-0.015em]">Sign in</h2>
+          <div className="border-t border-border pt-6">
+            <h2 className="text-[22px] font-semibold tracking-[-0.02em]">Sign in</h2>
             <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
               Use your Segbytes client account to continue.
             </p>
@@ -105,7 +105,7 @@ export default function LoginScreen({ loginForm, onFormChange, onSubmit, logging
               </div>
 
               {loginError && (
-                <p className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-300" role="alert">
+                <p className="border-l border-red-500/50 py-1 pl-3 text-[12px] text-red-300" role="alert">
                   {loginError}
                 </p>
               )}

@@ -192,7 +192,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
       />
 
       {!ready || configError ? (
-        <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-l border-amber-500/40 py-1 pl-3">
           <p className="text-sm text-muted-foreground">
             {configError
               ? ready
@@ -288,7 +288,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
             testLabel="Send test email"
             disabled={!ready}
           />
-          <div className="rounded-md border border-border bg-white/[0.02] p-3 text-[11px] leading-relaxed text-muted-foreground">
+          <div className="border-l border-border py-1 pl-3 text-[11px] leading-relaxed text-muted-foreground">
             Until your own domain is verified in Resend, test emails can be sent from <code className="text-primary">onboarding@resend.dev</code> (to your own email only). After verifying <code className="text-primary">segbytes.xyz</code>, set the From address above — SPF/DKIM/DMARC records can then be added automatically via the Cloudflare integration.
           </div>
         </div>

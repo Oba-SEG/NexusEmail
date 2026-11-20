@@ -389,7 +389,7 @@ export default function BrandsTab({
       {brandAlerts.length > 0 && (
         <Button variant="outline" size="sm" className="text-red-300 hover:bg-red-500/10 hover:text-red-200" onClick={(e) => { alertsOpenerRef.current = e.currentTarget; setShowAlertsModal(true); }}>
           <Bell className="w-3.5 h-3.5" /> Alerts
-          <span className="ml-1.5 rounded bg-red-500/15 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-red-300">{brandAlerts.length}</span>
+          <span className="ml-0.5 tabular-nums opacity-80">{brandAlerts.length}</span>
         </Button>
       )}
       <Button variant="outline" size="sm" onClick={bulkScanAll} disabled={bulkScanning || brandScanning}>
@@ -403,8 +403,8 @@ export default function BrandsTab({
   }
 />
 
-<div className="mt-6">
-  <div className="flex flex-col gap-3 pb-4 sm:flex-row sm:items-end sm:justify-between">
+<div className="mt-1">
+  <div className="flex flex-col gap-3 pb-3 sm:flex-row sm:items-end sm:justify-between">
     <div>
       <h3 className="text-[14px] font-semibold">
         Monitored brands
@@ -419,18 +419,18 @@ export default function BrandsTab({
         onChange={(e) => setBrandQuery(e.target.value)}
         placeholder="Search brands"
         aria-label="Search brands"
-        className="h-9 w-full pl-8 text-[12.5px]"
+        className="h-8 w-full border-0 border-b border-border bg-transparent pl-8 text-[12.5px] focus-visible:border-primary focus-visible:ring-0"
       />
     </div>
   </div>
   <div className="space-y-4">
     {showAddBrand && (
-      <div className="rounded-xl border border-border bg-white/[0.02] p-5">
+      <div className="border-y border-border py-4">
         <p className="text-[14px] font-semibold">Add a brand to monitor</p>
         <p className="mb-4 mt-0.5 text-[12px] text-muted-foreground">Pick a verified domain, then name the brand you want to protect.</p>
         {domains.filter((d: any) => d.verified).length === 0 ? (
           <div className="space-y-3">
-            <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-sm text-amber-300">
+            <div className="border-l border-amber-500/40 py-1 pl-3 text-[12.5px] leading-5 text-amber-300">
               You don't have any verified domains yet. Brand Protection only monitors domains you own and have verified, so you can't add a brand until at least one of your domains is verified.
             </div>
             <div className="flex gap-2">
@@ -549,36 +549,28 @@ export default function BrandsTab({
     )}
 
     {brands.length === 0 && !showAddBrand ? (
-      <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
-        <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-          <Shield className="h-5 w-5" />
-        </div>
+      <div className="border-y border-border px-6 py-16 text-center">
         <p className="text-[15px] font-semibold">No brands monitored yet</p>
         <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">Add a brand to start watching for typosquatting and impersonation.</p>
       </div>
     ) : (
-      <div className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+      <div className="divide-y divide-border border-y border-border">
         {filteredBrands.map((brand: any) => (
-          <div key={brand.id} className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-white/[0.02] sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-white/[0.03] text-muted-foreground">
-                <Shield className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <p className="truncate font-mono text-[12.5px] font-medium">{brand.domain}</p>
-                  {(brand.threats?.length || 0) > 0 && (
-                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-300">
-                      {brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'} tracked
-                    </span>
-                  )}
-                </div>
+          <div key={brand.id} className="flex flex-col gap-3 py-3.5 transition-colors hover:bg-white/[0.015] sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <p className="truncate font-mono text-[12.5px] font-medium">{brand.domain}</p>
                 <p className="text-[12px] text-muted-foreground">{brand.brand_name}</p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {brand.last_scan ? `Last scan ${formatDateTime(brand.last_scan)}` : 'Never scanned'}
-                  {brand.next_scan ? ` · Next ${formatDateTime(brand.next_scan)}` : ''}
-                </p>
+                {(brand.threats?.length || 0) > 0 && (
+                  <span className="text-[10.5px] font-medium text-amber-300">
+                    {brand.threats.length} threat{brand.threats.length === 1 ? '' : 's'}
+                  </span>
+                )}
               </div>
+              <p className="mt-0.5 text-[10.5px] text-muted-foreground">
+                {brand.last_scan ? `Last scan ${formatDateTime(brand.last_scan)}` : 'Never scanned'}
+                {brand.next_scan ? ` · Next ${formatDateTime(brand.next_scan)}` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-2 sm:flex-shrink-0">
               <label htmlFor={`brand-schedule-${brand.id}`} className="sr-only">Scan schedule for {brand.domain}</label>
