@@ -216,6 +216,14 @@ export default function DomainsTab({
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = prev; };
   }, [showDetails, isMobileViewport]);
+  useEffect(() => {
+    if (!showDetails || !isMobileViewport) return;
+    const drawer = drawerRef.current;
+    if (!drawer) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && drawer.contains(active)) return;
+    drawer.querySelector<HTMLElement>('button, [href], input')?.focus();
+  }, [showDetails, isMobileViewport]);
   const trapDrawerTab = (e: React.KeyboardEvent) => {
     if (e.key !== 'Tab') return;
     if (!isMobileViewport) return;
