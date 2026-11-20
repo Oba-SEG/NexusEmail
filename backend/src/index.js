@@ -115,6 +115,9 @@ async function main() {
   app.use('/api/settings', requireAuth, settingsRoutes);
   app.use('/api/brands', requireAuth, brandProtectionRoutes);
   app.use('/api/domains', requireAuth, remediationRoutes);
+  // Shared report links are signature-checked and intentionally public —
+  // mounted before the auth gate so stakeholders can open them.
+  app.get('/api/reports/shared/:token', reportsRoutes.getSharedReport);
   app.use('/api/reports', requireAuth, reportsRoutes);
   app.use('/api/scans', requireAuth, scanRoutes);
 
