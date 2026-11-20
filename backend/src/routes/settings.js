@@ -91,15 +91,19 @@ router.patch('/organization', requireRole('owner', 'admin'), async (req, res, ne
     if (name.length < 2 || name.length > 80) {
       return res.status(400).json({ error: 'Workspace name must be between 2 and 80 characters' });
     }
-    const org = await db.updateOrganization(req.orgId, { name });
-    if (!org) return res.status(404).json({ error: 'Workspace not found' });
-    await db.insertAuditLog({
-      actorUserId: req.user.id,
-      actorEmail: req.user.email,
-      action: 'organization.renamed',
-      targetOrgId: req.orgId,
-      detail: { name }
+    let org = null;
+    await db.withTransaction(async (tx) => {
+      org = await db.updateOrganization(req.orgId, { name }, tx);
+      if (!org) return;
+      await db.insertAuditLog({
+        actorUserId: req.user.id,
+        actorEmail: req.user.email,
+        action: 'organization.renamed',
+        targetOrgId: req.orgId,
+        detail: { name }
+      }, tx);
     });
+    if (!org) return res.status(404).json({ error: 'Workspace not found' });
     res.json({ organization: { id: org.id, name: org.name, slug: org.slug } });
   } catch (err) { next(err); }
 });

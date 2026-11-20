@@ -1038,6 +1038,7 @@ export default function Dashboard() {
               <SettingsTab
                 settings={settings}
                 user={user}
+                sessionGenRef={sessionGenRef}
                 onSettingsChange={setSettings}
                 apiFetch={apiFetch}
                 onGoToNotifications={() => setActiveTab('notifications')}
@@ -1049,15 +1050,20 @@ export default function Dashboard() {
                   setActiveTab('integrations');
                 }}
                 onOrganizationRenamed={(name) => {
-                  if (!user) return;
-                  const nextUser = {
-                    ...user,
-                    organization: { ...(user.organization || {}), name }
-                  };
-                  localStorage.setItem('nexusemail_user', JSON.stringify(nextUser));
-                  setUser(nextUser);
+                  setUser((cur: any) => {
+                    if (!cur) return cur;
+                    return { ...cur, organization: { ...(cur.organization || {}), name } };
+                  });
+                  try {
+                    const stored = JSON.parse(localStorage.getItem('nexusemail_user') || 'null');
+                    if (stored) {
+                      stored.organization = { ...(stored.organization || {}), name };
+                      localStorage.setItem('nexusemail_user', JSON.stringify(stored));
+                    }
+                  } catch {}
                 }}
                 onTokenRefreshed={(nextToken) => {
+                  sessionGenRef.current += 1;
                   localStorage.setItem('nexusemail_token', nextToken);
                   setToken(nextToken);
                 }}

@@ -64,8 +64,11 @@ function startScheduledScans() {
 
 // Scans every brand whose per-brand schedule has come due.
 async function runBrandDueScans() {
+  const brands = await getAllBrands();
+  const disabled = await disabledScanOrgs(brands.map((brand) => brand.org_id || 'segbytes'));
   let scanned = 0;
-  for (const brand of await getAllBrands()) {
+  for (const brand of brands) {
+    if (disabled.has(brand.org_id || 'segbytes')) continue;
     if (!isBrandDue(brand)) continue;
     try {
       const result = await performBrandScan(brand, brand.org_id, { requireDue: true });
@@ -106,15 +109,16 @@ async function scanDomain(domain, dnsService, { notify } = {}) {
   return score;
 }
 
-async function disabledScanOrgs(domains) {
+async function disabledScanOrgs(orgIds) {
   const disabled = new Set();
-  for (const orgId of new Set(domains.map((domain) => domain.org_id || 'segbytes'))) {
+  for (const orgId of new Set(orgIds)) {
     try {
       if (!isScanEnabledValue(await getOrgSetting('scan_schedule_enabled', orgId))) {
         disabled.add(orgId);
       }
     } catch (error) {
       captureException(error);
+      disabled.add(orgId);
     }
   }
   return disabled;
@@ -125,7 +129,7 @@ async function disabledScanOrgs(domains) {
 async function runScheduledScans() {
   const dnsService = new DNSService();
   const domains = await getDomains();
-  const disabled = await disabledScanOrgs(domains);
+  const disabled = await disabledScanOrgs(domains.map((domain) => domain.org_id || 'segbytes'));
   let scanned = 0;
   for (const domain of domains) {
     if (domain.status !== 'active') continue;
@@ -155,7 +159,7 @@ async function runDueScans(maxAgeHours = 12) {
   const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000).toISOString();
   const dnsService = new DNSService();
   const domains = await getDomains();
-  const disabled = await disabledScanOrgs(domains);
+  const disabled = await disabledScanOrgs(domains.map((domain) => domain.org_id || 'segbytes'));
   let scanned = 0;
   for (const domain of domains) {
     if (domain.status !== 'active') continue;
@@ -184,7 +188,7 @@ async function runDueScans(maxAgeHours = 12) {
 async function runCriticalScans() {
   const dnsService = new DNSService();
   const domains = await getDomains();
-  const disabled = await disabledScanOrgs(domains);
+  const disabled = await disabledScanOrgs(domains.map((domain) => domain.org_id || 'segbytes'));
   const active = domains.filter((d) => d.status === 'active' && !disabled.has(d.org_id || 'segbytes'));
   const withScores = (await Promise.all(active.map(async (domain) => {
     const latest = (await getScans(domain.id, 1))[0];

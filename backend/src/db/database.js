@@ -291,13 +291,14 @@ async function addOrganization(org, tx) {
     [created.id, created.slug, created.name, created.status, created.whmcs_client_id, created.whmcs_service_id, created.plan, created.created_at, created.updated_at]);
   return created;
 }
-async function updateOrganization(id, updates) {
-  const existing = await getOrganization(id);
+async function updateOrganization(id, updates, tx) {
+  const exec = tx ? bindTx(tx) : { q };
+  const existing = await getOrganization(id, tx);
   if (!existing) return null;
   const next = { ...existing, ...updates, updated_at: now() };
-  await q('UPDATE organizations SET slug=$2, name=$3, status=$4, whmcs_client_id=$5, whmcs_service_id=$6, plan=$7, updated_at=$8 WHERE id=$1',
+  await exec.q('UPDATE organizations SET slug=$2, name=$3, status=$4, whmcs_client_id=$5, whmcs_service_id=$6, plan=$7, updated_at=$8 WHERE id=$1',
     [id, next.slug, next.name, next.status, next.whmcs_client_id, next.whmcs_service_id, next.plan, next.updated_at]);
-  return getOrganization(id);
+  return getOrganization(id, tx);
 }
 
 async function getUsers(orgId) { return all(orgId ? 'SELECT * FROM users WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM users ORDER BY created_at DESC', orgId ? [orgId] : []); }

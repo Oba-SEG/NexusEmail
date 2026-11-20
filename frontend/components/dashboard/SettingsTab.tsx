@@ -12,6 +12,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 interface SettingsTabProps {
   settings: any;
   user?: any;
+  sessionGenRef: { current: number };
   onSettingsChange: (updater: any) => void;
   apiFetch: (url: string, options?: any) => Promise<Response>;
   onGoToIntegrations?: () => void;
@@ -58,6 +59,7 @@ function DeliveryRow({
 export default function SettingsTab({
   settings,
   user,
+  sessionGenRef,
   onSettingsChange,
   apiFetch,
   onGoToIntegrations,
@@ -111,6 +113,7 @@ export default function SettingsTab({
       notify('Workspace name couldn\'t be saved.', 'error', 'Use between 2 and 80 characters.');
       return;
     }
+    const gen = sessionGenRef.current;
     setSavingOrg(true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/organization`, {
@@ -119,6 +122,7 @@ export default function SettingsTab({
         body: JSON.stringify({ name })
       });
       const data = await res.json().catch(() => null);
+      if (gen !== sessionGenRef.current) return;
       if (!res.ok) {
         notify('Workspace name couldn\'t be saved.', 'error', describeApiError(data?.error || `HTTP ${res.status}`));
         return;
@@ -135,6 +139,7 @@ export default function SettingsTab({
   };
 
   const toggleSchedule = async (enabled: boolean) => {
+    const gen = sessionGenRef.current;
     setPendingSchedule(true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/schedule`, {
@@ -142,6 +147,7 @@ export default function SettingsTab({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
       });
+      if (gen !== sessionGenRef.current) return;
       if (!res.ok) {
         notify('Scanning schedule couldn\'t be changed.', 'error', `HTTP ${res.status}`);
         return;
@@ -163,6 +169,7 @@ export default function SettingsTab({
       notify('Password couldn\'t be changed.', 'error', 'The new passwords do not match.');
       return;
     }
+    const gen = sessionGenRef.current;
     setSavingPassword(true);
     try {
       const res = await apiFetch(`${API_BASE}/settings/password`, {
@@ -174,6 +181,7 @@ export default function SettingsTab({
         })
       });
       const data = await res.json().catch(() => null);
+      if (gen !== sessionGenRef.current) return;
       if (!res.ok) {
         notify('Password couldn\'t be changed.', 'error', describeApiError(data?.error || `HTTP ${res.status}`));
         return;
@@ -191,23 +199,20 @@ export default function SettingsTab({
   const connected = DNS_PROVIDERS.filter((p: any) => settings?.provider_credentials?.[p.name.toLowerCase()]).length;
   const smtpHost = settings?.smtp_config?.host;
   const hasResend = !!settings?.resend_config?.api_key;
-  const emailStatus = !settings ? 'Loading…' : smtpHost ? 'SMTP' : hasResend ? 'Resend' : 'Not configured';
-  const emailDescription = smtpHost
-    ? `Outbound mail is sent through ${smtpHost}.`
-    : hasResend
-      ? 'Outbound mail is sent through Resend.'
+  const emailStatus = !settings ? 'Loading…' : hasResend ? 'Resend' : smtpHost ? 'SMTP' : 'Not configured';
+  const emailDescription = hasResend
+    ? 'Outbound mail is sent through Resend.'
+    : smtpHost
+      ? `Outbound mail is sent through ${smtpHost}.`
       : 'No outbound email channel is configured.';
   const slackConnected = !!settings?.slack_webhook;
   const reportRecipients = (() => {
     const raw = reportSchedule?.recipients;
-    if (Array.isArray(raw)) return raw.length;
-    if (typeof raw === 'string' && raw.trim()) {
-      try {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.length : 1;
-      } catch {
-        return 1;
-      }
+    if (Array.isArray(raw)) {
+      return raw.filter((address) => typeof address === 'string' && address.trim()).length;
+    }
+    if (typeof raw === 'string') {
+      return raw.split(',').map((address) => address.trim()).filter(Boolean).length;
     }
     return 0;
   })();
