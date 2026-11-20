@@ -259,7 +259,7 @@ router.post('/notifications', async (req, res, next) => {
 // Scheduled report delivery (frequency, recipients, Slack mirror).
 router.get('/report-schedule', async (req, res, next) => {
   try {
-    const raw = await db.getSetting('report_schedule', req.orgId);
+    const raw = await db.getOrgSetting('report_schedule', req.orgId);
     let saved = {};
     try { saved = raw ? JSON.parse(raw) : {}; } catch {}
     res.json({
@@ -275,7 +275,7 @@ router.get('/report-schedule', async (req, res, next) => {
 
 router.post('/report-schedule', async (req, res, next) => {
   try {
-    const raw = await db.getSetting('report_schedule', req.orgId);
+    const raw = await db.getOrgSetting('report_schedule', req.orgId);
     let prev = {};
     try { prev = raw ? JSON.parse(raw) : {}; } catch {}
     const enabled = req.body?.enabled === true;
@@ -285,13 +285,22 @@ router.post('/report-schedule', async (req, res, next) => {
     if (enabled && !recipients && !slack) {
       return res.status(400).json({ error: 'Add at least one recipient or enable Slack delivery.' });
     }
+    const prevRecipients = typeof prev.recipients === 'string' ? prev.recipients : '';
+    const prevSlack = prev.slack === true;
+    const channelConfigChanged = recipients !== prevRecipients
+      || slack !== prevSlack
+      || (enabled && prev.enabled !== true);
     const next = {
       enabled,
       frequency,
       recipients,
       slack,
-      last_run: prev.last_run || null,
+      // Keep delivery checkpoint/retry metadata when the configuration is
+      // unchanged; a config edit invalidates only the affected progress.
+      last_run: channelConfigChanged ? null : (prev.last_run || null),
       last_result: prev.last_result || null,
+      pending: channelConfigChanged ? [] : (Array.isArray(prev.pending) ? prev.pending : []),
+      last_attempted_at: channelConfigChanged ? null : (prev.last_attempted_at || null),
       updated_at: new Date().toISOString(),
     };
     await db.setSetting('report_schedule', JSON.stringify(next), req.orgId);

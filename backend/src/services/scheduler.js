@@ -1,5 +1,5 @@
 const cron = require('node-cron');
-const { getDomains, addScan, getScans, getAllBrands, getOrganizations, getUsers, getSetting, setSetting, getLatestScan } = require('../db/database');
+const { getDomains, addScan, getScans, getAllBrands, getOrganizations, getUsers, getSetting, getOrgSetting, setSetting, setSettingIfUnchanged, getLatestScan } = require('../db/database');
 const { DNSService } = require('./dnsProviders');
 const { captureException } = require('../capture');
 const { NotificationService } = require('./notifications');
@@ -261,9 +261,10 @@ async function runReportSchedules(now = Date.now()) {
 
   for (const org of orgs) {
     let schedule = null;
+    let scheduleRaw = null;
     try {
-      const raw = await getSetting('report_schedule', org.id);
-      schedule = raw ? JSON.parse(raw) : null;
+      scheduleRaw = await getOrgSetting('report_schedule', org.id);
+      schedule = scheduleRaw ? JSON.parse(scheduleRaw) : null;
     } catch { schedule = null; }
 
     if (schedule && schedule.enabled) {
@@ -287,22 +288,19 @@ async function runReportSchedules(now = Date.now()) {
         };
         const failed = channels.filter((channel) => channelFailed(outcome[channel]));
         const attemptedAt = new Date(now).toISOString();
-        // Re-read the setting so completion metadata never overwrites an
-        // edit (disable, new recipients) made while delivery was in flight.
-        let fresh = null;
-        try {
-          const raw = await getSetting('report_schedule', org.id);
-          fresh = raw ? JSON.parse(raw) : null;
-        } catch {}
         const next = {
-          ...(fresh && typeof fresh === 'object' ? fresh : schedule),
+          ...schedule,
           last_result: states,
           last_attempted_at: attemptedAt,
           pending: failed,
         };
         if (!failed.length) next.last_run = attemptedAt;
-        await setSetting('report_schedule', JSON.stringify(next), org.id);
-        results.push({ org: org.id, ...states, pending: failed });
+        // Compare-and-set: if the user edited the schedule while providers
+        // were running, keep their configuration untouched and let the next
+        // tick evaluate it instead of marking it delivered.
+        const saved = await setSettingIfUnchanged('report_schedule', JSON.stringify(next), org.id, scheduleRaw);
+        if (!saved) results.push({ org: org.id, config_changed: true, ...states });
+        else results.push({ org: org.id, ...states, pending: failed });
       } catch (error) {
         captureException(error);
         results.push({ org: org.id, error: error.message });
