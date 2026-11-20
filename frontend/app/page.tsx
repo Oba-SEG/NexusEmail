@@ -255,7 +255,10 @@ export default function Dashboard() {
   useEffect(() => {
     const storedToken = localStorage.getItem('nexusemail_token');
     const storedUser = localStorage.getItem('nexusemail_user');
-    if (storedToken) setToken(storedToken);
+    if (storedToken) {
+      tokenRef.current = storedToken;
+      setToken(storedToken);
+    }
     if (storedUser) setUser(JSON.parse(storedUser));
     setLoading(false);
   }, []);

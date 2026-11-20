@@ -214,7 +214,11 @@ export default function BrandsTab({
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/history`);
       if (gen !== sessionGenRef.current) return;
-      if (res.status === 401) { onAuthFailure(requestToken); return; }
+      if (res.status === 401) {
+        onAuthFailure(requestToken);
+        if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
+        return;
+      }
       if (!res.ok) {
         console.error(`Failed to load history: HTTP ${res.status}`);
         if (brandDetailsRef.current === brandId && sel === brandDetailsGenRef.current) setHistoryState('error');
