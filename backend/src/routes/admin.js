@@ -231,7 +231,7 @@ router.post('/organizations/:orgId/users/:userId/impersonate', async (req, res, 
       role: user.role,
       tv: user.token_version ?? 1,
       imp: true,
-      act: { sub: req.user.id, email: req.user.email }
+      act: { sub: req.user.id, email: req.user.email, tv: req.user.token_version ?? 1 }
     }, IMPERSONATION_TTL_SECONDS);
     res.json({
       token,

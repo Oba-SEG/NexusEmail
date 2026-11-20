@@ -177,7 +177,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
               Sign in to your console
             </button>
           </div>
-          <p className="mt-5 text-[11px] text-[#8b7567]">No credit card. No DNS changes to get your first score.</p>
+          <p className="mt-5 text-[11px] text-[#7a6353]">No credit card. No DNS changes to get your first score.</p>
         </div>
 
         <div className="relative h-[250px] overflow-hidden bg-[linear-gradient(180deg,#f5f0e9_0%,#ffd8bb_42%,#ffb27e_100%)] sm:h-[300px]">
@@ -210,7 +210,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
             return (
               <article key={feature.number} className="bg-[#f5f0e9] px-1 py-8 md:px-0">
                 <div className="flex items-center justify-between px-5 md:px-6">
-                  <span className="font-mono text-[10px] text-[#a08472]">{feature.number}</span>
+                  <span className="font-mono text-[10px] text-[#7a6353]">{feature.number}</span>
                   <Icon className="h-5 w-5 text-[#a34e1d]" strokeWidth={1.6} />
                 </div>
                 <h3 className="mt-10 px-5 font-serif text-[29px] leading-[1.05] tracking-[-0.02em] md:px-6">{feature.title}</h3>
@@ -271,7 +271,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
         <div className="grid gap-10 pt-12 md:grid-cols-3">
           {STEPS.map((step) => (
             <div key={step.number}>
-              <p className="font-mono text-[10px] text-[#a08472]">{step.number}</p>
+              <p className="font-mono text-[10px] text-[#7a6353]">{step.number}</p>
               <h3 className="mt-6 text-[15px] font-semibold tracking-[-0.01em]">{step.title}</h3>
               <p className="mt-2 text-[12.5px] leading-6 text-[#6b584c]">{step.body}</p>
             </div>
@@ -304,7 +304,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
           <div className="flex items-center gap-2.5">
             <span className="nbp-mark flex h-7 w-7 items-center justify-center text-[10px]">N</span>
             <span className="text-[13px] font-medium text-[#f6ece4]">Nexus</span>
-            <span className="text-[11px] text-[#7f6a5d]">Brand protection</span>
+            <span className="text-[11px] text-[#9a8578]">Brand protection</span>
           </div>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px]">
             <a href="#platform" className="hover:text-[#f6ece4]">Platform</a>
@@ -312,7 +312,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
             <button type="button" onClick={onSignIn} className="hover:text-[#f6ece4]">Sign in</button>
             <button type="button" onClick={onCreateAccount} className="hover:text-[#f6ece4]">Create account</button>
           </div>
-          <p className="text-[10.5px] text-[#6f5b4f]">Segbytes · Email security console</p>
+          <p className="text-[10.5px] text-[#9a8578]">Segbytes · Email security console</p>
         </div>
       </footer>
     </main>

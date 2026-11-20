@@ -370,7 +370,7 @@ const impersonate = async () => {
   }
 };
 
-  const sectionClass = "border-t border-border pt-4";
+  const sectionClass = "min-w-0 border-t border-border pt-4";
   const sectionHeadClass = "flex items-center justify-between border-b border-border pb-2";
   const sectionBodyClass = "max-h-72 overflow-y-auto";
 

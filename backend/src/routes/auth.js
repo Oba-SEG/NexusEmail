@@ -104,6 +104,12 @@ router.get('/me', requireAuth, async (req, res, next) => {
 // previously issued JWT (on any device) stops verifying immediately.
 router.post('/revoke', requireAuth, async (req, res, next) => {
   try {
+    // Support signing out of an impersonation session must not revoke the
+    // target customer's long-lived sessions. Discard the short-lived
+    // impersonation token instead; normal-session revocation is unchanged.
+    if (req.actor) {
+      return res.json({ success: true, impersonation_ended: true });
+    }
     await db.bumpUserTokenVersion(req.user.id);
     res.json({ success: true });
   } catch (err) { next(err); }

@@ -109,6 +109,9 @@ async function requireAuth(req, res, next) {
       }
       req.actor = actor;
       req.impersonationExpiresAt = payload.exp;
+      if (Number.isInteger(payload.act.tv) && payload.act.tv !== Number(actor.token_version ?? 1)) {
+        return res.status(401).json({ error: 'Impersonation session revoked; sign in again' });
+      }
     }
     req.user = user;
     req.orgId = user.org_id;
