@@ -103,6 +103,7 @@ export default function Dashboard() {
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
   const sessionGenRef = useRef(0);
+  const tokenRef = useRef<string | null>(null);
   const notificationsRevRef = useRef(0);
   const [configLoaded, setConfigLoaded] = useState(false);
   const [configError, setConfigError] = useState('');
@@ -231,6 +232,7 @@ export default function Dashboard() {
   const handleAuthFailure = () => {
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
@@ -254,6 +256,10 @@ export default function Dashboard() {
     if (storedUser) setUser(JSON.parse(storedUser));
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    tokenRef.current = token;
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -374,6 +380,7 @@ export default function Dashboard() {
       resetDomainState();
       resetBrandState();
       if (activeTab === 'admin') setActiveTab('domains');
+      tokenRef.current = data.token;
       localStorage.setItem('nexusemail_token', data.token);
       localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
       setToken(data.token);
@@ -413,6 +420,7 @@ export default function Dashboard() {
     setLogoutNotice(null);
     localStorage.removeItem('nexusemail_token');
     localStorage.removeItem('nexusemail_user');
+    tokenRef.current = null;
     sessionGenRef.current += 1;
     // Secrets must not survive an identity change in the SPA state.
     clearStatusQueue();
@@ -440,12 +448,13 @@ export default function Dashboard() {
 
   const loadBrands = async (gen: number = sessionGenRef.current) => {
     const seq = ++brandsLoadSeqRef.current;
+    const requestToken = token;
     try {
       const res = await apiFetch(`${API_BASE}/brands`);
       if (gen !== sessionGenRef.current) return;
       if (seq !== brandsLoadSeqRef.current) return;
       if (res.status === 401) {
-        handleAuthFailure();
+        if (requestToken === tokenRef.current) handleAuthFailure();
         return;
       }
       if (!res.ok) {
@@ -475,6 +484,7 @@ export default function Dashboard() {
 
   const loadDomains = async (gen: number = sessionGenRef.current) => {
     const listGen = domainListGenRef.current;
+    const requestToken = token;
     try {
       const result = await runDomainListLoad(() => apiFetch(`${API_BASE}/domains`), {
         domains,
@@ -489,7 +499,7 @@ export default function Dashboard() {
       // from session A must never sign the newer session out.
       if (gen !== sessionGenRef.current) return;
       if (result.kind === 'auth') {
-        handleAuthFailure();
+        if (requestToken === tokenRef.current) handleAuthFailure();
         return;
       }
       if (result.kind !== 'ok') {
@@ -1063,7 +1073,7 @@ export default function Dashboard() {
                   } catch {}
                 }}
                 onTokenRefreshed={(nextToken) => {
-                  sessionGenRef.current += 1;
+                  tokenRef.current = nextToken;
                   localStorage.setItem('nexusemail_token', nextToken);
                   setToken(nextToken);
                 }}
