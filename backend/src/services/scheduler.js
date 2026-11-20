@@ -264,15 +264,28 @@ async function runReportSchedules(now = Date.now()) {
     try {
       const raw = await getOrgSetting('report_schedule', org.id);
       schedule = raw ? JSON.parse(raw) : null;
-    } catch { schedule = null; }
+    } catch (error) {
+      captureException(error);
+      results.push({ org: org.id, error: `schedule: ${error.message}` });
+      continue;
+    }
 
     if (schedule && schedule.enabled) {
       const configHash = scheduleConfigHash(schedule);
       let state = null;
+      let stateRaw = null;
       try {
-        const raw = await getOrgSetting('report_schedule_state', org.id);
-        state = raw ? JSON.parse(raw) : null;
-      } catch { state = null; }
+        stateRaw = await getOrgSetting('report_schedule_state', org.id);
+      } catch (error) {
+        // A transient read failure must not look like "never delivered":
+        // skip this org now and retry on the next hourly tick.
+        captureException(error);
+        results.push({ org: org.id, error: `checkpoint: ${error.message}` });
+        continue;
+      }
+      if (stateRaw) {
+        try { state = JSON.parse(stateRaw); } catch { state = null; }
+      }
       // A checkpoint only applies while it belongs to this configuration.
       if (state && state.config_hash !== configHash) state = null;
       if (!isScheduleDue({ ...schedule, last_run: state?.last_run || null }, now)) continue;
