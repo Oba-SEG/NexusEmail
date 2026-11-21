@@ -95,7 +95,7 @@ export default function DashboardChrome({
       <div className="nbp-mark flex h-7 w-7 flex-shrink-0 items-center justify-center text-[11px]">N</div>
       <div className="min-w-0 leading-tight">
         <p className="text-[14px] font-semibold tracking-[-0.015em] text-foreground">Nexus</p>
-        <p className="text-[10.5px] text-muted-foreground">Email security console</p>
+        <p className="text-[10.5px] text-muted-foreground">Brand protection console</p>
       </div>
     </div>
   );
