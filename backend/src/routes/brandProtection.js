@@ -405,14 +405,20 @@ router.post('/:id/threats/:threatId/enrich', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
     const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
     if (!threat) return res.status(404).json({ error: 'Threat not found' });
-    const { id: jobId, created } = await db.enqueueJobDetailed({
-      type: 'threat.enrich',
-      payload: { orgId: req.orgId, brandId, threatId },
-      dedupeKey: `threat.enrich:${threatId}`,
+    const { id: jobId, created } = await db.withTransaction(async (tx) => {
+      const result = await db.enqueueJobDetailed({
+        type: 'threat.enrich',
+        payload: { orgId: req.orgId, brandId, threatId },
+        dedupeKey: `threat.enrich:${threatId}`,
+      }, tx);
+      // Same transaction as the insert: a worker can only see the job once
+      // the pending status is committed, so it cannot finish first and have
+      // this write overwrite `complete` with `pending`.
+      if (result.created) {
+        await db.updateBrandThreatEnrichment(threatId, brandId, req.orgId, { enrichment_status: 'pending' }, tx);
+      }
+      return result;
     });
-    // A freshly queued run must be observable as unfinished, otherwise a
-    // client polling a previously completed threat stops immediately.
-    if (created) await db.updateBrandThreatEnrichment(threatId, brandId, req.orgId, { enrichment_status: 'pending' });
     res.status(202).json({ success: true, job_id: jobId, threat_id: threatId, queued: created });
   } catch (err) { next(err); }
 });

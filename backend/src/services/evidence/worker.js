@@ -17,6 +17,13 @@ let running = false;
 let stopped = true;
 let lastRecoveryAt = 0;
 
+class LostClaimError extends Error {
+  constructor(jobId) {
+    super(`job ${jobId} claim lost`);
+    this.code = 'LOST_CLAIM';
+  }
+}
+
 function mergeMetadata(threat, evidence) {
   const current = threat && threat.metadata && typeof threat.metadata === 'object' ? threat.metadata : {};
   return { ...current, evidence };
@@ -38,7 +45,7 @@ function aggregateEvidenceStatus(results) {
   return 'failed';
 }
 
-async function enrichThreat(payload) {
+async function enrichThreat(payload, guard) {
   const orgId = payload.orgId || payload.org_id;
   const brandId = Number(payload.brandId || payload.brand_id);
   const threatId = Number(payload.threatId || payload.threat_id);
@@ -46,6 +53,7 @@ async function enrichThreat(payload) {
 
   const threat = await db.getBrandThreat(threatId, brandId, orgId);
   if (!threat) throw new Error('threat not found');
+  if (guard) await guard();
   await db.updateBrandThreatEnrichment(threatId, brandId, orgId, { enrichment_status: 'running' });
 
   try {
@@ -54,6 +62,9 @@ async function enrichThreat(payload) {
     const retentionExpiresAt = new Date(Date.now() + RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
     for (const result of results) {
+      // Re-check ownership before each write so a run whose lease was
+      // recovered cannot keep mutating another worker's job.
+      if (guard) await guard();
       let stored = null;
       if (Buffer.isBuffer(result.bytes) && result.bytes.length > 0) {
         stored = await putArtifact({
@@ -95,35 +106,60 @@ async function enrichThreat(payload) {
       }),
     };
     if (reachable) updates.last_seen = collectedAt;
+    if (guard) await guard();
     await db.updateBrandThreatEnrichment(threatId, brandId, orgId, updates);
     return { threatId, evidenceStatus, artifacts: results.length };
   } catch (error) {
-    await db.updateBrandThreatEnrichment(threatId, brandId, orgId, {
-      enrichment_status: 'failed',
-      evidence_status: 'failed',
-      metadata: mergeMetadata(threat, { error: error.message || String(error) }),
-    }).catch(() => {});
+    if (!error || error.code !== 'LOST_CLAIM') {
+      await db.updateBrandThreatEnrichment(threatId, brandId, orgId, {
+        enrichment_status: 'failed',
+        evidence_status: 'failed',
+        metadata: mergeMetadata(threat, { error: error.message || String(error) }),
+      }).catch(() => {});
+    }
     throw error;
   }
 }
 
 async function runJob(job) {
   // Keep the lease alive for the whole run so recoverStaleJobs cannot
-  // reclaim a job that is still being worked on.
+  // reclaim a job that is still being worked on. The claim token fences
+  // every terminal write to this run.
+  let lost = false;
+  const guard = async () => {
+    if (lost) throw new LostClaimError(job.id);
+    const owned = await db.heartbeatJob(job.id, job.claim_token);
+    if (!owned) {
+      lost = true;
+      throw new LostClaimError(job.id);
+    }
+  };
   const heartbeat = setInterval(() => {
-    db.heartbeatJob(job.id, WORKER_ID).catch(() => {});
+    if (lost) return;
+    db.heartbeatJob(job.id, job.claim_token)
+      .then((owned) => {
+        if (!owned) lost = true;
+      })
+      .catch(() => {});
   }, HEARTBEAT_MS);
   if (typeof heartbeat.unref === 'function') heartbeat.unref();
   try {
     if (job.type === 'threat.enrich') {
-      await enrichThreat(job.payload || {});
+      await enrichThreat(job.payload || {}, guard);
     } else {
       throw new Error(`Unknown job type: ${job.type}`);
     }
-    await db.completeJob(job.id);
+    const completed = await db.completeJob(job.id, job.claim_token);
+    if (!completed) console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
   } catch (error) {
+    if (error && error.code === 'LOST_CLAIM') {
+      console.warn(`[jobs] ${job.type} ${job.id} lost its claim; abandoning run`);
+      return;
+    }
     console.error(`[jobs] ${job.type} ${job.id} failed:`, error.message || error);
-    await db.failJob(job.id, error).catch((failure) => console.error('[jobs] failed to record failure:', failure.message));
+    const recorded = await db.failJob(job.id, job.claim_token, error)
+      .catch((failure) => { console.error('[jobs] failed to record failure:', failure.message); return null; });
+    if (recorded === null) console.warn(`[jobs] ${job.type} ${job.id} lost its claim before failure was recorded`);
   } finally {
     clearInterval(heartbeat);
   }

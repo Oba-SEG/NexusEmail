@@ -298,6 +298,7 @@ async function initSchema() {
       run_after TEXT NOT NULL,
       locked_at TEXT,
       locked_by TEXT,
+      claim_token TEXT,
       last_error TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -1063,8 +1064,9 @@ async function enqueueJob(job, tx) {
 
 async function claimJob(workerId) {
   const claimedAt = now();
+  const claimToken = crypto.randomUUID();
   const row = await one(
-    `UPDATE jobs SET status = 'running', locked_at = $2, locked_by = $1, attempts = attempts + 1, updated_at = $2
+    `UPDATE jobs SET status = 'running', locked_at = $2, locked_by = $1, claim_token = $3, attempts = attempts + 1, updated_at = $2
      WHERE id = (
        SELECT id FROM jobs
        WHERE status = 'pending' AND run_after <= $2
@@ -1073,31 +1075,39 @@ async function claimJob(workerId) {
        LIMIT 1
      )
      RETURNING *`,
-    [workerId, claimedAt]
+    [workerId, claimedAt, claimToken]
   );
   return hydrateJob(row);
 }
 
-async function completeJob(jobId) {
-  await q("UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, last_error = NULL, updated_at = $2 WHERE id = $1", [jobId, now()]);
+// Terminal writes are fenced on the per-claim token: if recovery handed the
+// job to another worker, these return false/null instead of stomping it.
+async function completeJob(jobId, claimToken) {
+  if (!claimToken) throw new Error('claimToken required');
+  const result = await q(
+    "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
+    [jobId, now(), claimToken]
+  );
+  return result.rowCount > 0;
 }
 
-async function failJob(jobId, error, retrySeconds = 30) {
-  const job = await one('SELECT * FROM jobs WHERE id = $1', [jobId]);
+async function failJob(jobId, claimToken, error, retrySeconds = 30) {
+  if (!claimToken) throw new Error('claimToken required');
+  const job = await one('SELECT * FROM jobs WHERE id = $1 AND claim_token = $2', [jobId, claimToken]);
   if (!job) return null;
   const failed = job.attempts >= job.max_attempts;
   const runAfter = new Date(Date.now() + retrySeconds * 1000).toISOString();
-  await q(
-    'UPDATE jobs SET status = $2, locked_at = NULL, locked_by = NULL, last_error = $3, run_after = $4, updated_at = $5 WHERE id = $1',
-    [jobId, failed ? 'failed' : 'pending', String(error || 'job failed').slice(0, 2000), failed ? job.run_after : runAfter, now()]
+  const result = await q(
+    'UPDATE jobs SET status = $2, locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = $3, run_after = $4, updated_at = $5 WHERE id = $1 AND claim_token = $6',
+    [jobId, failed ? 'failed' : 'pending', String(error || 'job failed').slice(0, 2000), failed ? job.run_after : runAfter, now(), claimToken]
   );
-  return { failed };
+  return result.rowCount > 0 ? { failed } : null;
 }
 
 async function recoverStaleJobs(staleMinutes = 15) {
   const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
   const result = await q(
-    "UPDATE jobs SET status = 'pending', locked_at = NULL, locked_by = NULL, last_error = 'worker stale', updated_at = $2 WHERE status = 'running' AND locked_at < $1",
+    "UPDATE jobs SET status = 'pending', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = 'worker stale', updated_at = $2 WHERE status = 'running' AND locked_at < $1",
     [cutoff, now()]
   );
   return result.rowCount;
@@ -1105,10 +1115,11 @@ async function recoverStaleJobs(staleMinutes = 15) {
 
 // Extends the lease of a job this worker still owns, so a long-running
 // collection is not reclaimed as stale while it is alive.
-async function heartbeatJob(jobId, workerId) {
+async function heartbeatJob(jobId, claimToken) {
+  if (!claimToken) return false;
   const result = await q(
-    "UPDATE jobs SET locked_at = $3, updated_at = $3 WHERE id = $1 AND locked_by = $2 AND status = 'running'",
-    [jobId, workerId, now()]
+    "UPDATE jobs SET locked_at = $3, updated_at = $3 WHERE id = $1 AND claim_token = $2 AND status = 'running'",
+    [jobId, claimToken, now()]
   );
   return result.rowCount > 0;
 }
@@ -1381,6 +1392,7 @@ async function initDatabase() {
   await ensureColumn('brand_threats', 'last_seen', 'TEXT');
   await ensureColumn('brand_threats', 'resolved_at', 'TEXT');
   await ensureColumn('brand_threats', 'metadata', 'TEXT');
+  await ensureColumn('jobs', 'claim_token', 'TEXT');
   await migrateBrandsFromSettingsBlob();
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {

@@ -81,12 +81,14 @@ export default function ThreatEvidenceDialog({
   const apiFetchRef = useRef(apiFetch);
   const onAuthFailureRef = useRef(onAuthFailure);
   const tokenRefRef = useRef(tokenRef);
+  const loadSeqRef = useRef(0);
   apiFetchRef.current = apiFetch;
   onAuthFailureRef.current = onAuthFailure;
   tokenRefRef.current = tokenRef;
 
   const loadEvidence = useCallback(async () => {
     if (!threat?.id) return;
+    const seq = ++loadSeqRef.current;
     const requestToken = tokenRefRef.current.current;
     setLoading(true);
     setError(null);
@@ -98,20 +100,29 @@ export default function ThreatEvidenceDialog({
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      // A newer request superseded this one; never let an older poll
+      // overwrite a newer collection's status.
+      if (seq !== loadSeqRef.current) return null;
       setArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
       setEnrichmentStatus(data.enrichment_status || 'pending');
       setEvidenceStatus(data.evidence_status || 'pending');
       return { enrichmentStatus: data.enrichment_status || 'pending', evidenceStatus: data.evidence_status || 'pending' };
     } catch (e) {
+      if (seq !== loadSeqRef.current) return null;
       setError(describeApiError(e instanceof Error ? e.message : null));
       return null;
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [brandId, threat?.id]);
 
   useEffect(() => {
     if (open && threat?.id) loadEvidence();
+    return () => {
+      // Invalidate any in-flight load when the dialog closes or the
+      // selected threat changes.
+      loadSeqRef.current += 1;
+    };
   }, [open, threat?.id, loadEvidence]);
 
   // Keep refreshing while a collection is still in flight. Without this the
