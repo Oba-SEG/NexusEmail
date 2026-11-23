@@ -15,6 +15,9 @@ function extensionFor(mime) {
   if (value.includes('jpeg') || value.includes('jpg')) return 'jpg';
   if (value.includes('webp')) return 'webp';
   if (value.includes('html')) return 'html';
+  if (value.includes('pdf')) return 'pdf';
+  if (value.includes('rfc822') || value.includes('eml')) return 'eml';
+  if (value.includes('ms-outlook') || value.includes('outlook')) return 'msg';
   if (value.includes('text/plain')) return 'txt';
   return 'bin';
 }

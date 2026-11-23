@@ -2,6 +2,7 @@ const os = require('os');
 const db = require('../../db/database');
 const { collectEvidence } = require('./collectors');
 const { putArtifact } = require('./storage');
+const { assessThreat } = require('../ai/assessment');
 
 const WORKER_ID = `${os.hostname()}:${process.pid}:${Math.random().toString(36).slice(2, 8)}`;
 const configuredPoll = Number(process.env.JOB_WORKER_POLL_MS || 1000);
@@ -107,6 +108,16 @@ async function enrichThreat(payload, guard) {
     };
     if (reachable) updates.last_seen = collectedAt;
     if (guard) await guard();
+    // Queue before publishing `complete`. The dialog stops polling as soon
+    // as it sees a terminal evidence status, so a job inserted afterwards
+    // could be missed by a poll landing in that gap.
+    await db.enqueueJob({
+      type: 'threat.assess',
+      payload: { orgId, brandId, threatId },
+      dedupeKey: `threat.assess:${threatId}`,
+    }).catch((error) => {
+      console.warn(`[jobs] failed to queue assessment for threat ${threatId}:`, error.message);
+    });
     await db.updateBrandThreatEnrichment(threatId, brandId, orgId, updates);
     return { threatId, evidenceStatus, artifacts: results.length };
   } catch (error) {
@@ -146,6 +157,8 @@ async function runJob(job) {
   try {
     if (job.type === 'threat.enrich') {
       await enrichThreat(job.payload || {}, guard);
+    } else if (job.type === 'threat.assess') {
+      await assessThreat(job.payload || {}, guard);
     } else {
       throw new Error(`Unknown job type: ${job.type}`);
     }

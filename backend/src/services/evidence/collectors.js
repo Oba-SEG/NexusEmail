@@ -136,12 +136,29 @@ async function collectRdap(threat) {
   }
 }
 
+function htmlSignals(buffer, mime) {
+  if (!String(mime || '').includes('html')) return {};
+  const text = buffer.toString('utf8', 0, Math.min(buffer.length, 200 * 1024));
+  const title = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    ?.replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200) || null;
+  return {
+    title: title || null,
+    forms: (text.match(/<form\b/gi) || []).length,
+    login_form: /<input[^>]+type\s*=\s*["']?password/i.test(text),
+    payment_form: /(cardnumber|card-number|cc-number|creditcard|credit-card|payment)/i.test(text),
+  };
+}
+
 async function collectHttp(threat) {
   const target = threatTarget(threat);
   if (!target) return skipped('http', 'missing or invalid URL');
   try {
     const response = await safeFetch(target.toString(), { timeoutMs: 12000, maxBytes: 512 * 1024 });
     const headers = response.headers || {};
+    const mime = String(headers['content-type'] || 'application/octet-stream').split(';')[0];
     const summary = {};
     for (const key of ['content-type', 'server', 'location', 'content-length', 'last-modified', 'cf-ray']) {
       if (headers[key] != null) summary[key] = headers[key];
@@ -150,7 +167,7 @@ async function collectHttp(threat) {
       kind: 'http',
       status: 'ok',
       source_url: response.finalUrl,
-      mime: String(headers['content-type'] || 'application/octet-stream').split(';')[0],
+      mime,
       bytes: response.bodyBuffer,
       sha256: sha256(response.bodyBuffer),
       collector: 'http',
@@ -160,6 +177,7 @@ async function collectHttp(threat) {
         headers: summary,
         redirects: response.redirects,
         truncated: response.truncated,
+        ...htmlSignals(response.bodyBuffer, mime),
       },
     };
   } catch (error) {
