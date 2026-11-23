@@ -1386,6 +1386,7 @@ async function backfillPendingEvidenceJobs() {
      FROM brand_threats t
      WHERE t.enrichment_status = 'pending'
        AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'threat.enrich:' || t.id)
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running') DO NOTHING
      RETURNING id`,
     [ts]
   );
@@ -1423,9 +1424,10 @@ async function initDatabase() {
   await ensureColumn('brand_threats', 'resolved_at', 'TEXT');
   await ensureColumn('brand_threats', 'metadata', 'TEXT');
   await ensureColumn('jobs', 'claim_token', 'TEXT');
+  // Legacy brands/threats must exist before the backfill selects them.
+  await migrateBrandsFromSettingsBlob();
   const backfilled = await backfillPendingEvidenceJobs();
   if (backfilled > 0) console.log(`[db] queued evidence for ${backfilled} pending threat(s)`);
-  await migrateBrandsFromSettingsBlob();
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
     if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) throw new Error('Set SEED_ADMIN_PASSWORD before first production boot');

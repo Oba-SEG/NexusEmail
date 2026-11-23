@@ -144,9 +144,15 @@ export default function ThreatEvidenceDialog({
     const poll = async () => {
       const status = await loadEvidence();
       if (cancelled) return;
-      const next = status?.enrichmentStatus;
+      // A transient failure returns null; keep trying while the dialog is
+      // open instead of silently abandoning an active collection.
+      if (!status) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      const next = status.enrichmentStatus;
       if (next && next !== 'pending' && next !== 'running') return;
-      if (!status?.enrichmentActive) return;
+      if (!status.enrichmentActive) return;
       timer = setTimeout(poll, 3000);
     };
     timer = setTimeout(poll, 3000);
