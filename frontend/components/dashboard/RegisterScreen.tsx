@@ -13,6 +13,8 @@ interface RegisterScreenProps {
   registerError: string | null;
   onSignIn: () => void;
   onBackToHome: () => void;
+  googleEnabled?: boolean;
+  onGoogleSignIn?: () => void;
 }
 
 const PROOF_POINTS = [
@@ -22,7 +24,7 @@ const PROOF_POINTS = [
 ];
 
 export default function RegisterScreen({
-  registerForm, onFormChange, onSubmit, registering, registerError, onSignIn, onBackToHome,
+  registerForm, onFormChange, onSubmit, registering, registerError, onSignIn, onBackToHome, googleEnabled, onGoogleSignIn,
 }: RegisterScreenProps) {
   return (
     <main className="min-h-screen bg-[#09090b] text-[#f5f2ee]">
@@ -167,6 +169,26 @@ export default function RegisterScreen({
                 {registering ? "Creating workspace…" : "Create workspace"}
               </Button>
             </form>
+
+            {googleEnabled && (
+              <div className="mt-5">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="h-px flex-1 bg-white/10" />
+                  <span className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-white/30">or</span>
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
+                <button
+                  type="button"
+                  onClick={onGoogleSignIn}
+                  className="flex h-11 w-full items-center justify-center gap-2.5 rounded-lg border border-white/15 bg-white/[0.03] text-[13px] font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
+                >
+                  <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                    <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.9-5.4 3.9a6 6 0 1 1 0-12c1.9 0 3.2.8 4 1.5l2.7-2.6A9.6 9.6 0 0 0 12 2a10 10 0 1 0 0 20c5.8 0 9.6-4.1 9.6-9.8 0-.7-.1-1.2-.2-1.7H12z" />
+                  </svg>
+                  Continue with Google
+                </button>
+              </div>
+            )}
 
             <div className="mt-7 border-t border-white/10 pt-5">
               <p className="text-[12px] text-white/40">

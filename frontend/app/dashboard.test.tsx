@@ -443,7 +443,7 @@ test('tab impersonation restores independently of the shared admin session', asy
   await waitFor(() => expect(sessionStorage.getItem('nexusemail_token')).toBe('refreshed-target'));
   expect(JSON.parse(sessionStorage.getItem('nexusemail_impersonator')!)).toEqual({ token: 'tok', user: { id: 1 }, actor: { email: 'admin@example.test' }, targetToken: 'refreshed-target' });
   expect(localStorage.getItem('nexusemail_token')).toBeNull();
-  expect((global.fetch as any).mock.calls.some(([, options]: any[]) => options.headers.Authorization === 'Bearer target-token')).toBe(true);
+  expect((global.fetch as any).mock.calls.some(([, options]: any[]) => options?.headers?.Authorization === 'Bearer target-token')).toBe(true);
   cleanup();
   sessionStorage.clear();
   render(<Dashboard />);

@@ -44,6 +44,15 @@ import { PASSING_SCORE, WARNING_SCORE, scoreBand, filterByBand } from "@/lib/sco
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
+const GOOGLE_ERROR_MESSAGES: Record<string, string> = {
+  google_cancelled: 'Google sign-in was cancelled.',
+  google_account_exists: 'This email already has a password account. Sign in with your password instead.',
+  google_email_unverified: 'Google did not confirm this email address.',
+  google_suspended: 'This account is suspended.',
+  google_unavailable: 'Google sign-in is not available right now.',
+  google_failed: 'Google sign-in could not be completed. Try again.'
+};
+
 const TAB_VALUES = ['domains', 'brands', 'threats', 'reports', 'integrations', 'notifications', 'settings', 'admin'] as const;
 type TabValue = typeof TAB_VALUES[number];
 type AuthView = 'home' | 'login' | 'register';
@@ -102,6 +111,7 @@ export default function Dashboard() {
   const fixResultsRef = useRef<Map<number, any>>(new Map());
   const [token, setToken] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   // Bumped on every identity change (login, logout, auth failure). Async
   // settings responses carry the generation they were started under and
   // are dropped if a newer identity exists.
@@ -317,6 +327,31 @@ export default function Dashboard() {
   useEffect(() => {
     tokenRef.current = token;
   }, [token]);
+
+  // Optional Google sign-in. The button only appears when the backend has
+  // OAuth credentials configured; the callback returns here with either a
+  // session cookie or an auth_error code.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/auth/google/status`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (!cancelled && data?.enabled) setGoogleEnabled(true); })
+      .catch(() => {});
+    const params = new URLSearchParams(window.location.search);
+    const errorCode = params.get('auth_error');
+    if (errorCode) {
+      setLoginError(GOOGLE_ERROR_MESSAGES[errorCode] || GOOGLE_ERROR_MESSAGES.google_failed);
+      setAuthView('login');
+      params.delete('auth_error');
+      const query = params.toString();
+      window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
+    return () => { cancelled = true; };
+  }, []);
+
+  const startGoogleSignIn = () => {
+    window.location.assign(`${API_BASE}/auth/google/start?return_to=${encodeURIComponent(window.location.origin)}`);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -613,6 +648,8 @@ export default function Dashboard() {
           onSubmit={login}
           loggingIn={loggingIn}
           loginError={loginError}
+          googleEnabled={googleEnabled}
+          onGoogleSignIn={startGoogleSignIn}
           onCreateAccount={() => { setLoginError(''); setAuthView('register'); }}
           onBackToHome={() => { setLoginError(''); setAuthView('home'); }}
         />
@@ -626,6 +663,8 @@ export default function Dashboard() {
           onSubmit={register}
           registering={registering}
           registerError={registerError}
+          googleEnabled={googleEnabled}
+          onGoogleSignIn={startGoogleSignIn}
           onSignIn={() => { setRegisterError(''); setAuthView('login'); }}
           onBackToHome={() => { setRegisterError(''); setAuthView('home'); }}
         />

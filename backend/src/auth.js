@@ -121,6 +121,7 @@ async function publicUser(user) {
     name: user.name,
     role: user.role,
     platform_role: user.platform_role || null,
+    has_password: !!user.password_hash,
     org_id: user.org_id,
     organization: org ? { id: org.id, name: org.name, slug: org.slug } : null
   };

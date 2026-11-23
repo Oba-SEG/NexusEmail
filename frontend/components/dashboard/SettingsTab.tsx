@@ -76,6 +76,7 @@ export default function SettingsTab({
   const [savingOrg, setSavingOrg] = useState(false);
   const [pendingSchedule, setPendingSchedule] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+  const hasPassword = user?.has_password !== false;
   const [savingPassword, setSavingPassword] = useState(false);
   const [reportSchedule, setReportSchedule] = useState<any>(null);
   const [reportScheduleFailed, setReportScheduleFailed] = useState(false);
@@ -359,14 +360,16 @@ export default function SettingsTab({
         </div>
         <div className="space-y-3 py-4">
           <div className="grid gap-3 sm:grid-cols-3">
-            <FormField
-              label="Current password"
-              type="password"
-              autoComplete="current-password"
-              value={passwordForm.current}
-              onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
-              disabled={savingPassword}
-            />
+            {hasPassword && (
+              <FormField
+                label="Current password"
+                type="password"
+                autoComplete="current-password"
+                value={passwordForm.current}
+                onChange={(e) => setPasswordForm({ ...passwordForm, current: e.target.value })}
+                disabled={savingPassword}
+              />
+            )}
             <FormField
               label="New password"
               type="password"
@@ -388,11 +391,11 @@ export default function SettingsTab({
             <Button
               size="sm"
               onClick={changePassword}
-              disabled={savingPassword || !passwordForm.current || !passwordForm.next || !passwordForm.confirm}
+              disabled={savingPassword || (hasPassword && !passwordForm.current) || !passwordForm.next || !passwordForm.confirm}
               aria-busy={savingPassword}
             >
               {savingPassword ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
-              {savingPassword ? 'Changing…' : 'Change password'}
+              {savingPassword ? 'Saving…' : hasPassword ? 'Change password' : 'Set password'}
             </Button>
             <p className="text-[11.5px] text-muted-foreground">At least 12 characters. Other devices will be signed out.</p>
           </div>

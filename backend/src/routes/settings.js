@@ -128,12 +128,15 @@ router.post('/password', passwordLimiter, async (req, res, next) => {
   try {
     const current = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
     const nextPassword = typeof req.body?.new_password === 'string' ? req.body.new_password : '';
-    if (!current || !nextPassword) {
-      return res.status(400).json({ error: 'Current and new passwords are required' });
+    if (!nextPassword) {
+      return res.status(400).json({ error: 'A new password is required' });
     }
     const pwError = provisioning.passwordError(nextPassword);
     if (pwError) return res.status(400).json({ error: pwError });
-    if (!req.user.password_hash || !verifyPassword(current, req.user.password_hash)) {
+    const hadPassword = !!req.user.password_hash;
+    // Google-only accounts start without a password, so this is their first
+    // set rather than a change; all other accounts must prove the old one.
+    if (hadPassword && (!current || !verifyPassword(current, req.user.password_hash))) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
     let tokenVersion;
@@ -141,7 +144,7 @@ router.post('/password', passwordLimiter, async (req, res, next) => {
       tokenVersion = await db.setUserPassword(req.user.id, hashPassword(nextPassword), tx);
       await db.insertAuditLog({
         ...auditIdentity(req),
-        action: 'user.password_changed',
+        action: hadPassword ? 'user.password_changed' : 'user.password_set',
         targetOrgId: req.orgId
       }, tx);
     });

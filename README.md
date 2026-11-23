@@ -66,6 +66,26 @@ All settings are configurable via the web interface - no `.env` editing required
 3. **Scan Schedule**: Enable automatic scans
 4. **Auto-Remediation**: Enable one-click fixes
 
+## Optional: Google sign-in
+
+Google sign-in stays hidden until three backend environment variables are set:
+
+```
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://nexusapi.segbytes.xyz/api/auth/google/callback
+```
+
+1. In Google Cloud Console, create an OAuth 2.0 **Web application** client.
+2. Add the callback above to **Authorized redirect URIs** (and the staging API callback if needed).
+3. Set the three variables in the backend `.env` and restart it.
+
+The first Google sign-in creates a workspace and owner account; the account has
+no password until one is set. If an email already belongs to a password
+account, Google sign-in asks the user to sign in with that password instead of
+silently linking the accounts. Set `GOOGLE_APP_REDIRECT` only to force a return
+URL; otherwise the console returns to the allowlisted origin it started from.
+
 ## Usage
 
 ### Adding a Domain

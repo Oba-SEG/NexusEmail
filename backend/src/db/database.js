@@ -106,6 +106,7 @@ async function initSchema() {
       platform_role TEXT,
       status TEXT NOT NULL DEFAULT 'active',
       password_hash TEXT,
+      google_sub TEXT,
       token_version INTEGER NOT NULL DEFAULT 1,
       whmcs_client_id TEXT,
       whmcs_contact_id TEXT,
@@ -305,11 +306,12 @@ async function updateOrganization(id, updates, tx) {
 async function getUsers(orgId) { return all(orgId ? 'SELECT * FROM users WHERE org_id = $1 ORDER BY created_at DESC' : 'SELECT * FROM users ORDER BY created_at DESC', orgId ? [orgId] : []); }
 async function getUser(id) { return one('SELECT * FROM users WHERE id = $1', [id]); }
 async function getUserByEmail(email) { return one('SELECT * FROM users WHERE lower(email) = lower($1)', [email || '']); }
+async function getUserByGoogleSub(googleSub) { return one('SELECT * FROM users WHERE google_sub = $1', [googleSub || '']); }
 async function addUser(user, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
-  const created = { id: user.id || nextId('usr'), org_id: user.org_id, email: user.email, name: user.name || user.email, role: user.role || 'member', platform_role: user.platform_role || null, status: user.status || 'active', password_hash: user.password_hash || null, whmcs_client_id: user.whmcs_client_id || null, whmcs_contact_id: user.whmcs_contact_id || null, created_at: user.created_at || now(), updated_at: user.updated_at || now() };
-  await exec.q('INSERT INTO users (id, org_id, email, name, role, platform_role, status, password_hash, whmcs_client_id, whmcs_contact_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)',
-    [created.id, created.org_id, created.email, created.name, created.role, created.platform_role, created.status, created.password_hash, created.whmcs_client_id, created.whmcs_contact_id, created.created_at, created.updated_at]);
+  const created = { id: user.id || nextId('usr'), org_id: user.org_id, email: user.email, name: user.name || user.email, role: user.role || 'member', platform_role: user.platform_role || null, status: user.status || 'active', password_hash: user.password_hash || null, google_sub: user.google_sub || null, whmcs_client_id: user.whmcs_client_id || null, whmcs_contact_id: user.whmcs_contact_id || null, created_at: user.created_at || now(), updated_at: user.updated_at || now() };
+  await exec.q('INSERT INTO users (id, org_id, email, name, role, platform_role, status, password_hash, google_sub, whmcs_client_id, whmcs_contact_id, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+    [created.id, created.org_id, created.email, created.name, created.role, created.platform_role, created.status, created.password_hash, created.google_sub, created.whmcs_client_id, created.whmcs_contact_id, created.created_at, created.updated_at]);
   return created;
 }
 
@@ -1078,6 +1080,8 @@ async function initDatabase() {
   await initSchema();
   await migrateLegacyJsonIfNeeded();
   await ensureColumn('users', 'token_version', 'INTEGER NOT NULL DEFAULT 1');
+  await ensureColumn('users', 'google_sub', 'TEXT');
+  await q('CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_key ON users (google_sub) WHERE google_sub IS NOT NULL');
   await ensureColumn('brands', 'scan_claim', 'TEXT');
   await ensureColumn('brands', 'scan_claimed_at', 'TEXT');
   await migrateBrandsFromSettingsBlob();
@@ -1139,7 +1143,7 @@ module.exports = {
   getSetting, getOrgSetting, setSetting, deleteSetting, addReport, getReports, getReportById, deleteReport,
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
-  getUsers, getUser, getUserByEmail, addUser, nextNumericId,
+  getUsers, getUser, getUserByEmail, getUserByGoogleSub, addUser, nextNumericId,
   ensureColumn, bumpUserTokenVersion, setUserPassword, updatePasswordHash,
   initDatabase,
   // T162 — Brand Protection relational helpers

@@ -43,6 +43,10 @@ services:
       - DOMAIN_CAP=${DOMAIN_CAP:-25}
       - SENTRY_DSN=https://35daeff54c63b969a3a4c5231e2b247c@o4512322868936704.ingest.de.sentry.io/4512422741934160
       - SENTRY_ENVIRONMENT=staging
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-}
+      - GOOGLE_APP_REDIRECT=${GOOGLE_APP_REDIRECT:-}
     # The scanner must see world-visible DNS, not the LAN resolver's
     # (possibly stale, negative-cached) view. Pin public resolvers —
     # verified: the LAN chain at 127.0.0.53 served a stale ENOTFOUND for

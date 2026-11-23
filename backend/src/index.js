@@ -30,6 +30,7 @@ async function main() {
   await initDatabase();
 
   const authRoutes = require('./routes/auth');
+  const googleAuthRoutes = require('./routes/google');
   const adminRoutes = require('./routes/admin');
   const domainRoutes = require('./routes/domains');
   const { router: settingsRoutes } = require('./routes/settings');
@@ -138,6 +139,7 @@ async function main() {
   });
 
   // Routes
+  app.use('/api/auth/google', googleAuthRoutes.router);
   app.use('/api/auth', authRoutes);
   // Platform-admin customer-data access; admin.js additionally gates its
   // whole router with requirePlatformAdmin (belt and braces).
