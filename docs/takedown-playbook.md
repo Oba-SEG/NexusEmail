@@ -76,7 +76,7 @@ Build one pack per case, reuse it across providers.
 - TLS certificate subject, issuer, validity dates
 - Redirect chain and final destination
 - HTTP response headers
-- If email was used: original EML/MSG/MBOX with full headers, plus body
+- If email was used: EML/MSG/MBOX with full headers, plus body — strip recipient addresses and other victim identifiers first (rule 8)
 
 ### E. Rights and authorization
 
@@ -122,7 +122,7 @@ List filenames, sizes, and SHA-256 hashes. Keep originals; do not overwrite scre
 - **Social:** Meta/Instagram, X, LinkedIn, TikTok, and YouTube each have impersonation and IP routes. Use the route that matches the harm: impersonation for fake accounts, trademark for copied marks, copyright for copied media, fraud for payment/data requests. [Instagram impersonation](https://help.instagram.com/1291391774792379), [TikTok impersonation](https://support.tiktok.com/en/safety-hc/report-a-problem/report-an-impersonation-account), [Meta IP](https://www.meta.com/help/policies/3234337743488413/).
 - **App stores:** Apple uses App Store Content Dispute, App Name Dispute, and Report an app; Google Play separates impersonation flags from trademark/copyright forms and warns that the wrong form can delay processing. [Apple disputes](https://www.apple.com/legal/intellectual-property/dispute-forms/app-store/), [Google Play impersonation](https://support.google.com/googleplay/android-developer/answer/16341334).
 - **Amazon:** Brand Registry’s Report a Violation tool for enrolled brands; public infringement form for rights owners not enrolled. [Amazon reporting](https://sell.amazon.com/blog/report-a-violation-to-amazon).
-- **Email evidence:** many registrars require the original email in EML/MSG/MBOX with full headers; screenshots and PDFs can be altered and may be rejected. Attach the original message, not just a screenshot. [Rapid7 evidence guide](https://docs.rapid7.com/threat-command/evidence-best-practice-guidelines/), [RRSG effective reports](https://rrsg.org/wp-content/uploads/2025/03/Effective-DNS-Abuse-Reports-2025.pdf).
+- **Email evidence:** many registrars require the original email in EML/MSG/MBOX with full headers; screenshots and PDFs can be altered and may be rejected. Attach the original message, not just a screenshot — but redact recipient addresses and other victim identifiers first; never submit victim data (rule 8). [Rapid7 evidence guide](https://docs.rapid7.com/threat-command/evidence-best-practice-guidelines/), [RRSG effective reports](https://rrsg.org/wp-content/uploads/2025/03/Effective-DNS-Abuse-Reports-2025.pdf).
 - **Legal routes:** DMCA is for copyright, not trademark. UDRP requires trademark rights, confusing similarity, no legitimate interest, and bad faith; remedies are transfer or cancellation. ACPA is federal court litigation with damages/injunctive relief. Use counsel. [UDRP vs ACPA](https://www.tuckerup.com/blog/udrp-vs-acpa-cybersquatted-domain-name/).
 
 ## 5. Templates
@@ -155,7 +155,7 @@ Evidence attached:
 2. {case-id}-rdap-{domain}.json — registration record
 3. {case-id}-dns-{domain}.txt — A/AAAA/CNAME/MX records
 4. {case-id}-tls-{domain}.txt — certificate subject/issuer/validity
-5. {case-id}-email.eml — original phishing email with full headers (if applicable)
+5. {case-id}-email.eml — phishing email with full headers, recipient addresses and other victim identifiers redacted (if applicable)
 6. {case-id}-authorization.pdf — letter of authorization (if agent)
 
 I am authorized to report on behalf of {Brand}. Please confirm receipt and provide a case ID. I can supply additional evidence or a live capture on request.
@@ -190,7 +190,7 @@ Evidence attached:
 3. Page source/DOM hash
 4. urlscan.io or archive capture link
 5. DNS/RDAP and certificate snapshot
-6. Original phishing email with full headers, if applicable
+6. Phishing email with full headers, recipient addresses and other victim identifiers redacted, if applicable
 
 Please preserve relevant access logs for this URL and confirm receipt. I am authorized to act for {Brand}.
 
@@ -214,7 +214,7 @@ Last confirmed live (UTC): {timestamp}
 
 The URL above is an active phishing page impersonating {Brand}. It copies {login/checkout} and collects {credentials/payment data}. The page is not authorized by {Brand}.
 
-Attached: screenshot with URL bar and UTC timestamp; RDAP; DNS; TLS certificate; page source; original phishing email with full headers if available.
+Attached: screenshot with URL bar and UTC timestamp; RDAP; DNS; TLS certificate; page source; phishing email with full headers and victim identifiers redacted, if available.
 
 Requested action: Forward to the origin host and site operator; disable access if Cloudflare hosts the content. If Cloudflare is the registrar, please also review under the Registrar category.
 ```

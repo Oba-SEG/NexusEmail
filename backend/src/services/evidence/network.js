@@ -43,6 +43,26 @@ function inV4Block(address, base, bits) {
   return (value & mask) === (network & mask);
 }
 
+// Total elapsed-time deadline. Node's socket `timeout` only limits
+// inactivity, so a peer dripping one byte per interval can hold a
+// collection open indefinitely. This bounds the whole operation.
+function remainingMs(deadlineAt) {
+  if (!deadlineAt) return null;
+  return deadlineAt - Date.now();
+}
+
+function withDeadline(promise, deadlineAt, label) {
+  const remaining = remainingMs(deadlineAt);
+  if (remaining == null) return promise;
+  if (remaining <= 0) return Promise.reject(new Error(`${label} deadline exceeded`));
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} deadline exceeded`)), remaining);
+    if (typeof timer.unref === 'function') timer.unref();
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 function mappedIpv4(value) {
   const dotted = value.match(/^(?:::ffff:|(?:0:){5}ffff:)(\d{1,3}(?:\.\d{1,3}){3})$/);
   if (dotted) return dotted[1];
@@ -93,14 +113,14 @@ function validateTargetUrl(input) {
   return url;
 }
 
-async function resolveSafeTarget(input) {
+async function resolveSafeTarget(input, deadlineAt) {
   const url = validateTargetUrl(input);
   const host = url.hostname.replace(/^\[|\]$/g, '');
   let addresses;
   if (net.isIP(host)) {
     addresses = [{ address: host, family: net.isIP(host) }];
   } else {
-    addresses = await dns.lookup(host, { all: true, verbatim: true });
+    addresses = await withDeadline(dns.lookup(host, { all: true, verbatim: true }), deadlineAt, 'DNS lookup');
   }
   if (!addresses || addresses.length === 0) throw new Error('Host did not resolve');
   for (const entry of addresses) {
@@ -112,17 +132,24 @@ async function resolveSafeTarget(input) {
 function requestOnce(target, options = {}) {
   const maxBytes = options.maxBytes || 512 * 1024;
   const timeoutMs = options.timeoutMs || 10000;
+  const remaining = remainingMs(options.deadlineAt);
+  if (remaining != null && remaining <= 0) {
+    return Promise.reject(new Error('Collection deadline exceeded'));
+  }
   const transport = target.url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
     let settled = false;
+    let deadlineTimer = null;
     const finish = (value) => {
       if (settled) return;
       settled = true;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       resolve(value);
     };
     const fail = (error) => {
       if (settled) return;
       settled = true;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       reject(error);
     };
     const request = transport.request({
@@ -178,6 +205,10 @@ function requestOnce(target, options = {}) {
     });
     request.on('timeout', () => request.destroy(new Error('Request timed out')));
     request.on('error', fail);
+    if (remaining != null) {
+      deadlineTimer = setTimeout(() => request.destroy(new Error('Collection deadline exceeded')), remaining);
+      if (typeof deadlineTimer.unref === 'function') deadlineTimer.unref();
+    }
     request.end(options.body || undefined);
   });
 }
@@ -186,9 +217,15 @@ async function safeFetch(input, options = {}) {
   let current = validateTargetUrl(input);
   const redirects = [];
   const maxRedirects = options.maxRedirects ?? 5;
+  const timeoutMs = options.timeoutMs || 10000;
+  const totalTimeoutMs = options.totalTimeoutMs || timeoutMs * (maxRedirects + 1);
+  const deadlineAt = Date.now() + totalTimeoutMs;
+  const scoped = { ...options, deadlineAt };
   for (let index = 0; index <= maxRedirects; index += 1) {
-    const target = await resolveSafeTarget(current);
-    const result = await requestOnce(target, options);
+    const left = remainingMs(deadlineAt);
+    if (left != null && left <= 0) throw new Error('Collection deadline exceeded');
+    const target = await resolveSafeTarget(current, deadlineAt);
+    const result = await requestOnce(target, scoped);
     const location = result.headers && result.headers.location;
     if (location && [301, 302, 303, 307, 308].includes(result.statusCode)) {
       if (index === maxRedirects) throw new Error('Too many redirects');

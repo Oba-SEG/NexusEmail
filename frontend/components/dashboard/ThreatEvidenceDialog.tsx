@@ -114,6 +114,28 @@ export default function ThreatEvidenceDialog({
     if (open && threat?.id) loadEvidence();
   }, [open, threat?.id, loadEvidence]);
 
+  // Keep refreshing while a collection is still in flight. Without this the
+  // dialog would show the pre-collection snapshot forever if the worker
+  // finishes after the initial load (or after the manual six-poll loop).
+  useEffect(() => {
+    if (!open || !threat?.id) return undefined;
+    if (enrichmentStatus !== 'pending' && enrichmentStatus !== 'running') return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const status = await loadEvidence();
+      if (cancelled) return;
+      const next = status?.enrichmentStatus;
+      if (next && next !== 'pending' && next !== 'running') return;
+      timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, threat?.id, enrichmentStatus, loadEvidence]);
+
   const screenshot = artifacts.find((artifact) => artifact.kind === 'screenshot' && artifact.storage_key);
   const screenshotId = screenshot?.id;
   const screenshotKey = screenshot?.storage_key;
@@ -159,11 +181,9 @@ export default function ThreatEvidenceDialog({
       }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       notify('Evidence collection queued', 'info');
-      for (let attempt = 0; attempt < 6; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        const status = await loadEvidence();
-        if (status?.enrichmentStatus === 'complete' || status?.enrichmentStatus === 'failed') break;
-      }
+      // The dialog's polling effect takes over from here and stops as soon
+      // as the worker reports a terminal status.
+      await loadEvidence();
     } catch (e) {
       notify('Could not queue evidence collection', 'error', describeApiError(e instanceof Error ? e.message : null));
     } finally {

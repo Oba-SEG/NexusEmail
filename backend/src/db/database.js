@@ -1031,12 +1031,12 @@ function hydrateJob(row) {
   return { ...row, payload: parse(row.payload, {}) };
 }
 
-async function enqueueJob(job, tx) {
+async function enqueueJobDetailed(job, tx) {
   const exec = tx ? bindTx(tx) : { q, one, all };
   const dedupeKey = job.dedupeKey || job.dedupe_key || null;
   if (dedupeKey) {
     const existing = await exec.one("SELECT id FROM jobs WHERE dedupe_key = $1 AND status IN ('pending', 'running') LIMIT 1", [dedupeKey]);
-    if (existing) return existing.id;
+    if (existing) return { id: existing.id, created: false };
   }
   const createdAt = now();
   const insert = () => exec.one(
@@ -1049,11 +1049,16 @@ async function enqueueJob(job, tx) {
   let row = await insert();
   if (!row && dedupeKey) {
     const existing = await exec.one("SELECT id FROM jobs WHERE dedupe_key = $1 AND status IN ('pending', 'running') LIMIT 1", [dedupeKey]);
-    if (existing) return existing.id;
+    if (existing) return { id: existing.id, created: false };
     row = await insert();
   }
   if (!row) throw new Error('Could not enqueue job');
-  return row.id;
+  return { id: row.id, created: true };
+}
+
+async function enqueueJob(job, tx) {
+  const { id } = await enqueueJobDetailed(job, tx);
+  return id;
 }
 
 async function claimJob(workerId) {
@@ -1096,6 +1101,16 @@ async function recoverStaleJobs(staleMinutes = 15) {
     [cutoff, now()]
   );
   return result.rowCount;
+}
+
+// Extends the lease of a job this worker still owns, so a long-running
+// collection is not reclaimed as stale while it is alive.
+async function heartbeatJob(jobId, workerId) {
+  const result = await q(
+    "UPDATE jobs SET locked_at = $3, updated_at = $3 WHERE id = $1 AND locked_by = $2 AND status = 'running'",
+    [jobId, workerId, now()]
+  );
+  return result.rowCount > 0;
 }
 
 async function getBrandTakedowns(brandId, orgId) {
@@ -1432,7 +1447,7 @@ module.exports = {
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
   getBrandThreats, getBrandThreat, addBrandThreat, deleteBrandThreatByDomain, updateBrandThreatEnrichment,
   addEvidenceArtifact, getEvidenceArtifacts, getEvidenceArtifact,
-  enqueueJob, claimJob, completeJob, failJob, recoverStaleJobs,
+  enqueueJob, enqueueJobDetailed, claimJob, completeJob, failJob, recoverStaleJobs, heartbeatJob,
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,

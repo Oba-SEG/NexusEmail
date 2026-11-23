@@ -2,7 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile } = require('child_process');
-const { validateTargetUrl, resolveSafeTarget } = require('./network');
+const { validateTargetUrl, safeFetch } = require('./network');
 
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 
@@ -35,6 +35,10 @@ async function readLimited(response, maxBytes) {
 
 async function captureViaService(targetUrl) {
   const endpoint = new URL(process.env.SCREENSHOT_SERVICE_URL);
+  const token = process.env.SCREENSHOT_SERVICE_TOKEN;
+  if (token && endpoint.protocol !== 'https:') {
+    throw new Error('SCREENSHOT_SERVICE_URL must use HTTPS when SCREENSHOT_SERVICE_TOKEN is set');
+  }
   endpoint.searchParams.set('url', targetUrl);
   const serviceWidth = positiveInt(process.env.SCREENSHOT_SERVICE_WIDTH, 1280);
   const serviceHeight = positiveInt(process.env.SCREENSHOT_SERVICE_HEIGHT, 720);
@@ -42,7 +46,7 @@ async function captureViaService(targetUrl) {
   endpoint.searchParams.set('height', String(serviceHeight));
   const response = await fetch(endpoint, {
     method: 'GET',
-    headers: process.env.SCREENSHOT_SERVICE_TOKEN ? { authorization: `Bearer ${process.env.SCREENSHOT_SERVICE_TOKEN}` } : {},
+    headers: token ? { authorization: `Bearer ${token}` } : {},
     signal: AbortSignal.timeout(20000),
   });
   if (!response.ok) throw new Error(`screenshot service returned HTTP ${response.status}`);
@@ -62,7 +66,12 @@ async function captureViaService(targetUrl) {
 }
 
 async function captureViaChrome(targetUrl, chromeBin) {
-  await resolveSafeTarget(targetUrl);
+  // Chrome follows redirects itself and cannot be told to re-check each hop,
+  // so walk the chain with the SSRF-safe fetcher first. Any private or
+  // blocked hop aborts the capture. Residual risk is a DNS change between
+  // this check and Chrome's own resolution, which is why local capture stays
+  // opt-in behind SCREENSHOT_ALLOW_LOCAL=1 and off in every shipped config.
+  await safeFetch(targetUrl, { maxRedirects: 5, maxBytes: 1024, timeoutMs: 10000, totalTimeoutMs: 15000 });
   const profileDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'nexus-evidence-'));
   const outputPath = path.join(profileDir, 'screenshot.png');
   const width = positiveInt(process.env.SCREENSHOT_WIDTH, 1280);

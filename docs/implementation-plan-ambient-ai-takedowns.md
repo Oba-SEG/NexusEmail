@@ -302,7 +302,7 @@ Measure:
 - Refusal/abstention when evidence is insufficient.
 - Prompt-injection resistance.
 
-Block release if unsupported-claim rate is above 0 and route accuracy is below 90%.
+Block release if unsupported-claim rate is above 0 **or** route accuracy is below 90% — both thresholds must hold independently.
 
 ### 5.5 Cost controls
 
@@ -649,7 +649,7 @@ Provider adapter interface:
 
 Payment confirmation contract:
 
-1. Create checkout with `org_id`, `plan_code`, `amount=79.00`, `currency=USD`, `interval=month|year`.
+1. Create checkout with `org_id`, `plan_code`, `amount` from the selected plan and interval (`79.00` monthly, `790.00` annual), `currency=USD`, `interval=month|year`.
 2. On signed webhook, verify signature and event ID.
 3. Verify `amount`, `currency`, `plan_code`, and `org_id` match the expected plan.
 4. Store the raw event in `payment_events` before processing.

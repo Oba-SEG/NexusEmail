@@ -8,10 +8,14 @@ const configuredPoll = Number(process.env.JOB_WORKER_POLL_MS || 1000);
 const configuredRetention = Number(process.env.EVIDENCE_RETENTION_DAYS || 365);
 const POLL_MS = Number.isFinite(configuredPoll) ? Math.max(250, configuredPoll) : 1000;
 const RETENTION_DAYS = Number.isFinite(configuredRetention) ? Math.max(1, configuredRetention) : 365;
+const RECOVERY_INTERVAL_MS = 60 * 1000;
+const HEARTBEAT_MS = 60 * 1000;
+const STALE_MINUTES = 15;
 
 let timer = null;
 let running = false;
 let stopped = true;
+let lastRecoveryAt = 0;
 
 function mergeMetadata(threat, evidence) {
   const current = threat && threat.metadata && typeof threat.metadata === 'object' ? threat.metadata : {};
@@ -104,6 +108,12 @@ async function enrichThreat(payload) {
 }
 
 async function runJob(job) {
+  // Keep the lease alive for the whole run so recoverStaleJobs cannot
+  // reclaim a job that is still being worked on.
+  const heartbeat = setInterval(() => {
+    db.heartbeatJob(job.id, WORKER_ID).catch(() => {});
+  }, HEARTBEAT_MS);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
   try {
     if (job.type === 'threat.enrich') {
       await enrichThreat(job.payload || {});
@@ -114,6 +124,8 @@ async function runJob(job) {
   } catch (error) {
     console.error(`[jobs] ${job.type} ${job.id} failed:`, error.message || error);
     await db.failJob(job.id, error).catch((failure) => console.error('[jobs] failed to record failure:', failure.message));
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
@@ -121,6 +133,10 @@ async function tick() {
   if (stopped || running) return;
   running = true;
   try {
+    if (Date.now() - lastRecoveryAt >= RECOVERY_INTERVAL_MS) {
+      lastRecoveryAt = Date.now();
+      await db.recoverStaleJobs(STALE_MINUTES);
+    }
     const job = await db.claimJob(WORKER_ID);
     if (job) await runJob(job);
   } catch (error) {
@@ -138,7 +154,8 @@ async function startJobWorker() {
   }
   if (!stopped) return;
   stopped = false;
-  await db.recoverStaleJobs(15).catch(() => {});
+  lastRecoveryAt = Date.now();
+  await db.recoverStaleJobs(STALE_MINUTES).catch(() => {});
   console.log(`[jobs] worker started (${WORKER_ID})`);
   tick();
 }

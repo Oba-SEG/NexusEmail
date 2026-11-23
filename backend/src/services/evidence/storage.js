@@ -19,14 +19,19 @@ function extensionFor(mime) {
   return 'bin';
 }
 
-function artifactKey(orgId, brandId, threatId, kind, mime) {
+// Content-addressed: repeated collections of different bytes get different
+// paths, so a failed row upsert can never leave an existing `ok` row
+// pointing at content that no longer matches its recorded sha256.
+function artifactKey(orgId, brandId, threatId, kind, mime, sha256) {
   const safeKind = String(kind || 'artifact').replace(/[^a-z0-9_-]/gi, '_');
-  return path.posix.join(String(orgId), String(brandId), String(threatId), `${safeKind}.${extensionFor(mime)}`);
+  const digest = /^[0-9a-f]{64}$/.test(String(sha256 || '')) ? String(sha256).slice(0, 16) : 'nohash';
+  return path.posix.join(String(orgId), String(brandId), String(threatId), `${safeKind}-${digest}.${extensionFor(mime)}`);
 }
 
 async function putArtifact({ orgId, brandId, threatId, kind, buffer, mime }) {
   const root = evidenceRoot();
-  const storageKey = artifactKey(orgId, brandId, threatId, kind, mime);
+  const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+  const storageKey = artifactKey(orgId, brandId, threatId, kind, mime, sha256);
   const target = path.resolve(root, storageKey);
   if (target !== root && !target.startsWith(`${root}${path.sep}`)) throw new Error('Invalid evidence storage path');
   await fs.mkdir(path.dirname(target), { recursive: true });
@@ -34,7 +39,7 @@ async function putArtifact({ orgId, brandId, threatId, kind, buffer, mime }) {
   return {
     storage_key: storageKey,
     bytes: buffer.length,
-    sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    sha256,
   };
 }
 

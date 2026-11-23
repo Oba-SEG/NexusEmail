@@ -405,12 +405,15 @@ router.post('/:id/threats/:threatId/enrich', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
     const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
     if (!threat) return res.status(404).json({ error: 'Threat not found' });
-    const jobId = await db.enqueueJob({
+    const { id: jobId, created } = await db.enqueueJobDetailed({
       type: 'threat.enrich',
       payload: { orgId: req.orgId, brandId, threatId },
       dedupeKey: `threat.enrich:${threatId}`,
     });
-    res.status(202).json({ success: true, job_id: jobId, threat_id: threatId });
+    // A freshly queued run must be observable as unfinished, otherwise a
+    // client polling a previously completed threat stops immediately.
+    if (created) await db.updateBrandThreatEnrichment(threatId, brandId, req.orgId, { enrichment_status: 'pending' });
+    res.status(202).json({ success: true, job_id: jobId, threat_id: threatId, queued: created });
   } catch (err) { next(err); }
 });
 
@@ -429,7 +432,7 @@ router.get('/:id/evidence/:artifactId', async (req, res, next) => {
     res.setHeader('Content-Disposition', `${isImage ? 'inline' : 'attachment'}; filename="${artifact.kind}-${artifact.id}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
-    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.setHeader('Cache-Control', 'no-store');
     res.send(buffer);
   } catch (err) {
     if (err && err.code === 'ENOENT') return res.status(404).json({ error: 'Evidence file not found' });

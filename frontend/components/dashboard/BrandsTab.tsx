@@ -304,16 +304,26 @@ export default function BrandsTab({
   const addThreat = async (brandId: number) => {
     const gen = sessionGenRef.current;
     try {
-      await apiFetch(`${API_BASE}/brands/${brandId}/threat`, {
+      const res = await apiFetch(`${API_BASE}/brands/${brandId}/threat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(threatForm)
       });
+      if (!res.ok) {
+        // Keep the modal and the typed values: the backend rejects some
+        // inputs (e.g. a threat URL without a scheme) and the operator
+        // should be able to correct them rather than retype everything.
+        let detail: string | null = null;
+        try { detail = (await res.json())?.error || null; } catch { detail = null; }
+        notify('Couldn\'t add the threat.', 'error', describeApiError(detail || `HTTP ${res.status}`));
+        return;
+      }
       setShowThreatModal(false);
       setThreatForm({ domain: '', threat_url: '', threat_type: 'manual', severity: 'medium', notes: '' });
       loadBrandThreats(brandId, gen);
     } catch (e) {
       console.error('Failed to add threat:', e);
+      notify('Couldn\'t add the threat.', 'error', describeApiError(e instanceof Error ? e.message : null));
     }
   };
 
