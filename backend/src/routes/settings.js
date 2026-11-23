@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const rateLimit = require('express-rate-limit');
 const db = require('../db/database');
 const { NotificationService } = require('../services/notifications');
 const { getProvider } = require('../services/providers');
 const { captureException } = require('../capture');
-const { auditIdentity, sign, hashPassword, verifyPassword, requireRole } = require('../auth');
+const { auditIdentity, sign, hashPassword, verifyPassword, requireRole, setSessionCookie } = require('../auth');
+const provisioning = require('../services/provisioning');
 const { parseRecipients, scheduleConfigHash } = require('../services/reportBuilder');
 const { isScanEnabledValue } = require('../services/scanSchedule');
 
@@ -106,20 +108,31 @@ router.patch('/organization', requireRole('owner', 'admin'), async (req, res, ne
   } catch (err) { next(err); }
 });
 
+// A stolen session must not be able to brute-force the current password
+// (each guess costs a 600k-iteration PBKDF2 verify).
+const passwordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.user.id,
+  message: { error: 'Too many password attempts, try again later' }
+});
+
 // Self-service password change. Verifying the current password keeps a
 // borrowed session from locking the real owner out. setUserPassword bumps
 // token_version in the same statement, so every other device is signed out;
 // the fresh token returned here keeps this device signed in.
-router.post('/password', async (req, res, next) => {
+router.post('/password', passwordLimiter, async (req, res, next) => {
   try {
     const current = typeof req.body?.current_password === 'string' ? req.body.current_password : '';
     const nextPassword = typeof req.body?.new_password === 'string' ? req.body.new_password : '';
     if (!current || !nextPassword) {
       return res.status(400).json({ error: 'Current and new passwords are required' });
     }
-    if (nextPassword.length < 8) {
-      return res.status(400).json({ error: 'New password must be at least 8 characters' });
-    }
+    const pwError = provisioning.passwordError(nextPassword);
+    if (pwError) return res.status(400).json({ error: pwError });
     if (!req.user.password_hash || !verifyPassword(current, req.user.password_hash)) {
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
@@ -132,14 +145,21 @@ router.post('/password', async (req, res, next) => {
         targetOrgId: req.orgId
       }, tx);
     });
+    const ttl = req.actor ? Math.max(1, req.impersonationExpiresAt - Math.floor(Date.now() / 1000)) : undefined;
     const token = sign({
       sub: req.user.id,
       org_id: req.user.org_id,
       role: req.user.role,
       tv: tokenVersion,
-      ...(req.actor ? { act: { sub: req.actor.id, email: req.actor.email } } : {})
-    }, req.actor ? Math.max(1, req.impersonationExpiresAt - Math.floor(Date.now() / 1000)) : undefined);
-    res.json({ success: true, token });
+      ...(req.actor ? { act: { sub: req.actor.id, email: req.actor.email, tv: req.actor.token_version ?? 1 } } : {})
+    }, ttl);
+    // Never replace the administrator's cookie while impersonating: the new
+    // cookie would belong to the customer account.
+    if (!req.actor) setSessionCookie(req, res, token);
+    res.setHeader('Cache-Control', 'no-store');
+    // Only an impersonation session needs the token in JS; a normal session
+    // was refreshed through the httpOnly cookie above.
+    res.json(req.actor ? { success: true, token } : { success: true });
   } catch (err) { next(err); }
 });
 

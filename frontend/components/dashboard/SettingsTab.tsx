@@ -163,8 +163,8 @@ export default function SettingsTab({
   };
 
   const changePassword = async () => {
-    if (passwordForm.next.length < 8) {
-      notify('Password couldn\'t be changed.', 'error', 'Use at least 8 characters.');
+    if (passwordForm.next.length < 12) {
+      notify('Password couldn\'t be changed.', 'error', 'Use at least 12 characters.');
       return;
     }
     if (passwordForm.next !== passwordForm.confirm) {
@@ -306,7 +306,7 @@ export default function SettingsTab({
       <SettingsSection
         icon={Send}
         title="Delivery"
-        description="Where alerts and reports go. Channels are configured in Notifications; DNS credentials live in Integrations."
+        description="Where alerts and reports go. Channels are configured in Notifications; DNS access lives in DNS providers."
       >
         <DeliveryRow
           label="Email"
@@ -326,7 +326,7 @@ export default function SettingsTab({
         />
         <DeliveryRow
           label="DNS providers"
-          description="Credentials used for scans and remediation reviews."
+          description="Credentials that let Nexus update DNS records for you."
           status={`${connected} of ${DNS_PROVIDERS.length}`}
           ok={connected > 0}
           actionLabel="Integrations"
@@ -394,7 +394,7 @@ export default function SettingsTab({
               {savingPassword ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
               {savingPassword ? 'Changing…' : 'Change password'}
             </Button>
-            <p className="text-[11.5px] text-muted-foreground">At least 8 characters. Other devices are signed out.</p>
+            <p className="text-[11.5px] text-muted-foreground">At least 12 characters. Other devices will be signed out.</p>
           </div>
         </div>
       </SettingsSection>

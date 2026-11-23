@@ -18,7 +18,7 @@ interface RegisterScreenProps {
 const PROOF_POINTS = [
   "One workspace for domains, brands and reports",
   "No DNS changes to get your first score",
-  "Invite the rest of your team later",
+  "Add teammates whenever you want",
 ];
 
 export default function RegisterScreen({
@@ -49,13 +49,13 @@ export default function RegisterScreen({
           <div className="relative z-10 max-w-[460px]">
             <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#ff9d52]">Start with one domain</p>
             <h1 className="mt-5 text-[46px] font-bold leading-[0.98] tracking-[-0.04em]">
-              Make the perimeter
+              Start protecting
               <br />
-              yours<span className="text-[#ff6b1a]">.</span>
+              your domains<span className="text-[#ff6b1a]">.</span>
             </h1>
             <p className="mt-5 text-[13.5px] leading-6 text-white/45">
-              Create a workspace for your team. Your first owner account is
-              ready the moment you finish.
+              Create a workspace for your team. You&apos;ll be signed in as the
+              owner as soon as you finish.
             </p>
             <ul className="mt-8 space-y-3">
               {PROOF_POINTS.map((point) => (
@@ -66,8 +66,8 @@ export default function RegisterScreen({
               ))}
             </ul>
             <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-3 font-mono text-[10.5px] leading-5 text-white/40">
-              <p><span className="text-[#ff9d52]">$</span> nexus workspace init acme</p>
-              <p className="text-[#ffb987]">→ workspace ready · owner created</p>
+              <p><span className="text-[#ff9d52]">Next step</span> add your first domain</p>
+              <p className="text-[#ffb987]">→ owner account ready</p>
             </div>
           </div>
 
@@ -145,7 +145,7 @@ export default function RegisterScreen({
                   id="register-password"
                   type="password"
                   autoComplete="new-password"
-                  placeholder="At least 8 characters"
+                  placeholder="At least 12 characters"
                   className="mt-1.5 h-11 rounded-lg border-white/10 bg-white/[0.04] text-[13px] text-white placeholder:text-white/25 hover:border-white/20 focus-visible:border-[#ff9d52]/60 focus-visible:ring-[#ff9d52]/40"
                   value={registerForm.password}
                   onChange={(e) => onFormChange({ ...registerForm, password: e.target.value })}

@@ -208,7 +208,7 @@ export default function DomainDetailPanel({
               ))}
             </dl>
             <p className="mt-2 text-[10.5px] leading-4 text-muted-foreground">
-              SPF, DKIM and DMARC, including impersonation penalties and TLS reporting.
+              SPF, DKIM, DMARC, MTA-STS and TLS reporting, with impersonation risk called out.
             </p>
           </section>
         );

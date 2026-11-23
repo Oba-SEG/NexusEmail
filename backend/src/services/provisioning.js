@@ -37,7 +37,9 @@ function ownerNameError(value) {
 }
 
 function passwordError(value) {
-  if (typeof value !== 'string' || value.length < 8) return 'Password must be at least 8 characters.';
+  // NIST SP 800-63B / OWASP: length is the control that matters. Requiring
+  // 12+ characters (with no composition rules) keeps passphrases allowed.
+  if (typeof value !== 'string' || value.length < 12) return 'Password must be at least 12 characters.';
   if (value.length > 200) return 'Password must be 200 characters or fewer.';
   return null;
 }

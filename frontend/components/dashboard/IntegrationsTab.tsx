@@ -135,7 +135,7 @@ const testProviderConnection = async (provider: any) => {
         headingRef={integrationsHeadingRef}
         headingId="integrations-heading"
         title="DNS providers"
-        description="Connect your DNS host so we can auto-remediate SPF / DMARC / DKIM records for you. Every provider listed has a real, working API."
+        description="Connect your DNS provider so Nexus can update records for you. All 20 providers are supported."
       />
 
       {/* Connection summary + provider search */}
@@ -156,8 +156,8 @@ const testProviderConnection = async (provider: any) => {
         </p>
         <p className="text-[11px] text-muted-foreground sm:ml-auto">
           {connected === 0
-            ? 'Connect a provider to use its credentials for remediation reviews.'
-            : 'Connected providers supply credentials for scans and remediation reviews.'}
+            ? 'Connect a provider to use its credentials when Nexus applies a fix.'
+            : 'Connected providers let Nexus apply fixes to your DNS.'}
         </p>
       </div>
 

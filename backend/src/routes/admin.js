@@ -301,9 +301,8 @@ router.post('/organizations/:orgId/users/:userId/password', async (req, res, nex
     const org = await requireOrg(req, res);
     if (!org) return;
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (password.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
+    const pwError = provisioning.passwordError(password);
+    if (pwError) return res.status(400).json({ error: pwError });
     const user = await db.getUser(req.params.userId);
     if (!user || user.org_id !== org.id) {
       return res.status(404).json({ error: 'User not found in this organization' });

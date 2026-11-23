@@ -64,10 +64,41 @@ async function main() {
 
   // Security middleware
   app.use(helmet());
+  app.disable('x-powered-by');
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : ['http://localhost:3002', 'http://localhost:3000'])
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
   app.use(cors({
-    origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['http://localhost:3002', 'http://localhost:3000'],
+    origin: allowedOrigins,
     credentials: true
   }));
+
+  // Cookie sessions are SameSite=Lax; Origin/Referer verification adds a
+  // second CSRF layer for every state-changing request. Non-browser clients
+  // (curl, cron, tests) send neither header and authenticate with a bearer
+  // token instead, so they are unaffected.
+  app.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    const origin = req.get('origin');
+    if (origin) {
+      return allowedOrigins.includes(origin.replace(/\/$/, ''))
+        ? next()
+        : res.status(403).json({ error: 'Origin not allowed' });
+    }
+    const referer = req.get('referer');
+    if (referer) {
+      try {
+        return allowedOrigins.includes(new URL(referer).origin)
+          ? next()
+          : res.status(403).json({ error: 'Origin not allowed' });
+      } catch {
+        return res.status(403).json({ error: 'Origin not allowed' });
+      }
+    }
+    return next();
+  });
 
   // Body parsing: JSON plus URL-encoded (some clients post forms).
   app.use(express.json({ limit: '10kb' }));

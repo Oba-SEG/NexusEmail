@@ -170,8 +170,8 @@ const submitPasswordReset = async (orgId: string, userId: string) => {
   // path while one is in flight (the Set button is disabled, the input
   // is not).
   if (pwResetBusy) return;
-  if (pwResetValue.length < 8) {
-    setPwResetError('At least 8 characters.');
+  if (pwResetValue.length < 12) {
+    setPwResetError('At least 12 characters.');
     return;
   }
   // Capture both generations before the request: a response from an
@@ -246,8 +246,8 @@ const createOrganization = async () => {
     setCreateOrgError('Add both an owner email and password, or leave the owner fields empty.');
     return;
   }
-  if (hasOwner && createOrgForm.owner_password.length < 8) {
-    setCreateOrgError('Owner password must be at least 8 characters.');
+  if (hasOwner && createOrgForm.owner_password.length < 12) {
+    setCreateOrgError('Owner password must be at least 12 characters.');
     return;
   }
   const sgen = sessionGenRef.current;
@@ -295,8 +295,8 @@ const addUser = async () => {
     setAddUserError('Name and email are required.');
     return;
   }
-  if (addUserForm.password.length < 8) {
-    setAddUserError('Password must be at least 8 characters.');
+  if (addUserForm.password.length < 12) {
+    setAddUserError('Password must be at least 12 characters.');
     return;
   }
   const orgId = adminDetail.org.id;
@@ -378,7 +378,7 @@ const impersonate = async () => {
     <>
       <TabHeader
         title="Administration"
-        description="Customer organizations — provisioning, audited support access and controlled impersonation."
+        description="Every customer workspace, with logged support access and time-limited sign-in."
       />
 
       {!isAdmin ? (
@@ -697,7 +697,7 @@ const impersonate = async () => {
                   id="admin-owner-password"
                   type="password"
                   className="mt-1 h-9 text-[12.5px]"
-                  placeholder="At least 8 characters"
+                  placeholder="At least 12 characters"
                   value={createOrgForm.owner_password}
                   onChange={(e) => setCreateOrgForm({ ...createOrgForm, owner_password: e.target.value })}
                 />
@@ -761,7 +761,7 @@ const impersonate = async () => {
                 id="admin-user-password"
                 type="password"
                 className="mt-1 h-9 text-[12.5px]"
-                placeholder="At least 8 characters"
+                placeholder="At least 12 characters"
                 value={addUserForm.password}
                 onChange={(e) => setAddUserForm({ ...addUserForm, password: e.target.value })}
               />

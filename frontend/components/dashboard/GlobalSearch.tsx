@@ -27,9 +27,9 @@ type Result = {
 };
 
 const PAGES = [
-  { tab: 'domains', label: 'Domains', hint: 'SPF, DKIM and DMARC posture', icon: Globe },
+  { tab: 'domains', label: 'Domains', hint: 'Email security checks', icon: Globe },
   { tab: 'brands', label: 'Brand protection', hint: 'Monitored brands and threats', icon: Shield },
-  { tab: 'threats', label: 'Threat alerts', hint: 'Open typosquats and impersonation', icon: Shield },
+  { tab: 'threats', label: 'Threat alerts', hint: 'Lookalikes and impersonation', icon: Shield },
   { tab: 'reports', label: 'Reports', hint: 'Single-domain reports and exports', icon: BarChart3 },
   { tab: 'integrations', label: 'DNS providers', hint: 'DNS provider connections', icon: Plug },
   { tab: 'notifications', label: 'Notifications', hint: 'E-mail and Slack delivery', icon: Bell },

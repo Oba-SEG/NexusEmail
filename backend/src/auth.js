@@ -1,11 +1,21 @@
 const crypto = require('crypto');
 const db = require('./db/database');
+const { hashPassword, verifyPassword } = require('./utils/passwords');
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.NEXUSEMAIL_JWT_SECRET || 'dev-secret-change-me';
-const TOKEN_TTL_SECONDS = parseInt(process.env.TOKEN_TTL_SECONDS || '86400', 10);
+// Short-lived bearer/cookie sessions. Every request re-checks token_version,
+// so revocation is immediate; 12h bounds the damage of a leaked token.
+const TOKEN_TTL_SECONDS = parseInt(process.env.TOKEN_TTL_SECONDS || '43200', 10);
+const JWT_ISSUER = 'nexus-brand-protection';
+const JWT_AUDIENCE = 'nexus-console';
+const SESSION_COOKIE = 'nexus_session';
 
 if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'dev-secret-change-me') {
   throw new Error('Set JWT_SECRET or NEXUSEMAIL_JWT_SECRET before running NexusEmail in production');
+}
+
+if (process.env.NODE_ENV === 'production' && JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters in production');
 }
 
 // AUTH_DISABLED auto-authenticates every request as the first user — a dev
@@ -25,7 +35,7 @@ function base64url(input) {
 function sign(payload, ttlSeconds = TOKEN_TTL_SECONDS) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
-  const body = { ...payload, iat: now, exp: now + ttlSeconds };
+  const body = { ...payload, iss: JWT_ISSUER, aud: JWT_AUDIENCE, iat: now, exp: now + ttlSeconds };
   const unsigned = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(body))}`;
   const sig = crypto.createHmac('sha256', JWT_SECRET).update(unsigned).digest('base64url');
   return `${unsigned}.${sig}`;
@@ -44,8 +54,19 @@ function verifyToken(token) {
     // which used to bubble to HTTP 500. Reject malformed tokens cleanly.
     if (provided.length !== expectedBuf.length) return null;
     if (!crypto.timingSafeEqual(provided, expectedBuf)) return null;
+    let header;
+    try {
+      header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    } catch {
+      return null;
+    }
+    if (header?.alg !== 'HS256') return null;
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    if (!payload || typeof payload !== 'object') return null;
+    if (payload.iss !== JWT_ISSUER || payload.aud !== JWT_AUDIENCE) return null;
+    if (!Number.isInteger(payload.iat) || !Number.isInteger(payload.exp)) return null;
+    if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
+    if (payload.iat > Math.floor(Date.now() / 1000) + 60) return null;
     return payload;
   } catch (e) {
     // Any base64 / JSON parse failure on a malformed token = no auth.
@@ -53,16 +74,42 @@ function verifyToken(token) {
   }
 }
 
-function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
-  const hash = crypto.pbkdf2Sync(password, salt, 120000, 32, 'sha256').toString('hex');
-  return `${salt}:${hash}`;
+function parseCookies(header) {
+  const out = {};
+  if (!header) return out;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(value);
+    } catch {
+      // A malformed cookie must fail authentication, never 500 the request.
+      continue;
+    }
+  }
+  return out;
 }
 
-function verifyPassword(password, stored) {
-  if (!password || !stored || !stored.includes(':')) return false;
-  const [salt, hash] = stored.split(':');
-  const candidate = hashPassword(password, salt).split(':')[1];
-  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(candidate));
+function sessionCookieOptions(req, maxAgeSeconds = TOKEN_TTL_SECONDS) {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !!req.secure,
+    path: '/',
+    maxAge: maxAgeSeconds * 1000
+  };
+}
+
+function setSessionCookie(req, res, token, maxAgeSeconds = TOKEN_TTL_SECONDS) {
+  res.cookie(SESSION_COOKIE, token, sessionCookieOptions(req, maxAgeSeconds));
+}
+
+function clearSessionCookie(req, res) {
+  const { maxAge, ...opts } = sessionCookieOptions(req, 0);
+  res.clearCookie(SESSION_COOKIE, opts);
 }
 
 async function publicUser(user) {
@@ -88,7 +135,11 @@ async function requireAuth(req, res, next) {
     }
 
     const bearer = req.headers.authorization || '';
-    const token = bearer.startsWith('Bearer ') ? bearer.slice(7) : null;
+    // A bearer token (CLI, tests, impersonation) always wins. Falling back
+    // to the cookie after an invalid bearer would silently switch identity.
+    const token = bearer.startsWith('Bearer ')
+      ? bearer.slice(7)
+      : (parseCookies(req.headers.cookie)[SESSION_COOKIE] || null);
     const payload = verifyToken(token);
     if (!payload?.sub) return res.status(401).json({ error: 'Authentication required' });
 
@@ -145,4 +196,4 @@ function requirePlatformAdmin(req, res, next) {
   next();
 }
 
-module.exports = { auditIdentity, sign, verifyToken, hashPassword, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin };
+module.exports = { auditIdentity, sign, verifyToken, hashPassword, verifyPassword, publicUser, requireAuth, requireRole, requirePlatformAdmin, setSessionCookie, clearSessionCookie, parseCookies, SESSION_COOKIE, TOKEN_TTL_SECONDS, JWT_ISSUER, JWT_AUDIENCE };

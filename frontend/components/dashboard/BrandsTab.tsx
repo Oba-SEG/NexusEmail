@@ -392,7 +392,7 @@ export default function BrandsTab({
     <>
 <TabHeader
   title="Brand protection"
-  description="Detect typosquats, look-alikes, and brand abuse on the domains you operate."
+  description="Find lookalike domains and impersonation attempts that target your brand."
   action={
     <>
       {brandAlerts.length > 0 && (
@@ -560,7 +560,7 @@ export default function BrandsTab({
     {brands.length === 0 && !showAddBrand ? (
       <div className="border-y border-border px-6 py-16 text-center">
         <p className="text-[15px] font-semibold">No brands monitored yet</p>
-        <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">Add a brand to start watching for typosquatting and impersonation.</p>
+        <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">Add a brand to start watching for lookalike domains and impersonation.</p>
       </div>
     ) : (
       <div className="divide-y divide-border border-y border-border">
@@ -643,7 +643,7 @@ export default function BrandsTab({
     {/* persistent live region so scan start/finish is announced */}
     <span role="status" aria-live="polite" className="sr-only">
       {brandScanning
-        ? 'Scanning brand surface'
+        ? 'Scanning your brand'
         : brandScanResult?.error
           ? `Brand scan failed: ${brandScanResult.error}`
           : brandScanResult
@@ -654,13 +654,13 @@ export default function BrandsTab({
       <div className="mt-4 rounded-md border border-border bg-white/[0.02] p-4">
         <div className="flex items-center gap-3">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-          <span className="text-[13px] font-medium">Scanning brand surface…</span>
+          <span className="text-[13px] font-medium">Scanning your brand…</span>
         </div>
         {/* Honest status: the backend reports progress only when the scan
             completes, so a stepwise checklist here would be a lie. An
             indeterminate state with a real duration expectation isn't. */}
         <p className="text-xs text-muted-foreground mt-2">
-          DNS lookups across typosquatting, lookalike, subdomain and homograph checks — usually takes 30–90 seconds. The result replaces this note when it lands.
+          Nexus checks lookalike spellings, subdomains and character swaps — usually 30–90 seconds. Results replace this note when the scan finishes.
         </p>
       </div>
     )}

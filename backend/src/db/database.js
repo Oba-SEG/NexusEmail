@@ -5,6 +5,7 @@ const { Pool, types } = require('pg');
 const {
   isSecretKey, hasEncryptionKey, encryptSecret, decryptSecret, isEncrypted
 } = require('../utils/secretbox');
+const { hashPassword } = require('../utils/passwords');
 
 // Postgres data layer (Render free Postgres in production, a local/Compose
 // Postgres in staging). All helpers are async and preserve the exact call
@@ -1039,6 +1040,12 @@ async function migrateBrandsFromSettingsBlob() {
   }
 }
 
+// Rehash on successful login without revoking the session being created.
+async function updatePasswordHash(userId, passwordHash, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  await exec.q('UPDATE users SET password_hash = $2, updated_at = $3 WHERE id = $1', [userId, passwordHash, now()]);
+}
+
 // Admin password set (issue #43): replace the hash AND bump token_version
 // in one statement so every existing session for that user stops verifying
 // immediately (same revocation semantics as logout-everywhere).
@@ -1077,9 +1084,8 @@ async function initDatabase() {
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
     if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) throw new Error('Set SEED_ADMIN_PASSWORD before first production boot');
-    const salt = crypto.randomBytes(16).toString('hex');
-    const hash = crypto.pbkdf2Sync(process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!', salt, 120000, 32, 'sha256').toString('hex');
-    await addUser({ org_id: 'segbytes', email: process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz', name: 'Segbytes Admin', role: 'owner', platform_role: 'platform_admin', password_hash: `${salt}:${hash}` });
+    if (process.env.NODE_ENV === 'production' && (process.env.SEED_ADMIN_PASSWORD || '').length < 12) throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters');
+    await addUser({ org_id: 'segbytes', email: process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz', name: 'Segbytes Admin', role: 'owner', platform_role: 'platform_admin', password_hash: hashPassword(process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123!') });
   }
   if ((await getSetting('notify_scan_completed')) === undefined) await setSetting('notify_scan_completed', '1');
   if ((await getSetting('notify_critical_alerts')) === undefined) await setSetting('notify_critical_alerts', '1');
@@ -1134,7 +1140,7 @@ module.exports = {
   getOrganizations, getOrganization, addOrganization, updateOrganization,
   insertAuditLog, getOrganizationsWithCounts, getOrgScans,
   getUsers, getUser, getUserByEmail, addUser, nextNumericId,
-  ensureColumn, bumpUserTokenVersion, setUserPassword,
+  ensureColumn, bumpUserTokenVersion, setUserPassword, updatePasswordHash,
   initDatabase,
   // T162 — Brand Protection relational helpers
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,

@@ -148,7 +148,7 @@ export default function ThreatAlertsTab({
     <>
       <TabHeader
         title="Threat alerts"
-        description="Typosquats and impersonation attempts found across monitored brands."
+        description="Lookalikes and impersonation attempts found across the brands you monitor."
         action={
           alerts.length > 0 ? (
             <>
@@ -176,7 +176,7 @@ export default function ThreatAlertsTab({
         <div className="border-y border-border px-6 py-16 text-center">
           <p className="text-[15px] font-semibold">No open threat alerts</p>
           <p className="mx-auto mt-1 max-w-[48ch] text-[12.5px] leading-5 text-muted-foreground">
-            New typosquats and impersonation attempts appear here after each brand scan. Nothing needs attention right now.
+            New lookalikes and impersonation attempts appear here after each brand scan. Nothing needs attention right now.
           </p>
         </div>
       )}

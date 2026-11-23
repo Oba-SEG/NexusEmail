@@ -209,8 +209,11 @@ export default function Dashboard() {
   // shows a loading state until the full record (with dmarc_reports)
   // arrives, and an error state if the fetch fails
 
+  // Normal sessions ride in an httpOnly SameSite=Lax cookie. Only an active
+  // impersonation adds a bearer token (the short-lived target token).
   const apiFetch = (url: string, options: any = {}) => fetch(url, {
     ...options,
+    credentials: 'include',
     headers: {
       ...(options.headers || {}),
       ...(tokenRef.current ? { Authorization: `Bearer ${tokenRef.current}` } : {})
@@ -249,9 +252,10 @@ export default function Dashboard() {
   const handleAuthFailure = (requestToken?: string | null) => {
     if (tokenRefreshPendingRef.current) return;
     if (requestToken !== undefined && requestToken !== tokenRef.current) return;
-    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
-    storage.removeItem('nexusemail_token');
-    storage.removeItem('nexusemail_user');
+    localStorage.removeItem('nexusemail_token');
+    localStorage.removeItem('nexusemail_user');
+    sessionStorage.removeItem('nexusemail_token');
+    sessionStorage.removeItem('nexusemail_user');
     sessionStorage.removeItem('nexusemail_impersonator');
     tokenRef.current = null;
     sessionGenRef.current += 1;
@@ -273,29 +277,41 @@ export default function Dashboard() {
     setConfigError('');
   };
 
-  // Load local session.
+  // Restore the session from the httpOnly cookie. A normal session token is
+  // never exposed to JavaScript; only a short-lived impersonation token is
+  // kept in sessionStorage (and dropped when the tab closes).
   useEffect(() => {
-    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
-    const storedToken = storage.getItem('nexusemail_token');
-    const storedUser = storage.getItem('nexusemail_user');
-    if (storedToken) {
-      tokenRef.current = storedToken;
-      setToken(storedToken);
-      try {
-        const marker = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
-        if (marker?.targetToken === storedToken) {
-          setImpersonation(marker.actor || null);
-        } else {
+    let cancelled = false;
+    (async () => {
+      const storedToken = sessionStorage.getItem('nexusemail_token');
+      if (storedToken) {
+        tokenRef.current = storedToken;
+        setToken(storedToken);
+        try {
+          const storedUser = JSON.parse(sessionStorage.getItem('nexusemail_user') || 'null');
+          if (storedUser) setUser(storedUser);
+          const marker = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
+          if (marker?.targetToken === storedToken) setImpersonation(marker.actor || null);
+          else sessionStorage.removeItem('nexusemail_impersonator');
+        } catch {
           sessionStorage.removeItem('nexusemail_impersonator');
         }
-      } catch {
-        sessionStorage.removeItem('nexusemail_impersonator');
+        if (!cancelled) setLoading(false);
+        return;
       }
-    } else {
       sessionStorage.removeItem('nexusemail_impersonator');
-    }
-    if (storedUser) setUser(JSON.parse(storedUser));
-    setLoading(false);
+      try {
+        const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled) setUser(data.user);
+        }
+      } catch {
+        // No cookie, no session.
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -303,17 +319,18 @@ export default function Dashboard() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     loadDomains();
     loadSettings();
     loadBrands();
-  }, [token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Console state -> URL. Tab switches, opening a domain drawer and
   // opening a brand dialog each become addressable (?tab=…&domain=…
   // &brand=…); no-op writes keep render churn out of history.
   useEffect(() => {
-    if (!token || loading) return;
+    if (!user || loading) return;
     const next: UrlState = {
       tab: activeTab,
       domain: activeTab === 'domains' && showDetails ? (selectedDomain?.id ?? null) : null,
@@ -322,7 +339,7 @@ export default function Dashboard() {
     const mode = replaceUrlRef.current ? 'replace' : 'push';
     replaceUrlRef.current = false;
     writeUrlState(next, mode);
-  }, [token, loading, activeTab, showDetails, selectedDomain, openBrandId]);
+  }, [user, loading, activeTab, showDetails, selectedDomain, openBrandId]);
 
   // Browser back/forward restores the addressable state without pushing
   // another history entry.
@@ -344,7 +361,7 @@ export default function Dashboard() {
   // A domain deep link opens the drawer once the list that contains it
   // has arrived.
   useEffect(() => {
-    if (!token || !deepLinkDomainId) return;
+    if (!user || !deepLinkDomainId) return;
     if (showDetailsRef.current && selectedDomainRef.current?.id === deepLinkDomainId) {
       setDeepLinkDomainId(null);
       return;
@@ -354,12 +371,12 @@ export default function Dashboard() {
     setDeepLinkDomainId(null);
     viewDomain(row);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, domains, deepLinkDomainId]);
+  }, [user, domains, deepLinkDomainId]);
 
   // Alert count badge for the nav; refreshed when the tab changes so a
   // scan that finished elsewhere shows up on the next navigation.
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     let cancelled = false;
     const gen = sessionGenRef.current;
     (async () => {
@@ -374,11 +391,11 @@ export default function Dashboard() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, activeTab]);
+  }, [user, activeTab]);
 
   // ⌘K / Ctrl+K opens the palette; it searches already-loaded entities.
   useEffect(() => {
-    if (!token) return;
+    if (!user) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -387,19 +404,19 @@ export default function Dashboard() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [token]);
+  }, [user]);
 
   // A non-admin must never land on the admin tab, including via ?tab=admin.
   // Wait for the stored session to hydrate: `isAdmin` is false while `user`
   // is still null, which would otherwise bounce a platform admin's deep link
   // to Domains and rewrite the URL before the profile arrives.
   useEffect(() => {
-    if (loading || !token) return;
+    if (loading || !user) return;
     if (activeTab === 'admin' && !isAdmin) {
       replaceUrlRef.current = true;
       setActiveTabState('domains');
     }
-  }, [activeTab, isAdmin, loading, token]);
+  }, [activeTab, isAdmin, loading, user]);
 
   const installSession = (data: any) => {
     // New identity: invalidate any in-flight settings and tenant responses.
@@ -414,13 +431,14 @@ export default function Dashboard() {
     sessionStorage.removeItem('nexusemail_impersonator');
     sessionStorage.removeItem('nexusemail_token');
     sessionStorage.removeItem('nexusemail_user');
+    localStorage.removeItem('nexusemail_token');
+    localStorage.removeItem('nexusemail_user');
     setImpersonation(null);
     setLoginForm((form) => ({ ...form, password: '' }));
     setRegisterForm({ organization_name: '', name: '', email: '', password: '' });
-    tokenRef.current = data.token;
-    localStorage.setItem('nexusemail_token', data.token);
-    localStorage.setItem('nexusemail_user', JSON.stringify(data.user));
-    setToken(data.token);
+    // Login/register set the httpOnly session cookie server-side.
+    tokenRef.current = null;
+    setToken(null);
     setUser(data.user);
   };
 
@@ -472,10 +490,7 @@ export default function Dashboard() {
   };
 
   const startImpersonation = (data: any) => {
-    const adminToken = tokenRef.current;
-    if (!adminToken) return;
     sessionStorage.setItem('nexusemail_impersonator', JSON.stringify({
-      token: adminToken,
       user,
       actor: data.user?.impersonated_by || null,
       targetToken: data.token,
@@ -496,7 +511,7 @@ export default function Dashboard() {
     setImpersonation(data.user?.impersonated_by || null);
   };
 
-  const stopImpersonating = () => {
+  const stopImpersonating = async () => {
     let saved: any = null;
     try {
       saved = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
@@ -507,7 +522,8 @@ export default function Dashboard() {
     sessionStorage.removeItem('nexusemail_token');
     sessionStorage.removeItem('nexusemail_user');
     setImpersonation(null);
-    if (!saved?.token || !saved?.user) return;
+    tokenRef.current = null;
+    setToken(null);
 
     sessionGenRef.current += 1;
     clearStatusQueue();
@@ -516,12 +532,24 @@ export default function Dashboard() {
     setConfigError('');
     resetDomainState();
     resetBrandState();
-    tokenRef.current = saved.token;
-    localStorage.setItem('nexusemail_token', saved.token);
-    localStorage.setItem('nexusemail_user', JSON.stringify(saved.user));
-    setToken(saved.token);
-    setUser(saved.user);
-    setActiveTabState('admin');
+
+    // The administrator's own session is still in the httpOnly cookie.
+    if (saved?.user) {
+      setUser(saved.user);
+      setActiveTabState('admin');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+        setActiveTabState('admin');
+        return;
+      }
+    } catch {}
+    setUser(null);
+    setAuthView('login');
   };
 
   const logout = async () => {
@@ -534,9 +562,11 @@ export default function Dashboard() {
     // continuation must not clear the newer session.
     const gen = sessionGenRef.current;
     try {
+      // No Authorization header: the cookie is the administrator/normal
+      // session, and revoking it must also end an active impersonation.
       const res = await fetch(`${API_BASE}/auth/revoke`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token || ''}` }
+        credentials: 'include'
       });
       if (gen !== sessionGenRef.current) return;
       if (!res.ok) {
@@ -550,9 +580,10 @@ export default function Dashboard() {
     }
     if (gen !== sessionGenRef.current) return;
     setLogoutNotice(null);
-    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
-    storage.removeItem('nexusemail_token');
-    storage.removeItem('nexusemail_user');
+    localStorage.removeItem('nexusemail_token');
+    localStorage.removeItem('nexusemail_user');
+    sessionStorage.removeItem('nexusemail_token');
+    sessionStorage.removeItem('nexusemail_user');
     sessionStorage.removeItem('nexusemail_impersonator');
     tokenRef.current = null;
     sessionGenRef.current += 1;
@@ -572,7 +603,8 @@ export default function Dashboard() {
     setRegisterForm((form) => ({ ...form, password: '' }));
   };
 
-  if (!token) {
+  if (loading) return null;
+  if (!user) {
     if (authView === 'login') {
       return (
         <LoginScreen
@@ -1232,29 +1264,19 @@ export default function Dashboard() {
                     if (!cur) return cur;
                     return { ...cur, organization: { ...(cur.organization || {}), name } };
                   });
-                  try {
-                    const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
-                    const stored = JSON.parse(storage.getItem('nexusemail_user') || 'null');
-                    if (stored) {
-                      stored.organization = { ...(stored.organization || {}), name };
-                      storage.setItem('nexusemail_user', JSON.stringify(stored));
-                    }
-                  } catch {}
                 }}
                 onTokenRefreshed={(nextToken) => {
+                  // Normal sessions get a refreshed httpOnly cookie from the
+                  // server. Only an impersonation token lives in JS.
+                  if (!tokenRef.current) return;
                   const previousToken = tokenRef.current;
-                  const storage = sessionStorage.getItem('nexusemail_token') ? sessionStorage : localStorage;
-                  storage.setItem('nexusemail_token', nextToken);
+                  sessionStorage.setItem('nexusemail_token', nextToken);
                   try {
                     const marker = JSON.parse(sessionStorage.getItem('nexusemail_impersonator') || 'null');
                     if (marker?.targetToken === previousToken) {
                       sessionStorage.setItem('nexusemail_impersonator', JSON.stringify({ ...marker, targetToken: nextToken }));
-                    } else {
-                      sessionStorage.removeItem('nexusemail_impersonator');
                     }
-                  } catch {
-                    sessionStorage.removeItem('nexusemail_impersonator');
-                  }
+                  } catch {}
                   tokenRef.current = nextToken;
                   setToken(nextToken);
                 }}
@@ -1292,7 +1314,7 @@ export default function Dashboard() {
 
             <TabsContent value="admin" className="space-y-4">
               <AdminPanel
-                token={token}
+                token={token || (user ? 'cookie-session' : null)}
                 isAdmin={isAdmin}
                 sessionGenRef={sessionGenRef}
                 tokenRef={tokenRef}

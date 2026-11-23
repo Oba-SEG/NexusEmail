@@ -216,7 +216,7 @@ export default function NotificationsTab({ notifications, settings, onSavePref, 
         {[
           { key: 'scan_completed', label: 'Scan completed', desc: 'Get notified when a domain scan finishes.' },
           { key: 'critical_alerts', label: 'Critical alerts', desc: 'Immediate emails for high-severity issues.' },
-          { key: 'weekly_report', label: 'Weekly summary', desc: 'A digest of every domain\u2019s posture each week.' },
+          { key: 'weekly_report', label: 'Weekly summary', desc: 'A weekly digest of how every domain is doing.' },
         ].map((pref) => (
           <ToggleRow
             key={pref.key}

@@ -103,7 +103,7 @@ export default function ProviderModal({
                 Open {selectedProvider.name} API settings ↗
               </a>
             </p>
-            <p>Credentials are stored encrypted at rest, scoped to this tenant. We never log or display them after save.</p>
+            <p>Credentials are encrypted at rest and stay inside this workspace. We never log or show them again after you save.</p>
           </div>
         </div>
 

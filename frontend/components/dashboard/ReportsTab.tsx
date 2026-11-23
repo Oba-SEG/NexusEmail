@@ -272,13 +272,13 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
     <>
       <TabHeader
         title="Reports"
-        description="Generate shareable per-domain reports, review report history, export scoped scan data, and schedule a digest."
+        description="Create shareable reports, review past results, export raw data and schedule a digest."
       />
 
       <div className="space-y-8">
         <SettingsSection
           title="Single domain report"
-          description="A self-contained HTML report: score, record evidence, trend, DMARC aggregate totals, issues and recommended fixes."
+          description="One shareable report with your score, DNS evidence, trends, DMARC totals and recommended fixes."
           contentClassName="space-y-4"
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -434,7 +434,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
 
         <SettingsSection
           title="Bulk exports"
-          description="One CSV row per scan (with full record evidence) or a JSON archive including scan payloads. Defaults to all domains and the last 30 days."
+          description="Choose a CSV with one row per scan (including DNS evidence) or a JSON archive with full scan data. Defaults to all domains and the last 30 days."
           contentClassName="space-y-4"
         >
           <div>
@@ -493,7 +493,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
 
         <SettingsSection
           title="Scheduled delivery"
-          description="Email a portfolio digest (with the full HTML report attached) to stakeholders, and mirror it to Slack when a webhook is configured."
+          description="Email a digest with the full report attached to your team, and post a summary to Slack if a webhook is set."
           contentClassName="space-y-4"
         >
           {scheduleState === 'loading' ? (
@@ -504,7 +504,7 @@ export default function ReportsTab({ domains, apiFetch, onOpenDomain }: ReportsT
             <>
               <ToggleRow
                 label="Scheduled digest"
-                description="Runs hourly checks; delivery happens when the selected interval has elapsed."
+                description="Nexus checks hourly and sends when your chosen interval is due."
                 on={schedule.enabled}
                 onClick={() => { if (!savingSchedule) setSchedule({ ...schedule, enabled: !schedule.enabled }); }}
               />

@@ -16,7 +16,7 @@ interface LoginScreenProps {
 }
 
 const PROOF_POINTS = [
-  "Domain posture for SPF, DKIM and DMARC",
+  "SPF, DKIM, DMARC and related checks",
   "Brand monitoring and threat alerts",
   "Plain-language fixes with evidence",
 ];
@@ -49,15 +49,15 @@ export default function LoginScreen({
           </button>
 
           <div className="relative z-10 max-w-[440px]">
-            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#ff9d52]">The operator&apos;s console</p>
+            <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#ff9d52]">Brand protection console</p>
             <h1 className="mt-5 text-[46px] font-bold leading-[0.98] tracking-[-0.04em]">
-              Your perimeter,
+              Your domains,
               <br />
-              in one place<span className="text-[#ff6b1a]">.</span>
+              clearly in view<span className="text-[#ff6b1a]">.</span>
             </h1>
             <p className="mt-5 text-[13.5px] leading-6 text-white/45">
-              Sign in to see posture, threats and the next fix across every
-              domain your team owns.
+              See how your domains are doing, what needs fixing and what
+              changed — all in one place.
             </p>
             <ul className="mt-8 space-y-3">
               {PROOF_POINTS.map((point) => (
@@ -68,7 +68,7 @@ export default function LoginScreen({
               ))}
             </ul>
             <div className="mt-8 rounded-lg border border-white/10 bg-white/[0.03] px-3.5 py-3 font-mono text-[10.5px] leading-5 text-white/40">
-              <p><span className="text-[#ff9d52]">$</span> nexus posture --org acme</p>
+              <p><span className="text-[#ff9d52]">Last scan</span> acme.com</p>
               <p className="text-[#ffb987]">→ 92/100 · 1 open fix</p>
             </div>
           </div>

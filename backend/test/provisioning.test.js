@@ -46,7 +46,7 @@ test('tenant, owner-name, and password validation report actionable errors', () 
   assert.equal(ownerNameError(''), null);
   assert.equal(ownerNameError(undefined), null);
 
-  assert.match(passwordError('short'), /8/);
+  assert.match(passwordError('short'), /12/);
   assert.match(passwordError('x'.repeat(201)), /200/);
-  assert.equal(passwordError('long-enough'), null);
+  assert.equal(passwordError('long-enough-password'), null);
 });

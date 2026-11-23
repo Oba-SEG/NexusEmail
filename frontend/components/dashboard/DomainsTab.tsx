@@ -254,7 +254,7 @@ export default function DomainsTab({
         headingRef={heroHeadingRef}
         headingId="domains-heading"
         title="Domains"
-        description="SPF, DKIM and DMARC posture for the domains you operate."
+        description="Email security at a glance for every domain you manage."
         action={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <div className="relative">
@@ -441,7 +441,7 @@ export default function DomainsTab({
             <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
               <h3 className="text-[15px] font-semibold">No domains yet</h3>
               <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">
-                Add a domain above to start scanning SPF, DKIM and DMARC posture.
+                Add a domain above to start checking its email records.
               </p>
             </div>
           ) : (

@@ -28,6 +28,7 @@ const DOM_B = { id: 2, name: 'b.test', verified: true, last_score: 40, last_scan
 // one-shot responders are consumed FIFO per key before the defaults
 let oneShot: Array<{ key: string; fn: () => Promise<Res> | Res }> = [];
 const defaults: Record<string, () => Res> = {
+  'GET /auth/me': () => resp(200, { user: { id: 1, email: 'x@y.z', platform_role: 'user' } }),
   'GET /domains': () => resp(200, []),
   'GET /brands': () => resp(200, []),
   'GET /brands/alerts': () => resp(200, []),
@@ -72,8 +73,6 @@ beforeEach(() => {
   // fresh address-bar state per test (the console now mirrors state in
   // ?tab=&domain=&brand= and restores it on mount)
   window.history.replaceState(null, '', '/');
-  localStorage.setItem('nexusemail_token', 'tok');
-  localStorage.setItem('nexusemail_user', JSON.stringify({ id: 1, email: 'x@y.z', platform_role: 'user' }));
 });
 
 afterEach(() => {
@@ -412,6 +411,7 @@ describe('authentication attempt ownership', () => {
   test.each([['login', 200], ['login', 401], ['register', 200], ['register', 400]])('abandoned %s response (%s) cannot install a session or error', async (kind, status) => {
     localStorage.clear();
     sessionStorage.clear();
+    oneShot.push({ key: 'GET /auth/me', fn: () => resp(401, {}) });
     render(<Dashboard />);
     fireEvent.click((await screen.findAllByRole('button', { name: /sign in/i }))[0]);
     if (kind === 'register') fireEvent.click(screen.getByRole('button', { name: /create a workspace/i }));
@@ -442,11 +442,11 @@ test('tab impersonation restores independently of the shared admin session', asy
   fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
   await waitFor(() => expect(sessionStorage.getItem('nexusemail_token')).toBe('refreshed-target'));
   expect(JSON.parse(sessionStorage.getItem('nexusemail_impersonator')!)).toEqual({ token: 'tok', user: { id: 1 }, actor: { email: 'admin@example.test' }, targetToken: 'refreshed-target' });
-  expect(localStorage.getItem('nexusemail_token')).toBe('tok');
+  expect(localStorage.getItem('nexusemail_token')).toBeNull();
   expect((global.fetch as any).mock.calls.some(([, options]: any[]) => options.headers.Authorization === 'Bearer target-token')).toBe(true);
   cleanup();
   sessionStorage.clear();
   render(<Dashboard />);
   await screen.findAllByText('x@y.z');
-  expect(localStorage.getItem('nexusemail_token')).toBe('tok');
+  expect(localStorage.getItem('nexusemail_token')).toBeNull();
 });

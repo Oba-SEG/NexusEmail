@@ -13,57 +13,57 @@ interface HomePageProps {
 const COVERAGE = ["SPF", "DKIM", "DMARC", "MTA-STS", "TLS-RPT", "Brand watch"];
 
 const METRICS = [
-  { value: "92", label: "posture score" },
-  { value: "1", label: "fix queued" },
   { value: "5", label: "DNS checks" },
-  { value: "24/7", label: "brand watch" },
+  { value: "20", label: "DNS providers" },
+  { value: "Daily", label: "automatic rescans" },
+  { value: "1", label: "clear next fix" },
 ];
 
 const FEATURES = [
   {
     number: "01",
     icon: Globe2,
-    title: "See the whole perimeter",
-    body: "SPF, DKIM, DMARC, MTA-STS and TLS-RPT in one posture score. Every finding names the record, the risk, and the fix.",
+    title: "See every check in one place",
+    body: "SPF, DKIM, DMARC, MTA-STS and TLS-RPT, explained together. Every finding names the record, the risk and the fix.",
     meta: "5 checks · 1 score",
   },
   {
     number: "02",
     icon: Radar,
-    title: "Catch impersonation early",
-    body: "Watch for typosquats and lookalike domains, triage what is registered, and keep the evidence attached to the threat.",
+    title: "Find lookalikes early",
+    body: "Nexus watches for domains that imitate yours and shows which ones are actually registered, with evidence you can share.",
     meta: "continuous discovery",
   },
   {
     number: "03",
     icon: FileCheck2,
-    title: "Prove the work",
-    body: "Shareable reports, scan history and DMARC aggregate insights for the people who ask, 'are we actually safer?'",
-    meta: "export-ready evidence",
+    title: "Show your progress",
+    body: "Shareable reports, scan history and DMARC totals for the people who ask, 'are we actually safer?'",
+    meta: "shareable evidence",
   },
   {
     number: "04",
     icon: LockKeyhole,
-    title: "Keep tenants apart",
-    body: "Every domain, scan, secret and report belongs to one workspace. Platform access is audited end to end.",
+    title: "Your data stays yours",
+    body: "Domains, scans, credentials and reports stay inside your workspace. Every admin action is logged.",
     meta: "audited access",
   },
 ];
 
 const STEPS = [
-  { number: "01", title: "Add a domain", body: "Paste the domain. Nexus reads the public DNS records — no agent, no MX change.", cmd: "nexus domains add acme.com" },
-  { number: "02", title: "Fix the top signal", body: "One next action per domain, with the exact record and provider-ready guidance.", cmd: "nexus fix acme.com --top" },
-  { number: "03", title: "Keep watch", body: "Scheduled rescans, brand lookalikes and digests keep the perimeter current.", cmd: "nexus watch acme.com --digest" },
+  { number: "01", title: "Add a domain", body: "Type the domain. Nexus reads the public DNS records — no agent and no MX change needed.", cmd: "Domains → Add & scan" },
+  { number: "02", title: "Fix the top issue", body: "Nexus gives you one clear next step, the exact record, and steps for your DNS provider.", cmd: "Open the suggested fix" },
+  { number: "03", title: "Stay covered", body: "Scheduled rescans, lookalike monitoring and digests keep everything current.", cmd: "Reports → Schedule delivery" },
 ];
 
 const TERMINAL_LINES = [
-  { kind: "prompt", text: "~/acme $ npx nexus scan acme.com" },
+  { kind: "prompt", text: "Example scan · acme.com" },
   { kind: "pass", text: "DMARC    p=reject · rua configured" },
   { kind: "pass", text: "SPF      hard fail · 4 authorized senders" },
   { kind: "pass", text: "DKIM     selector1 aligned" },
   { kind: "warn", text: "MTA-STS  enforce in 6d (observation)" },
   { kind: "pass", text: "TLS-RPT  reporting endpoint present" },
-  { kind: "result", text: "→ posture 92/100 · 1 fix queued" },
+  { kind: "result", text: "→ score 92/100 · 1 fix queued" },
 ];
 
 function RecordField() {
@@ -86,8 +86,8 @@ function TerminalPreview() {
           <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
           <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">nexus-cli</span>
-        <span className="font-mono text-[10px] text-[#ff9d52]">live</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/35">scan preview</span>
+        <span className="font-mono text-[10px] text-[#ff9d52]">example</span>
       </div>
       <div className="space-y-1.5 p-4 font-mono text-[11.5px] leading-6 sm:p-5 sm:text-[12px]">
         {TERMINAL_LINES.map((line) => (
@@ -152,7 +152,7 @@ function ConsolePreview() {
         <div className="bg-[#101013] p-5 md:p-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-[11px] text-white/40">Domain posture</p>
+              <p className="text-[11px] text-white/40">Domain health</p>
               <p className="mt-1 text-[19px] font-semibold tracking-[-0.02em] text-white">aperture.co</p>
               <p className="mt-1 text-[11px] text-white/40">4 passing · 1 to review</p>
             </div>
@@ -207,7 +207,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
     <main className="min-h-screen overflow-x-hidden bg-[#09090b] text-[#f5f2ee]">
       <div className="border-b border-[#ff9d52]/15 bg-[#ff6b1a]/10 px-4 py-2 text-center font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#ffb987]">
         <button type="button" onClick={onCreateAccount} className="group inline-flex items-center gap-1.5">
-          Workspaces are open — bring your domains into focus
+          Start your workspace — add a domain and get a score in minutes
           <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
         </button>
       </div>
@@ -247,16 +247,17 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
         <div className="relative mx-auto grid max-w-[1220px] gap-14 px-5 pb-20 pt-16 sm:px-7 sm:pt-24 lg:grid-cols-[1.05fr_1fr] lg:items-center lg:gap-16">
           <div>
             <p className="font-mono text-[10.5px] uppercase tracking-[0.22em] text-[#ff9d52]">
-              brand protection, shipped like software
+              brand protection without the busywork
             </p>
             <h1 className="mt-6 text-[clamp(3rem,6.6vw,5.4rem)] font-bold leading-[0.95] tracking-[-0.045em]">
-              Own your email
+              Stop impersonation
               <br />
-              perimeter<span className="text-[#ff6b1a]">.</span>
+              before it spreads<span className="text-[#ff6b1a]">.</span>
             </h1>
             <p className="mt-6 max-w-[540px] text-[15px] leading-7 text-white/55">
-              Nexus turns DNS, DMARC and brand signals into one clear answer:
-              what is exposed, what to fix first, and what changed since yesterday.
+              Nexus checks your email records, watches for lookalike domains and
+              tells you exactly what to fix first — in plain language, with the
+              evidence attached.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
               <button type="button" onClick={onCreateAccount} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff6b1a] px-6 text-[13px] font-semibold text-[#160a03] transition-colors hover:bg-[#ff9d52]">
@@ -269,7 +270,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
               </button>
             </div>
             <p className="mt-5 font-mono text-[10.5px] text-white/30">
-              No credit card. No DNS changes to get your first score.
+              No credit card. No DNS changes needed for your first score.
             </p>
 
             <dl className="mt-10 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-white/10 bg-white/10 sm:grid-cols-4">
@@ -306,7 +307,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
 
       <section id="platform" className="mx-auto max-w-[1220px] px-5 py-20 sm:px-7 sm:py-28">
         <div className="grid gap-8 border-b border-white/10 pb-12 lg:grid-cols-[0.85fr_1.15fr] lg:items-end">
-          <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#ff9d52]">The operator&apos;s console</p>
+          <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#ff9d52]">One console for the job</p>
           <h2 className="text-[clamp(2.4rem,4.8vw,4.2rem)] font-bold leading-[1.02] tracking-[-0.04em]">
             Built for the people who own the inbox.
           </h2>
@@ -335,22 +336,22 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
         <div className="relative mx-auto max-w-[1220px] px-5 sm:px-7">
           <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:gap-16">
             <div>
-              <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#ff9d52]">One perimeter</p>
+              <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#ff9d52]">One clear view</p>
               <h2 className="mt-5 text-[clamp(2.4rem,5.2vw,4.4rem)] font-bold leading-[1.0] tracking-[-0.04em]">
                 From DNS record to takedown.
               </h2>
               <p className="mt-6 max-w-[460px] text-[14px] leading-7 text-white/45">
-                Most tools stop at a red badge. Nexus keeps the chain intact:
-                signal, evidence, owner, action. Nothing important lives in a
-                screenshot on someone&apos;s desktop.
+                Most tools stop at a red badge. Nexus keeps the whole story
+                together — what changed, why it matters, who owns it and what
+                happens next. No evidence lost in someone&apos;s inbox.
               </p>
             </div>
             <div className="space-y-0 border-t border-white/10">
               {[
-                [MailCheck, "Authentication posture", "SPF, DKIM, DMARC, MTA-STS and TLS-RPT interpreted together, not as five disconnected checkers."],
-                [ShieldCheck, "Brand defense", "Lookalike discovery with registration checks, safe-list control and an audited takedown trail."],
+                [MailCheck, "Email authentication", "SPF, DKIM, DMARC, MTA-STS and TLS-RPT interpreted together, not as five disconnected checkers."],
+                [ShieldCheck, "Brand defense", "Lookalike discovery, an allow list and a logged history of takedown requests."],
                 [BarChart3, "Evidence on demand", "Shareable reports, scheduled digests and trend history for security reviews."],
-                [LockKeyhole, "Tenant separation", "Every domain, scan, secret and report belongs to one workspace. Platform access is audited."],
+                [LockKeyhole, "Workspace isolation", "Every domain, scan, credential and report belongs to one workspace. Admin access is audited."],
               ].map(([Icon, title, body]) => {
                 const ItemIcon = Icon as typeof MailCheck;
                 return (
@@ -373,7 +374,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
           <div>
             <p className="font-mono text-[10.5px] uppercase tracking-[0.2em] text-[#ff9d52]">Workflow</p>
             <h2 className="mt-4 text-[clamp(2.2rem,4.4vw,3.8rem)] font-bold leading-[1.02] tracking-[-0.04em]">
-              Three moves to a smaller surface.
+              Three steps to a safer domain.
             </h2>
           </div>
           <button type="button" onClick={onCreateAccount} className="inline-flex flex-shrink-0 items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-[#ff9d52] hover:text-[#ffb987]">
@@ -390,7 +391,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
                   <h3 className="text-[15px] font-semibold tracking-[-0.01em]">{step.title}</h3>
                   <p className="mt-1.5 max-w-[420px] text-[12.5px] leading-6 text-white/45">{step.body}</p>
                   <code className="mt-3 inline-block rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[10.5px] text-white/55">
-                    <span className="text-[#ff9d52]">$</span> {step.cmd}
+                    <span className="text-[#ff9d52]">→</span> {step.cmd}
                   </code>
                 </div>
               </div>
@@ -424,7 +425,7 @@ export default function HomePage({ onSignIn, onCreateAccount }: HomePageProps) {
             alert and fix<span className="text-[#ff6b1a]">.</span>
           </h2>
           <p className="mx-auto mt-6 max-w-[520px] text-[14px] leading-7 text-white/50">
-            Get the first posture score in minutes. Invite the rest of the team when you are ready.
+            Get your first score in minutes. Add teammates whenever you&apos;re ready.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button type="button" onClick={onCreateAccount} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#ff6b1a] px-6 text-[13px] font-semibold text-[#160a03] transition-colors hover:bg-[#ff9d52]">
