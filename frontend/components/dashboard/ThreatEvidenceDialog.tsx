@@ -238,7 +238,14 @@ export default function ThreatEvidenceDialog({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
       const status = await loadAssessment();
-      if (cancelled || !status?.active) return;
+      if (cancelled) return;
+      // A transient failure returns null; retry while this queued assessment
+      // may still be running rather than freezing the card forever.
+      if (!status) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      if (!status.active) return;
       timer = setTimeout(poll, 3000);
     };
     timer = setTimeout(poll, 2500);

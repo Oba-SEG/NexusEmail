@@ -86,14 +86,22 @@ router.post('/:token', uploadLimiter, async (req, res, next) => {
       retention_expires_at: new Date(Date.now() + retentionDays * 24 * 60 * 60 * 1000).toISOString(),
     });
 
-    const artifacts = await db.getEvidenceArtifacts(request.threat_id, request.org_id);
-    const kinds = new Set(artifacts.map((entry) => entry.kind));
-    const fulfilled = request.items.every((entry) => kinds.has(uploadKind(entry.key)));
-    if (fulfilled) {
+    // Serialize the completion check on the request row: two uploads racing
+    // to finish the last two items must not both observe a partial set.
+    const requestStatus = await db.withTransaction(async (tx) => {
+      const current = await tx.one('SELECT status FROM upload_requests WHERE id = $1 AND org_id = $2 FOR UPDATE', [request.id, request.org_id]);
+      if (!current || current.status !== 'pending') return current?.status || 'pending';
+      const artifacts = await db.getEvidenceArtifacts(request.threat_id, request.org_id, tx);
+      const kinds = new Set(artifacts.map((entry) => entry.kind));
+      const complete = request.items.every((entry) => kinds.has(uploadKind(entry.key)));
+      if (!complete) return 'pending';
       await db.updateUploadRequest(request.id, request.org_id, {
         status: 'fulfilled',
         fulfilled_at: new Date().toISOString(),
-      });
+      }, tx);
+      return 'fulfilled';
+    });
+    if (requestStatus === 'fulfilled') {
       await db.enqueueJob({
         type: 'threat.assess',
         payload: { orgId: request.org_id, brandId: request.brand_id, threatId: request.threat_id },
@@ -113,7 +121,7 @@ router.post('/:token', uploadLimiter, async (req, res, next) => {
         bytes: artifact.bytes,
         sha256: artifact.sha256,
       },
-      request_status: fulfilled ? 'fulfilled' : 'pending',
+      request_status: requestStatus,
     });
   } catch (error) {
     if (error && error.status && error.status < 500) {
