@@ -71,7 +71,7 @@ export default function DashboardChrome({
         value={item.value}
         onClick={onSelect}
         aria-label={item.value === "threats" && alertCount > 0 ? `${item.label}, ${alertCount} open` : undefined}
-        className="group flex h-9 w-full items-center justify-start gap-2.5 rounded-md px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.045] hover:text-foreground data-[state=active]:bg-white/[0.065] data-[state=active]:text-foreground"
+        className="group flex h-9 w-full items-center justify-start gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.045] hover:text-foreground data-[state=active]:bg-white/[0.065] data-[state=active]:text-foreground"
       >
         <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-data-[state=active]:text-primary" />
         <span className="truncate">{item.label}</span>
@@ -95,7 +95,7 @@ export default function DashboardChrome({
       <div className="nbp-mark flex h-7 w-7 flex-shrink-0 items-center justify-center text-[11px]">N</div>
       <div className="min-w-0 leading-tight">
         <p className="text-[14px] font-semibold tracking-[-0.015em] text-foreground">Nexus</p>
-        <p className="text-[10.5px] text-muted-foreground">Brand protection console</p>
+        <p className="text-[9.5px] font-mono uppercase tracking-[0.14em] text-muted-foreground/70">Brand protection</p>
       </div>
     </div>
   );
@@ -203,7 +203,7 @@ export default function DashboardChrome({
         )}
       </nav>
 
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] flex-col border-r border-border bg-[#0a0b0d] lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] flex-col border-r border-border bg-[#0b0b0e] lg:flex">
         <div className="px-5 pb-5 pt-5">{brand}</div>
         <div className="flex-1 overflow-y-auto px-3 pb-4">
           {navSection(MONITORING_NAV)}

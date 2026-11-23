@@ -438,14 +438,14 @@ export default function DomainsTab({
 
           {/* Domain ledger */}
           {domains.length === 0 ? (
-            <div className="border-y border-border px-6 py-16 text-center">
+            <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
               <h3 className="text-[15px] font-semibold">No domains yet</h3>
               <p className="mx-auto mt-1 max-w-sm text-[12.5px] leading-5 text-muted-foreground">
                 Add a domain above to start scanning SPF, DKIM and DMARC posture.
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto border-y border-border">
+            <div className="overflow-x-auto rounded-xl border border-border bg-card">
               <table className="ledger-table w-full">
                 <thead>
                   <tr className="border-b border-border text-left">

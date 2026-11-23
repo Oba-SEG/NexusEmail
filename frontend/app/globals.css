@@ -9,26 +9,26 @@
 
 @layer base {
   :root {
-    --background: 210 7% 5%;
-    --foreground: 40 10% 92%;
-    --card: 210 6% 7%;
-    --card-foreground: 40 10% 92%;
-    --popover: 210 6% 9%;
-    --popover-foreground: 40 10% 92%;
-    --primary: 25 100% 66%;
-    --primary-foreground: 28 48% 8%;
-    --secondary: 210 5% 12%;
-    --secondary-foreground: 40 10% 92%;
-    --muted: 210 5% 11%;
-    --muted-foreground: 40 5% 64%;
-    --accent: 210 5% 14%;
-    --accent-foreground: 40 10% 92%;
+    --background: 240 8% 4%;
+    --foreground: 35 22% 95%;
+    --card: 240 6% 6%;
+    --card-foreground: 35 22% 95%;
+    --popover: 240 6% 7%;
+    --popover-foreground: 35 22% 95%;
+    --primary: 22 100% 55%;
+    --primary-foreground: 24 77% 5%;
+    --secondary: 240 5% 9%;
+    --secondary-foreground: 35 22% 95%;
+    --muted: 240 5% 7%;
+    --muted-foreground: 240 4% 56%;
+    --accent: 240 5% 11%;
+    --accent-foreground: 35 22% 95%;
     --destructive: 0 64% 56%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 6% 16%;
-    --input: 210 5% 23%;
-    --ring: 25 100% 66%;
-    --radius: 0.75rem;
+    --border: 240 5% 14%;
+    --input: 240 5% 19%;
+    --ring: 22 100% 55%;
+    --radius: 0.625rem;
     /* Motion: exponential ease-out only, no bounce. */
     --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
     --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -130,9 +130,9 @@
      needed — the content below supplies the first division. */
   .page-title {
     font-size: 30px;
-    line-height: 1.12;
-    font-weight: 600;
-    letter-spacing: -0.028em;
+    line-height: 1.08;
+    font-weight: 700;
+    letter-spacing: -0.035em;
   }
 
   .page-description {
@@ -143,20 +143,22 @@
   }
 
   .section-label {
-    font-size: 11.5px;
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
     line-height: 1.2;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    text-transform: none;
-    color: hsl(var(--muted-foreground));
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.75);
   }
 
   .ledger-table th {
-    font-size: 11.5px;
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
     font-weight: 500;
-    letter-spacing: 0;
-    text-transform: none;
-    color: hsl(var(--muted-foreground));
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.75);
   }
 
   .ledger-table td {
@@ -194,11 +196,12 @@
   }
 
   .eyebrow {
-    text-transform: none;
-    letter-spacing: 0;
-    font-size: 12px;
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 10px;
     font-weight: 500;
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--muted-foreground) / 0.75);
   }
 
   .hairline {
