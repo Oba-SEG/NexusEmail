@@ -111,6 +111,7 @@ export default function BrandsTab({
   }, []);
 
   const alertsLoadSeqRef = useRef(0);
+  const threatFormSeqRef = useRef(0);
   const loadAlerts = async (gen: number = sessionGenRef.current) => {
     const seq = ++alertsLoadSeqRef.current;
     const requestToken = tokenRef.current;
@@ -304,6 +305,7 @@ export default function BrandsTab({
 
   const addThreat = async (brandId: number) => {
     const gen = sessionGenRef.current;
+    const seq = ++threatFormSeqRef.current;
     setThreatFormError(null);
     try {
       const res = await apiFetch(`${API_BASE}/brands/${brandId}/threat`, {
@@ -317,6 +319,7 @@ export default function BrandsTab({
         // should be able to correct them rather than retype everything.
         let detail: string | null = null;
         try { detail = (await res.json())?.error || null; } catch { detail = null; }
+        if (seq !== threatFormSeqRef.current) return;
         setThreatFormError(describeApiError(detail || `HTTP ${res.status}`));
         notify('Couldn\'t add the threat.', 'error', describeApiError(detail || `HTTP ${res.status}`));
         return;
@@ -326,6 +329,7 @@ export default function BrandsTab({
       loadBrandThreats(brandId, gen);
     } catch (e) {
       console.error('Failed to add threat:', e);
+      if (seq !== threatFormSeqRef.current) return;
       setThreatFormError(describeApiError(e instanceof Error ? e.message : null));
       notify('Couldn\'t add the threat.', 'error', describeApiError(e instanceof Error ? e.message : null));
     }
@@ -865,7 +869,7 @@ export default function BrandsTab({
           <Button size="sm" onClick={(e) => { takedownOpenerRef.current = e.currentTarget; setShowTakedownModal(true); }}>
             <Zap className="w-3.5 h-3.5" /> Submit takedown
           </Button>
-          <Button variant="outline" size="sm" onClick={(e) => { threatOpenerRef.current = e.currentTarget; setThreatFormError(null); setShowThreatModal(true); }}>
+          <Button variant="outline" size="sm" onClick={(e) => { threatOpenerRef.current = e.currentTarget; threatFormSeqRef.current += 1; setThreatFormError(null); setShowThreatModal(true); }}>
             <AlertTriangle className="w-3.5 h-3.5" /> Add threat
           </Button>
         </div>
@@ -1036,11 +1040,11 @@ export default function BrandsTab({
       <div className="space-y-3">
         <div>
           <label className="text-[12px] font-medium text-muted-foreground">Domain</label>
-          <Input className="mt-1 font-mono" value={threatForm.domain} onChange={(e) => { setThreatForm({ ...threatForm, domain: e.target.value }); setThreatFormError(null); }} placeholder="fake-brand.com" />
+          <Input className="mt-1 font-mono" value={threatForm.domain} onChange={(e) => { threatFormSeqRef.current += 1; setThreatForm({ ...threatForm, domain: e.target.value }); setThreatFormError(null); }} placeholder="fake-brand.com" />
         </div>
         <div>
           <label className="text-[12px] font-medium text-muted-foreground">Threat URL (optional)</label>
-          <Input className="mt-1 font-mono" value={threatForm.threat_url} onChange={(e) => { setThreatForm({ ...threatForm, threat_url: e.target.value }); setThreatFormError(null); }} placeholder="https://fake-brand.com/login" />
+          <Input className="mt-1 font-mono" value={threatForm.threat_url} onChange={(e) => { threatFormSeqRef.current += 1; setThreatForm({ ...threatForm, threat_url: e.target.value }); setThreatFormError(null); }} placeholder="https://fake-brand.com/login" />
         </div>
         <div>
           <label className="text-[12px] font-medium text-muted-foreground">Threat type</label>

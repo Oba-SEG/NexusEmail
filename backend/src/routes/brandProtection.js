@@ -394,6 +394,11 @@ router.get('/:id/threats/:threatId/evidence', async (req, res, next) => {
     const threatId = parseInt(req.params.threatId);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    // The dialog only polls while a job is actually queued. Legacy rows can
+    // carry a pending status with no job, and polling them forever would
+    // hammer the API without ever advancing. Read this before the status so
+    // a worker's committed final state is observed when no job is active.
+    const enrichmentActive = await db.isThreatEnrichmentQueued(threatId);
     const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
     if (!threat) return res.status(404).json({ error: 'Threat not found' });
     const artifacts = await db.getEvidenceArtifacts(threatId, req.orgId);
@@ -401,10 +406,7 @@ router.get('/:id/threats/:threatId/evidence', async (req, res, next) => {
       threat_id: threatId,
       enrichment_status: threat.enrichment_status,
       evidence_status: threat.evidence_status,
-      // The dialog only polls while a job is actually queued. Legacy rows can
-      // carry a pending status with no job, and polling them forever would
-      // hammer the API without ever advancing.
-      enrichment_active: await db.isThreatEnrichmentQueued(threatId),
+      enrichment_active: enrichmentActive,
       artifacts,
     });
   } catch (err) { next(err); }
