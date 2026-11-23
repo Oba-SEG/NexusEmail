@@ -71,7 +71,7 @@ export default function DashboardChrome({
         value={item.value}
         onClick={onSelect}
         aria-label={item.value === "threats" && alertCount > 0 ? `${item.label}, ${alertCount} open` : undefined}
-        className="group flex h-9 w-full items-center justify-start gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.045] hover:text-foreground data-[state=active]:bg-white/[0.065] data-[state=active]:text-foreground"
+        className="group flex h-9 w-full items-center justify-start gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-white/[0.05] hover:text-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-foreground data-[state=active]:shadow-[inset_2px_0_0_0_hsl(var(--primary))]"
       >
         <Icon className="h-4 w-4 flex-shrink-0 text-muted-foreground transition-colors group-data-[state=active]:text-primary" />
         <span className="truncate">{item.label}</span>
@@ -186,15 +186,16 @@ export default function DashboardChrome({
         )}
         {mobileNavOpen && (
           <div data-mobile-nav className="border-t border-border px-3 pb-4 pt-3">
-            <p className="px-2.5 pb-2 text-[11px] text-muted-foreground">{organization?.name || "Personal workspace"}</p>
+            <p className="px-2.5 pb-1.5 pt-1 text-[11px] text-muted-foreground">{organization?.name || "Personal workspace"}</p>
+            <p className="section-label px-2.5 pb-1.5">Monitor</p>
             {navSection(MONITORING_NAV, closeMobileNav)}
-            <div className="my-3 h-px bg-border" />
+            <p className="section-label px-2.5 pb-1.5 pt-3">Output</p>
             {navSection(OUTPUT_NAV, closeMobileNav)}
-            <div className="my-3 h-px bg-border" />
+            <p className="section-label px-2.5 pb-1.5 pt-3">Configure</p>
             {navSection(CONFIG_NAV, closeMobileNav)}
             {isAdmin && (
               <>
-                <div className="my-3 h-px bg-border" />
+                <p className="section-label px-2.5 pb-1.5 pt-3">Admin</p>
                 {navSection(ADMIN_NAV, closeMobileNav)}
               </>
             )}
@@ -206,14 +207,15 @@ export default function DashboardChrome({
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[232px] flex-col border-r border-border bg-[#0b0b0e] lg:flex">
         <div className="px-5 pb-5 pt-5">{brand}</div>
         <div className="flex-1 overflow-y-auto px-3 pb-4">
+          <p className="section-label px-2.5 pb-1.5 pt-1">Monitor</p>
           {navSection(MONITORING_NAV)}
-          <div className="my-3 h-px bg-border" />
+          <p className="section-label px-2.5 pb-1.5 pt-4">Output</p>
           {navSection(OUTPUT_NAV)}
-          <div className="my-3 h-px bg-border" />
+          <p className="section-label px-2.5 pb-1.5 pt-4">Configure</p>
           {navSection(CONFIG_NAV)}
           {isAdmin && (
             <>
-              <div className="my-3 h-px bg-border" />
+              <p className="section-label px-2.5 pb-1.5 pt-4">Admin</p>
               {navSection(ADMIN_NAV)}
             </>
           )}
@@ -226,7 +228,7 @@ export default function DashboardChrome({
           <p className="flex min-w-0 items-center gap-2 text-[12px] text-muted-foreground">
             <span className="truncate">{organization?.name || "Personal workspace"}</span>
             <span aria-hidden="true" className="text-white/20">/</span>
-            <span className="flex-shrink-0 text-foreground">{currentLabel}</span>
+            <span className="flex-shrink-0 font-mono text-[10.5px] uppercase tracking-[0.14em] text-foreground">{currentLabel}</span>
           </p>
           {logoutNotice && (
             <span className="max-w-[320px] truncate text-[11px] leading-tight text-amber-300" role="alert">{logoutNotice}</span>

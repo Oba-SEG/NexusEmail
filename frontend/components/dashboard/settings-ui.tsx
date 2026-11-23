@@ -25,6 +25,7 @@ export function TabHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 pb-7">
       <div className="min-w-0">
+        <p className="section-label mb-2">Nexus / {title}</p>
         <h2 id={headingId} ref={headingRef} tabIndex={headingId ? -1 : undefined} className="page-title">{title}</h2>
         <p className="page-description mt-2">{description}</p>
       </div>

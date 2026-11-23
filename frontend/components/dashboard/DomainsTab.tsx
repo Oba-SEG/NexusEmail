@@ -415,7 +415,7 @@ export default function DomainsTab({
                     <button
                       key={f.label}
                       onClick={() => setDomainFilter(f.key as any)}
-                      className={`h-7 rounded-md px-2 text-[12px] font-medium transition-colors ${active ? 'bg-white/[0.07] text-foreground' : 'text-muted-foreground hover:bg-white/[0.03] hover:text-foreground'}`}
+                      className={`h-7 rounded-md px-2 text-[12px] font-medium transition-colors ${active ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-white/[0.03] hover:text-foreground'}`}
                     >
                       {f.label}
                       <span className={`ml-1 tabular-nums ${active ? 'text-muted-foreground' : 'text-muted-foreground/60'}`}>{f.count}</span>
