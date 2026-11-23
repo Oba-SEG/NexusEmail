@@ -79,6 +79,7 @@ export default function ThreatEvidenceDialog({
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const apiFetchRef = useRef(apiFetch);
   const onAuthFailureRef = useRef(onAuthFailure);
   const tokenRefRef = useRef(tokenRef);
@@ -217,6 +218,36 @@ export default function ThreatEvidenceDialog({
     }
   };
 
+  const downloadArtifact = async (artifact: any) => {
+    if (!threat?.id || downloadingId !== null) return;
+    const requestToken = tokenRefRef.current.current;
+    setDownloadingId(artifact.id);
+    try {
+      // Fetch through the authenticated client so support impersonation
+      // keeps using the target bearer instead of the admin cookie.
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/evidence/${artifact.id}?download=1`);
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const extension = String(artifact.storage_key || '').match(/\.[a-z0-9]+$/i)?.[0] || '';
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${artifact.kind}-${artifact.id}${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (e) {
+      notify('Could not download evidence', 'error', describeApiError(e instanceof Error ? e.message : null));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   if (!open || !threat) return null;
 
   return (
@@ -272,12 +303,14 @@ export default function ThreatEvidenceDialog({
                   )}
 
                   {artifact.storage_key && (
-                    <a
-                      className="mt-2 ml-3 inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
-                      href={`${API_BASE}/brands/${brandId}/evidence/${artifact.id}${artifact.kind === 'screenshot' ? '?download=1' : ''}`}
+                    <button
+                      type="button"
+                      className="mt-2 ml-3 inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-60"
+                      onClick={() => downloadArtifact(artifact)}
+                      disabled={downloadingId !== null}
                     >
-                      <Download className="h-3 w-3" /> Download
-                    </a>
+                      <Download className="h-3 w-3" /> {downloadingId === artifact.id ? 'Downloading…' : 'Download'}
+                    </button>
                   )}
 
                   {artifact.kind === 'screenshot' && previewUrl && (
