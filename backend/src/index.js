@@ -162,6 +162,9 @@ async function main() {
     startScheduledScans();
   }
 
+  const { startJobWorker } = require('./services/evidence/worker');
+  await startJobWorker();
+
   // Health check
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

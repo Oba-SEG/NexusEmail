@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { BrandProtectionService } = require('../services/brandProtection');
+const { BrandProtectionService, canonicalDomain } = require('../services/brandProtection');
 const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
 const db = require('../db/database');
-const { canonicalDomain } = require('../services/brandProtection');
+const { readArtifact } = require('../services/evidence/storage');
 const { captureException } = require('../capture');
 
 const brandService = new BrandProtectionService();
@@ -329,17 +329,45 @@ router.patch('/:id/takedown/:takedownId', async (req, res, next) => {
 
 router.post('/:id/threat', async (req, res, next) => {
   try {
-    const { domain, threat_type, severity, notes } = req.body;
+    const { domain, threat_url, threat_type, severity, notes } = req.body;
+    if (!domain && !threat_url) return res.status(400).json({ error: 'Domain or threat URL is required' });
     const brandId = parseInt(req.params.id);
     const brand = await db.getBrand(brandId, req.orgId);
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
 
+    let canonical = canonicalDomain(domain);
+    if (threat_url) {
+      let parsed;
+      try {
+        parsed = new URL(threat_url);
+      } catch {
+        return res.status(400).json({ error: 'Threat URL must be a valid URL' });
+      }
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return res.status(400).json({ error: 'Threat URL must use HTTP or HTTPS' });
+      }
+      if (!canonical) canonical = canonicalDomain(parsed.hostname);
+    }
     const threat = await db.addBrandThreat({
-      domain, threat_type, severity, notes,
+      domain: canonical || domain,
+      threat_url: threat_url || null,
+      canonical_domain: canonical || null,
+      threat_type,
+      severity,
+      notes,
       detected_at: new Date().toISOString(),
     }, brandId, req.orgId);
 
-    res.json({ success: true, threat_id: threat.id });
+    const jobId = await db.enqueueJob({
+      type: 'threat.enrich',
+      payload: { orgId: req.orgId, brandId, threatId: threat.id },
+      dedupeKey: `threat.enrich:${threat.id}`,
+    }).catch((error) => {
+      captureException(error);
+      return null;
+    });
+
+    res.json({ success: true, threat_id: threat.id, evidence_job_id: jobId });
   } catch (err) { next(err); }
 });
 
@@ -349,6 +377,64 @@ router.get('/:id/threats', async (req, res, next) => {
     if (!brand) return res.status(404).json({ error: 'Brand not found' });
     res.json(await db.getBrandThreats(brand.id, req.orgId));
   } catch (err) { next(err); }
+});
+
+router.get('/:id/threats/:threatId/evidence', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const threatId = parseInt(req.params.threatId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
+    if (!threat) return res.status(404).json({ error: 'Threat not found' });
+    const artifacts = await db.getEvidenceArtifacts(threatId, req.orgId);
+    res.json({
+      threat_id: threatId,
+      enrichment_status: threat.enrichment_status,
+      evidence_status: threat.evidence_status,
+      artifacts,
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/threats/:threatId/enrich', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const threatId = parseInt(req.params.threatId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
+    if (!threat) return res.status(404).json({ error: 'Threat not found' });
+    const jobId = await db.enqueueJob({
+      type: 'threat.enrich',
+      payload: { orgId: req.orgId, brandId, threatId },
+      dedupeKey: `threat.enrich:${threatId}`,
+    });
+    res.status(202).json({ success: true, job_id: jobId, threat_id: threatId });
+  } catch (err) { next(err); }
+});
+
+router.get('/:id/evidence/:artifactId', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const artifactId = parseInt(req.params.artifactId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const artifact = await db.getEvidenceArtifact(artifactId, req.orgId);
+    if (!artifact || artifact.brand_id !== brandId) return res.status(404).json({ error: 'Evidence artifact not found' });
+    if (!artifact.storage_key) return res.status(404).json({ error: 'Artifact has no stored file', artifact });
+    const buffer = await readArtifact(artifact.storage_key);
+    const isImage = String(artifact.mime || '').startsWith('image/');
+    res.setHeader('Content-Type', isImage ? artifact.mime : 'application/octet-stream');
+    res.setHeader('Content-Disposition', `${isImage ? 'inline' : 'attachment'}; filename="${artifact.kind}-${artifact.id}"`);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(buffer);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return res.status(404).json({ error: 'Evidence file not found' });
+    next(err);
+  }
 });
 
 router.delete('/:id', async (req, res, next) => {

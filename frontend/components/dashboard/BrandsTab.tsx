@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { notify, describeApiError } from "@/components/ui/status";
 import { TabHeader } from "@/components/dashboard/settings-ui";
+import ThreatEvidenceDialog from "@/components/dashboard/ThreatEvidenceDialog";
 import { formatDateTime } from "@/lib/format";
 import {
   Dialog, DialogContent, DialogTitle, DialogDescription, dialogFocusReturn,
@@ -58,8 +59,10 @@ export default function BrandsTab({
   const [brandQuery, setBrandQuery] = useState('');
   const [showTakedownModal, setShowTakedownModal] = useState(false);
   const [showThreatModal, setShowThreatModal] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [evidenceThreat, setEvidenceThreat] = useState<any>(null);
   const [takedownForm, setTakedownForm] = useState({ domain: '', threat_type: 'impersonation', evidence: '', contact_email: '' });
-  const [threatForm, setThreatForm] = useState({ domain: '', threat_type: 'manual', severity: 'medium', notes: '' });
+  const [threatForm, setThreatForm] = useState({ domain: '', threat_url: '', threat_type: 'manual', severity: 'medium', notes: '' });
   const [brandThreats, setBrandThreats] = useState<any[]>([]);
   const [brandTakedowns, setBrandTakedowns] = useState<any[]>([]);
   const [brandAlerts, setBrandAlerts] = useState<any[]>([]);
@@ -97,6 +100,7 @@ export default function BrandsTab({
   const brandDetailsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const takedownOpenerRef = useRef<HTMLButtonElement | null>(null);
   const threatOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const evidenceOpenerRef = useRef<HTMLButtonElement | null>(null);
   const alertsOpenerRef = useRef<HTMLButtonElement | null>(null);
   const brandDeleteOpenerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -306,7 +310,7 @@ export default function BrandsTab({
         body: JSON.stringify(threatForm)
       });
       setShowThreatModal(false);
-      setThreatForm({ domain: '', threat_type: 'manual', severity: 'medium', notes: '' });
+      setThreatForm({ domain: '', threat_url: '', threat_type: 'manual', severity: 'medium', notes: '' });
       loadBrandThreats(brandId, gen);
     } catch (e) {
       console.error('Failed to add threat:', e);
@@ -314,6 +318,8 @@ export default function BrandsTab({
   };
 
   const openBrandDetails = async (brand: any) => {
+    setShowEvidence(false);
+    setEvidenceThreat(null);
     setSelectedBrand(brand);
     onBrandSelectionChange?.(brand.id);
     // Mark this selection synchronously so in-flight loads for the
@@ -351,11 +357,17 @@ export default function BrandsTab({
   // Browser back/forward can clear the brand deep link while the dialog
   // is still open; close it to match the address bar.
   useEffect(() => {
-    if (openBrandId === null && selectedBrand) setSelectedBrand(null);
+    if (openBrandId === null && selectedBrand) {
+      setShowEvidence(false);
+      setEvidenceThreat(null);
+      setSelectedBrand(null);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openBrandId]);
 
   const closeBrandDetails = () => {
+    setShowEvidence(false);
+    setEvidenceThreat(null);
     setSelectedBrand(null);
     openedDeepLinkRef.current = null;
     onBrandSelectionChange?.(null);
@@ -856,14 +868,22 @@ export default function BrandsTab({
                 <div key={threat.id} className="flex items-center justify-between gap-3 py-2.5">
                   <div className="min-w-0">
                     <p className="break-all font-mono text-[12px] font-medium">{threat.domain}</p>
-                    <div className="mt-1 flex gap-1.5">
+                    <div className="mt-1 flex flex-wrap gap-1.5">
                       <Badge variant={threat.severity === 'high' ? 'destructive' : threat.severity === 'medium' ? 'default' : 'secondary'}>
                         {threat.threat_type}
                       </Badge>
                       <Badge variant="outline">{threat.severity}</Badge>
+                      {threat.evidence_status && threat.evidence_status !== 'pending' && (
+                        <Badge variant={threat.evidence_status === 'complete' ? 'default' : threat.evidence_status === 'failed' ? 'destructive' : 'secondary'}>
+                          {threat.evidence_status === 'complete' ? 'Evidence ready' : `Evidence ${threat.evidence_status}`}
+                        </Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex gap-0.5">
+                    <Button variant="ghost" size="sm" className="px-2" title="View evidence" aria-label={`View evidence for ${threat.domain}`} onClick={(e) => { evidenceOpenerRef.current = e.currentTarget; setEvidenceThreat(threat); setShowEvidence(true); }}>
+                      <Eye className="w-3.5 h-3.5 text-sky-400" />
+                    </Button>
                     <Button variant="ghost" size="sm" className="px-2" title="Mark as safe" aria-label={`Mark ${threat.domain} as safe`} onClick={() => markAsSafe(selectedBrand.id, threat.domain)}>
                       <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
                     </Button>
@@ -1005,6 +1025,10 @@ export default function BrandsTab({
           <Input className="mt-1 font-mono" value={threatForm.domain} onChange={(e) => setThreatForm({ ...threatForm, domain: e.target.value })} placeholder="fake-brand.com" />
         </div>
         <div>
+          <label className="text-[12px] font-medium text-muted-foreground">Threat URL (optional)</label>
+          <Input className="mt-1 font-mono" value={threatForm.threat_url} onChange={(e) => setThreatForm({ ...threatForm, threat_url: e.target.value })} placeholder="https://fake-brand.com/login" />
+        </div>
+        <div>
           <label className="text-[12px] font-medium text-muted-foreground">Threat type</label>
           <select className={selectClass} value={threatForm.threat_type} onChange={(e) => setThreatForm({ ...threatForm, threat_type: e.target.value })}>
             <option value="manual">Manual</option>
@@ -1032,6 +1056,19 @@ export default function BrandsTab({
       </div>
     </DialogContent>
   </Dialog>
+)}
+
+{showEvidence && evidenceThreat && selectedBrand && (
+  <ThreatEvidenceDialog
+    open={showEvidence}
+    onClose={() => { setShowEvidence(false); setEvidenceThreat(null); }}
+    brandId={selectedBrand.id}
+    threat={evidenceThreat}
+    apiFetch={apiFetch}
+    tokenRef={tokenRef}
+    onAuthFailure={onAuthFailure}
+    openerRef={evidenceOpenerRef}
+  />
 )}
 
 {showAlertsModal && (
