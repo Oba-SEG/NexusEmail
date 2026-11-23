@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const router = express.Router();
 const { BrandProtectionService, canonicalDomain } = require('../services/brandProtection');
 const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
@@ -362,8 +363,14 @@ router.post('/:id/threat', async (req, res, next) => {
       type: 'threat.enrich',
       payload: { orgId: req.orgId, brandId, threatId: threat.id },
       dedupeKey: `threat.enrich:${threat.id}`,
-    }).catch((error) => {
+    }).catch(async (error) => {
       captureException(error);
+      // Do not leave the threat in `pending` with no job behind it: the
+      // dialog would show active work that can never finish.
+      await db.updateBrandThreatEnrichment(threat.id, brandId, req.orgId, {
+        enrichment_status: 'failed',
+        evidence_status: 'failed',
+      }).catch((updateError) => captureException(updateError));
       return null;
     });
 
@@ -392,6 +399,10 @@ router.get('/:id/threats/:threatId/evidence', async (req, res, next) => {
       threat_id: threatId,
       enrichment_status: threat.enrichment_status,
       evidence_status: threat.evidence_status,
+      // The dialog only polls while a job is actually queued. Legacy rows can
+      // carry a pending status with no job, and polling them forever would
+      // hammer the API without ever advancing.
+      enrichment_active: await db.isThreatEnrichmentQueued(threatId),
       artifacts,
     });
   } catch (err) { next(err); }
@@ -434,8 +445,10 @@ router.get('/:id/evidence/:artifactId', async (req, res, next) => {
     if (!artifact.storage_key) return res.status(404).json({ error: 'Artifact has no stored file', artifact });
     const buffer = await readArtifact(artifact.storage_key);
     const isImage = String(artifact.mime || '').startsWith('image/');
+    const forceDownload = req.query.download === '1';
+    const extension = path.extname(artifact.storage_key || '');
     res.setHeader('Content-Type', isImage ? artifact.mime : 'application/octet-stream');
-    res.setHeader('Content-Disposition', `${isImage ? 'inline' : 'attachment'}; filename="${artifact.kind}-${artifact.id}"`);
+    res.setHeader('Content-Disposition', `${isImage && !forceDownload ? 'inline' : 'attachment'}; filename="${artifact.kind}-${artifact.id}${extension}"`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Cache-Control', 'no-store');

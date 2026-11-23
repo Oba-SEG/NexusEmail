@@ -1062,6 +1062,14 @@ async function enqueueJob(job, tx) {
   return id;
 }
 
+async function isThreatEnrichmentQueued(threatId) {
+  const row = await one(
+    "SELECT 1 FROM jobs WHERE dedupe_key = $1 AND status IN ('pending', 'running') LIMIT 1",
+    [`threat.enrich:${threatId}`]
+  );
+  return !!row;
+}
+
 async function claimJob(workerId) {
   const claimedAt = now();
   const claimToken = crypto.randomUUID();
@@ -1363,6 +1371,28 @@ async function ensureColumn(table, column, ddl) {
   if (!row) await q(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
 }
 
+// Threats created before Phase 1 inherited enrichment_status = 'pending' when
+// the column was added, but no job was ever queued for them. Queue them once
+// so the UI does not show a pending status that can never advance. Skipped if
+// any job already exists for the threat (including completed/failed history).
+async function backfillPendingEvidenceJobs() {
+  if ((await getSetting('evidence_jobs_backfill_v1')) === 'done') return 0;
+  const ts = now();
+  const rows = await all(
+    `INSERT INTO jobs (type, payload, status, attempts, max_attempts, dedupe_key, run_after, created_at, updated_at)
+     SELECT 'threat.enrich',
+            json_build_object('orgId', t.org_id, 'brandId', t.brand_id, 'threatId', t.id)::text,
+            'pending', 0, 3, 'threat.enrich:' || t.id, $1, $1, $1
+     FROM brand_threats t
+     WHERE t.enrichment_status = 'pending'
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'threat.enrich:' || t.id)
+     RETURNING id`,
+    [ts]
+  );
+  await setSetting('evidence_jobs_backfill_v1', 'done');
+  return rows.length;
+}
+
 // Bump the user's token_version: every previously issued JWT stops
 // verifying on the next request (requireAuth compares the token's tv claim).
 async function bumpUserTokenVersion(userId) {
@@ -1393,6 +1423,8 @@ async function initDatabase() {
   await ensureColumn('brand_threats', 'resolved_at', 'TEXT');
   await ensureColumn('brand_threats', 'metadata', 'TEXT');
   await ensureColumn('jobs', 'claim_token', 'TEXT');
+  const backfilled = await backfillPendingEvidenceJobs();
+  if (backfilled > 0) console.log(`[db] queued evidence for ${backfilled} pending threat(s)`);
   await migrateBrandsFromSettingsBlob();
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
@@ -1459,7 +1491,7 @@ module.exports = {
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
   getBrandThreats, getBrandThreat, addBrandThreat, deleteBrandThreatByDomain, updateBrandThreatEnrichment,
   addEvidenceArtifact, getEvidenceArtifacts, getEvidenceArtifact,
-  enqueueJob, enqueueJobDetailed, claimJob, completeJob, failJob, recoverStaleJobs, heartbeatJob,
+  enqueueJob, enqueueJobDetailed, claimJob, completeJob, failJob, recoverStaleJobs, heartbeatJob, isThreatEnrichmentQueued,
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,
