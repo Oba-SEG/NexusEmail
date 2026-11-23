@@ -1,0 +1,281 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Camera, ExternalLink, FileJson, Globe2, Lock, RefreshCw, Server } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { notify, describeApiError } from "@/components/ui/status";
+import { formatDateTime } from "@/lib/format";
+import {
+  Dialog, DialogContent, DialogDescription, DialogTitle, dialogFocusReturn,
+} from "@/components/ui/dialog";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
+
+const KIND_META: Record<string, { label: string; icon: any }> = {
+  dns: { label: 'DNS records', icon: Globe2 },
+  rdap: { label: 'RDAP registration', icon: FileJson },
+  http: { label: 'HTTP response', icon: Server },
+  tls: { label: 'TLS certificate', icon: Lock },
+  screenshot: { label: 'Screenshot', icon: Camera },
+};
+
+interface ThreatEvidenceDialogProps {
+  open: boolean;
+  onClose: () => void;
+  brandId: number;
+  threat: any;
+  apiFetch: (url: string, options?: any) => Promise<Response>;
+  tokenRef: { current: string | null };
+  onAuthFailure: (requestToken?: string | null) => void;
+  openerRef: { current: HTMLButtonElement | null };
+}
+
+function statusVariant(status: string) {
+  if (status === 'ok' || status === 'complete') return 'default';
+  if (status === 'failed') return 'destructive';
+  return 'secondary';
+}
+
+function formatBytes(value: number | null | undefined) {
+  if (!value) return null;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function artifactSummary(artifact: any) {
+  const metadata = artifact.metadata || {};
+  if (artifact.kind === 'dns') {
+    const records = metadata.records || {};
+    const count = (value: any) => (Array.isArray(value) ? value.length : 0);
+    return `A ${count(records.a)} · AAAA ${count(records.aaaa)} · MX ${count(records.mx)} · NS ${count(records.ns)} · TXT ${count(records.txt)}`;
+  }
+  if (artifact.kind === 'rdap') {
+    const data = metadata.data || {};
+    const rdapStatus = Array.isArray(data.status) ? data.status.join(', ') : data.status;
+    return [data.ldhName, rdapStatus, metadata.http_status ? `HTTP ${metadata.http_status}` : null].filter(Boolean).join(' · ') || 'RDAP response';
+  }
+  if (artifact.kind === 'http') {
+    return [`HTTP ${metadata.http_status}`, metadata.headers?.server, metadata.headers?.['content-type']].filter(Boolean).join(' · ');
+  }
+  if (artifact.kind === 'tls') {
+    return [metadata.subject?.CN, metadata.issuer?.CN, metadata.valid_to ? `valid to ${metadata.valid_to}` : null].filter(Boolean).join(' · ');
+  }
+  if (artifact.kind === 'screenshot') {
+    return metadata.reason || [metadata.width && `${metadata.width}×${metadata.height}`, metadata.engine].filter(Boolean).join(' · ');
+  }
+  return metadata.reason || metadata.error || '';
+}
+
+export default function ThreatEvidenceDialog({
+  open, onClose, brandId, threat, apiFetch, tokenRef, onAuthFailure, openerRef,
+}: ThreatEvidenceDialogProps) {
+  const [artifacts, setArtifacts] = useState<any[]>([]);
+  const [enrichmentStatus, setEnrichmentStatus] = useState('pending');
+  const [evidenceStatus, setEvidenceStatus] = useState('pending');
+  const [loading, setLoading] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const apiFetchRef = useRef(apiFetch);
+  const onAuthFailureRef = useRef(onAuthFailure);
+  const tokenRefRef = useRef(tokenRef);
+  const loadSeqRef = useRef(0);
+  apiFetchRef.current = apiFetch;
+  onAuthFailureRef.current = onAuthFailure;
+  tokenRefRef.current = tokenRef;
+
+  const loadEvidence = useCallback(async () => {
+    if (!threat?.id) return;
+    const seq = ++loadSeqRef.current;
+    const requestToken = tokenRefRef.current.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/threats/${threat.id}/evidence`);
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // A newer request superseded this one; never let an older poll
+      // overwrite a newer collection's status.
+      if (seq !== loadSeqRef.current) return null;
+      setArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
+      setEnrichmentStatus(data.enrichment_status || 'pending');
+      setEvidenceStatus(data.evidence_status || 'pending');
+      return { enrichmentStatus: data.enrichment_status || 'pending', evidenceStatus: data.evidence_status || 'pending' };
+    } catch (e) {
+      if (seq !== loadSeqRef.current) return null;
+      setError(describeApiError(e instanceof Error ? e.message : null));
+      return null;
+    } finally {
+      if (seq === loadSeqRef.current) setLoading(false);
+    }
+  }, [brandId, threat?.id]);
+
+  useEffect(() => {
+    if (open && threat?.id) loadEvidence();
+    return () => {
+      // Invalidate any in-flight load when the dialog closes or the
+      // selected threat changes.
+      loadSeqRef.current += 1;
+    };
+  }, [open, threat?.id, loadEvidence]);
+
+  // Keep refreshing while a collection is still in flight. Without this the
+  // dialog would show the pre-collection snapshot forever if the worker
+  // finishes after the initial load (or after the manual six-poll loop).
+  useEffect(() => {
+    if (!open || !threat?.id) return undefined;
+    if (enrichmentStatus !== 'pending' && enrichmentStatus !== 'running') return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const status = await loadEvidence();
+      if (cancelled) return;
+      const next = status?.enrichmentStatus;
+      if (next && next !== 'pending' && next !== 'running') return;
+      timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, threat?.id, enrichmentStatus, loadEvidence]);
+
+  const screenshot = artifacts.find((artifact) => artifact.kind === 'screenshot' && artifact.storage_key);
+  const screenshotId = screenshot?.id;
+  const screenshotKey = screenshot?.storage_key;
+  const screenshotCollectedAt = screenshot?.collected_at;
+  useEffect(() => {
+    if (!open || !screenshotId) {
+      setPreviewUrl(null);
+      return undefined;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const requestToken = tokenRefRef.current.current;
+    apiFetchRef.current(`${API_BASE}/brands/${brandId}/evidence/${screenshotId}`)
+      .then(async (res) => {
+        if (res.status === 401) {
+          onAuthFailureRef.current(requestToken);
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setPreviewUrl(null);
+      });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [brandId, open, screenshotId, screenshotKey, screenshotCollectedAt]);
+
+  const enrich = async () => {
+    if (!threat?.id || enriching) return;
+    const requestToken = tokenRefRef.current.current;
+    setEnriching(true);
+    try {
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/threats/${threat.id}/enrich`, { method: 'POST' });
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      notify('Evidence collection queued', 'info');
+      // The dialog's polling effect takes over from here and stops as soon
+      // as the worker reports a terminal status.
+      await loadEvidence();
+    } catch (e) {
+      notify('Could not queue evidence collection', 'error', describeApiError(e instanceof Error ? e.message : null));
+    } finally {
+      setEnriching(false);
+    }
+  };
+
+  if (!open || !threat) return null;
+
+  return (
+    <Dialog open onOpenChange={(value) => { if (!value) onClose(); }}>
+      <DialogContent className="max-h-[85vh] w-full max-w-2xl overflow-y-auto" onCloseAutoFocus={dialogFocusReturn(openerRef)}>
+        <div>
+          <DialogTitle className="font-mono text-[15px]">Evidence: {threat.domain}</DialogTitle>
+          <DialogDescription>
+            Deterministic DNS, registration, HTTP, TLS and screenshot artifacts collected for this threat.
+          </DialogDescription>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 border-y border-border/60 py-3">
+          <Badge variant={statusVariant(evidenceStatus)}>Evidence {evidenceStatus}</Badge>
+          <Badge variant="outline">Enrichment {enrichmentStatus}</Badge>
+          <Button size="sm" variant="outline" onClick={enrich} disabled={enriching}>
+            <RefreshCw className={`w-3.5 h-3.5 ${enriching ? 'animate-spin' : ''}`} />
+            {enriching ? 'Collecting' : 'Collect evidence'}
+          </Button>
+        </div>
+
+        {loading && artifacts.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground">Loading evidence…</p>
+        ) : error ? (
+          <p className="text-[12px] text-red-400">{error}</p>
+        ) : artifacts.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground">No evidence collected yet. Run collection to gather artifacts.</p>
+        ) : (
+          <div className="space-y-3">
+            {artifacts.map((artifact) => {
+              const meta = KIND_META[artifact.kind] || { label: artifact.kind, icon: FileJson };
+              const Icon = meta.icon;
+              return (
+                <div key={artifact.id} className="rounded-lg border border-border/60 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium">{meta.label}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">{artifactSummary(artifact)}</p>
+                      </div>
+                    </div>
+                    <Badge variant={statusVariant(artifact.status)}>{artifact.status}</Badge>
+                  </div>
+
+                  {artifact.source_url && (
+                    <a className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary hover:underline" href={artifact.source_url} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-3 w-3" /> Open source
+                    </a>
+                  )}
+
+                  {artifact.kind === 'screenshot' && previewUrl && (
+                    <img src={previewUrl} alt={`Screenshot of ${threat.domain}`} className="mt-3 max-h-72 w-full rounded-md border border-border/60 object-contain" />
+                  )}
+
+                  {artifact.metadata?.error && <p className="mt-2 text-[11px] text-red-400">{artifact.metadata.error}</p>}
+                  {artifact.metadata?.reason && <p className="mt-2 text-[11px] text-muted-foreground">{artifact.metadata.reason}</p>}
+
+                  <div className="mt-2 flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+                    {artifact.collected_at && <span>Collected {formatDateTime(artifact.collected_at)}</span>}
+                    {formatBytes(artifact.bytes) && <span>{formatBytes(artifact.bytes)}</span>}
+                    {artifact.collector && <span>via {artifact.collector}</span>}
+                  </div>
+
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[10px] text-muted-foreground">Raw metadata</summary>
+                    <pre className="mt-1 max-h-40 overflow-auto rounded bg-black/20 p-2 text-[10px] text-muted-foreground">{JSON.stringify(artifact.metadata || {}, null, 2)}</pre>
+                  </details>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}

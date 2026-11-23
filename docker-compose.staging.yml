@@ -41,6 +41,14 @@ services:
       - SEED_ADMIN_PASSWORD=${SEED_ADMIN_PASSWORD}
       - ALLOWED_ORIGINS=https://brandprotection.segbytes.xyz,http://192.168.8.4:4102,http://localhost:3000
       - DOMAIN_CAP=${DOMAIN_CAP:-25}
+      - EVIDENCE_DIR=/app/data/evidence
+      - EVIDENCE_ENRICH_MAX_PER_SCAN=${EVIDENCE_ENRICH_MAX_PER_SCAN:-10}
+      - EVIDENCE_RETENTION_DAYS=${EVIDENCE_RETENTION_DAYS:-365}
+      - DISABLE_JOB_WORKER=${DISABLE_JOB_WORKER:-false}
+      - SCREENSHOT_SERVICE_URL=${SCREENSHOT_SERVICE_URL:-}
+      - SCREENSHOT_SERVICE_TOKEN=${SCREENSHOT_SERVICE_TOKEN:-}
+      - SCREENSHOT_SERVICE_WIDTH=${SCREENSHOT_SERVICE_WIDTH:-1280}
+      - SCREENSHOT_SERVICE_HEIGHT=${SCREENSHOT_SERVICE_HEIGHT:-720}
       - SENTRY_DSN=https://35daeff54c63b969a3a4c5231e2b247c@o4512322868936704.ingest.de.sentry.io/4512422741934160
       - SENTRY_ENVIRONMENT=staging
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
@@ -52,6 +60,8 @@ services:
     # verified: the LAN chain at 127.0.0.53 served a stale ENOTFOUND for
     # _dmarc while 1.1.1.1 returned the live record.
     dns: [1.1.1.1, 8.8.8.8]
+    volumes:
+      - evidence:/app/data/evidence
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +84,7 @@ services:
 
 volumes:
   pgdata:
+  evidence:
 
 networks:
   default:

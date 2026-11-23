@@ -16,8 +16,8 @@ ENV NODE_ENV=production
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY package*.json ./
 COPY src ./src
-# Runtime writes data/reports at startup — own it as the non-root user.
-RUN chown -R node:node /app
+# Runtime writes data/reports and evidence at startup — own it as the non-root user.
+RUN mkdir -p /app/data/evidence && chown -R node:node /app
 USER node
 EXPOSE 3001
 CMD ["npm", "start"]

@@ -69,6 +69,30 @@ function alertsForThreats(added) {
   }));
 }
 
+async function enqueueEvidenceForThreats(brandId, orgId, added) {
+  const configuredMax = Number(process.env.EVIDENCE_ENRICH_MAX_PER_SCAN ?? 10);
+  const max = Number.isFinite(configuredMax) ? Math.max(0, Math.floor(configuredMax)) : 10;
+  if (max === 0 || !added || added.length === 0) return 0;
+  const domains = new Set(added.map((threat) => canonicalDomain(threat.domain)).filter(Boolean));
+  if (domains.size === 0) return 0;
+  const persisted = await db.getBrandThreats(brandId, orgId);
+  const targets = persisted.filter((threat) => domains.has(canonicalDomain(threat.domain))).slice(0, max);
+  let enqueued = 0;
+  for (const threat of targets) {
+    try {
+      await db.enqueueJob({
+        type: 'threat.enrich',
+        payload: { orgId, brandId, threatId: threat.id },
+        dedupeKey: `threat.enrich:${threat.id}`,
+      });
+      enqueued += 1;
+    } catch (error) {
+      console.error(`[brand-scan] failed to enqueue evidence for threat ${threat.id}:`, error.message || error);
+    }
+  }
+  return enqueued;
+}
+
 async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
   const claim = crypto.randomUUID();
   const claimed = await db.claimBrandScan(brand.id, orgId, claim);
@@ -208,10 +232,15 @@ async function performBrandScan(brand, orgId, { requireDue = false } = {}) {
     if (outcome.skipped) {
       return { skipped: outcome.skipped, domain: brand.domain, brand_id: brand.id };
     }
+    const evidenceJobsEnqueued = await enqueueEvidenceForThreats(fresh.id, orgId, outcome.added).catch((error) => {
+      console.error('[brand-scan] evidence enqueue failed:', error.message || error);
+      return 0;
+    });
     return {
       ...outcome.finalResult,
       next_scan: outcome.nextScan,
       threats_persisted: outcome.added.length,
+      evidence_jobs_enqueued: evidenceJobsEnqueued,
     };
   } finally {
     clearInterval(heartbeat);
