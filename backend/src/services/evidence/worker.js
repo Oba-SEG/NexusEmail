@@ -144,6 +144,7 @@ async function runJob(job) {
       lost = true;
       throw new LostClaimError(job.id);
     }
+    return true;
   };
   const heartbeat = setInterval(() => {
     if (lost) return;
