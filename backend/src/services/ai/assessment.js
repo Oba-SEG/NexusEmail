@@ -118,6 +118,10 @@ function validateModelAssessment(raw, artifactIds) {
   };
 }
 
+function evidenceHash(artifacts) {
+  return provider.inputHash(artifacts.map(artifactSummary));
+}
+
 function deterministicAssessment(threat, brand, artifacts) {
   const byKind = Object.fromEntries(artifacts.map((artifact) => [artifact.kind, artifact]));
   const http = byKind.http?.metadata || {};
@@ -260,7 +264,9 @@ async function assessThreat(payload, canContinue) {
   if (!assessment.citations.length) {
     assessment.citations = artifacts.filter((artifact) => artifact.status === 'ok').map((artifact) => artifact.id);
   }
+  if (canContinue && !(await canContinue())) throw new Error('job guard expired');
 
+  const assessedEvidenceHash = evidenceHash(artifacts);
   const aiRun = await db.addAiRun({
     org_id: orgId,
     brand_id: brandId,
@@ -284,12 +290,13 @@ async function assessThreat(payload, canContinue) {
     confidence: assessment.confidence,
   });
 
-  return { assessment, aiRun, uploadRequest };
+  return { assessment, aiRun, uploadRequest, evidenceHash: assessedEvidenceHash };
 }
 
 module.exports = {
   assessThreat,
   buildAssessmentInput,
+  evidenceHash,
   deterministicAssessment,
   validateModelAssessment,
   tokenHash,

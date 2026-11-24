@@ -2,7 +2,7 @@ const os = require('os');
 const db = require('../../db/database');
 const { collectEvidence } = require('./collectors');
 const { putArtifact } = require('./storage');
-const { assessThreat } = require('../ai/assessment');
+const { assessThreat, evidenceHash } = require('../ai/assessment');
 
 const WORKER_ID = `${os.hostname()}:${process.pid}:${Math.random().toString(36).slice(2, 8)}`;
 const configuredPoll = Number(process.env.JOB_WORKER_POLL_MS || 1000);
@@ -156,15 +156,34 @@ async function runJob(job) {
   }, HEARTBEAT_MS);
   if (typeof heartbeat.unref === 'function') heartbeat.unref();
   try {
+    let result;
     if (job.type === 'threat.enrich') {
-      await enrichThreat(job.payload || {}, guard);
+      result = await enrichThreat(job.payload || {}, guard);
     } else if (job.type === 'threat.assess') {
-      await assessThreat(job.payload || {}, guard);
+      result = await assessThreat(job.payload || {}, guard);
     } else {
       throw new Error(`Unknown job type: ${job.type}`);
     }
     const completed = await db.completeJob(job.id, job.claim_token);
-    if (!completed) console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
+    if (!completed) {
+      console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
+    } else if (job.type === 'threat.assess' && result && result.evidenceHash) {
+      const payload = job.payload || {};
+      const threatId = Number(payload.threatId || payload.threat_id);
+      const orgId = payload.orgId || payload.org_id;
+      try {
+        const latest = await db.getEvidenceArtifacts(threatId, orgId);
+        if (evidenceHash(latest) !== result.evidenceHash) {
+          await db.enqueueJob({
+            type: 'threat.assess',
+            payload,
+            dedupeKey: `threat.assess:${threatId}`,
+          });
+        }
+      } catch (error) {
+        console.warn(`[jobs] failed to queue assessment follow-up for threat ${threatId}:`, error.message);
+      }
+    }
   } catch (error) {
     if (error && error.code === 'LOST_CLAIM') {
       console.warn(`[jobs] ${job.type} ${job.id} lost its claim; abandoning run`);

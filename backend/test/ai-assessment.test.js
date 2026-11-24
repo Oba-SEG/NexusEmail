@@ -4,6 +4,7 @@ const {
   deterministicAssessment,
   validateModelAssessment,
   buildAssessmentInput,
+  evidenceHash,
 } = require('../src/services/ai/assessment');
 const { computeEvidenceGaps } = require('../src/services/ai/gaps');
 
@@ -42,6 +43,15 @@ describe('deterministic triage assessment', () => {
     assert.equal(result.recommended_route, 'unknown');
     assert.deepEqual(result.citations, []);
     assert.ok(result.confidence <= 0.6);
+  });
+
+  test('fingerprints evidence changes for follow-up assessments', () => {
+    const base = evidenceHash(artifacts);
+    assert.equal(evidenceHash([...artifacts]), base);
+    assert.notEqual(evidenceHash([...artifacts, { id: 106, kind: 'upload_screenshot', status: 'ok' }]), base);
+    assert.notEqual(evidenceHash(artifacts.map((artifact) => (
+      artifact.id === 103 ? { ...artifact, metadata: { ...artifact.metadata, title: 'Changed' } } : artifact
+    ))), base);
   });
 
   test('builds typed input without raw certificate blobs', () => {
