@@ -31,6 +31,7 @@ function artifactSummary(artifact) {
       ...base,
       http_status: metadata.http_status ?? null,
       server: metadata.headers?.server || null,
+      cf_ray: metadata.headers?.['cf-ray'] || null,
       title: metadata.title || null,
       forms: metadata.forms ?? null,
       login_form: metadata.login_form ?? null,

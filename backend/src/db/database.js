@@ -1293,13 +1293,24 @@ async function claimJob(workerId) {
 
 // Terminal writes are fenced on the per-claim token: if recovery handed the
 // job to another worker, these return false/null instead of stomping it.
-async function completeJob(jobId, claimToken) {
+async function completeJob(jobId, claimToken, successor) {
   if (!claimToken) throw new Error('claimToken required');
-  const result = await q(
-    "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
-    [jobId, now(), claimToken]
-  );
-  return result.rowCount > 0;
+  if (!successor) {
+    const result = await q(
+      "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
+      [jobId, now(), claimToken]
+    );
+    return result.rowCount > 0;
+  }
+  return withTransaction(async (tx) => {
+    const result = await tx.q(
+      "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
+      [jobId, now(), claimToken]
+    );
+    if (result.rowCount === 0) return false;
+    await enqueueJobDetailed(successor, tx);
+    return true;
+  });
 }
 
 async function failJob(jobId, claimToken, error, retrySeconds = 30) {

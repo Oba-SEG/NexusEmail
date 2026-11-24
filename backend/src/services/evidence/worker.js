@@ -164,26 +164,22 @@ async function runJob(job) {
     } else {
       throw new Error(`Unknown job type: ${job.type}`);
     }
-    const completed = await db.completeJob(job.id, job.claim_token);
-    if (!completed) {
-      console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
-    } else if (job.type === 'threat.assess' && result && result.evidenceHash) {
+    let successor = null;
+    if (job.type === 'threat.assess' && result && result.evidenceHash) {
       const payload = job.payload || {};
       const threatId = Number(payload.threatId || payload.threat_id);
       const orgId = payload.orgId || payload.org_id;
-      try {
-        const latest = await db.getEvidenceArtifacts(threatId, orgId);
-        if (evidenceHash(latest) !== result.evidenceHash) {
-          await db.enqueueJob({
-            type: 'threat.assess',
-            payload,
-            dedupeKey: `threat.assess:${threatId}`,
-          });
-        }
-      } catch (error) {
-        console.warn(`[jobs] failed to queue assessment follow-up for threat ${threatId}:`, error.message);
+      const latest = await db.getEvidenceArtifacts(threatId, orgId);
+      if (evidenceHash(latest) !== result.evidenceHash) {
+        successor = {
+          type: 'threat.assess',
+          payload,
+          dedupeKey: `threat.assess:${threatId}`,
+        };
       }
     }
+    const completed = await db.completeJob(job.id, job.claim_token, successor);
+    if (!completed) console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
   } catch (error) {
     if (error && error.code === 'LOST_CLAIM') {
       console.warn(`[jobs] ${job.type} ${job.id} lost its claim; abandoning run`);
