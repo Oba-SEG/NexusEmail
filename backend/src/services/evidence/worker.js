@@ -2,6 +2,7 @@ const os = require('os');
 const db = require('../../db/database');
 const { collectEvidence } = require('./collectors');
 const { putArtifact } = require('./storage');
+const { assessThreat, evidenceHash } = require('../ai/assessment');
 
 const WORKER_ID = `${os.hostname()}:${process.pid}:${Math.random().toString(36).slice(2, 8)}`;
 const configuredPoll = Number(process.env.JOB_WORKER_POLL_MS || 1000);
@@ -107,6 +108,16 @@ async function enrichThreat(payload, guard) {
     };
     if (reachable) updates.last_seen = collectedAt;
     if (guard) await guard();
+    // Queue before publishing `complete`. The dialog stops polling as soon
+    // as it sees a terminal evidence status, so a job inserted afterwards
+    // could be missed by a poll landing in that gap.
+    await db.enqueueJob({
+      type: 'threat.assess',
+      payload: { orgId, brandId, threatId },
+      dedupeKey: `threat.assess:${threatId}`,
+    }).catch((error) => {
+      console.warn(`[jobs] failed to queue assessment for threat ${threatId}:`, error.message);
+    });
     await db.updateBrandThreatEnrichment(threatId, brandId, orgId, updates);
     return { threatId, evidenceStatus, artifacts: results.length };
   } catch (error) {
@@ -133,6 +144,7 @@ async function runJob(job) {
       lost = true;
       throw new LostClaimError(job.id);
     }
+    return true;
   };
   const heartbeat = setInterval(() => {
     if (lost) return;
@@ -144,12 +156,29 @@ async function runJob(job) {
   }, HEARTBEAT_MS);
   if (typeof heartbeat.unref === 'function') heartbeat.unref();
   try {
+    let result;
     if (job.type === 'threat.enrich') {
-      await enrichThreat(job.payload || {}, guard);
+      result = await enrichThreat(job.payload || {}, guard);
+    } else if (job.type === 'threat.assess') {
+      result = await assessThreat(job.payload || {}, guard);
     } else {
       throw new Error(`Unknown job type: ${job.type}`);
     }
-    const completed = await db.completeJob(job.id, job.claim_token);
+    let successor = null;
+    if (job.type === 'threat.assess' && result && result.evidenceHash) {
+      const payload = job.payload || {};
+      const threatId = Number(payload.threatId || payload.threat_id);
+      const orgId = payload.orgId || payload.org_id;
+      const latest = await db.getEvidenceArtifacts(threatId, orgId);
+      if (evidenceHash(latest) !== result.evidenceHash) {
+        successor = {
+          type: 'threat.assess',
+          payload,
+          dedupeKey: `threat.assess:${threatId}`,
+        };
+      }
+    }
+    const completed = await db.completeJob(job.id, job.claim_token, successor);
     if (!completed) console.warn(`[jobs] ${job.type} ${job.id} lost its claim before completion`);
   } catch (error) {
     if (error && error.code === 'LOST_CLAIM') {

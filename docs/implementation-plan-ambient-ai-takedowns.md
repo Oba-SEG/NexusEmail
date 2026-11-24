@@ -1,6 +1,6 @@
 # Ambient AI Evidence & Takedown Plan
 
-Status: approved; Phase 1 implemented (evidence foundation)  
+Status: approved; Phase 1 implemented (evidence foundation); Phase 2 in progress (assessment + uploads)
 Date: 2026-11-23  
 Product: Nexus Brand Protection (hosted Segbytes product)
 
@@ -827,13 +827,13 @@ Exit: a threat shows a real evidence manifest and screenshot in staging.
 
 ### Phase 2: AI assessment and uploads (2 weeks)
 
-- AI provider abstraction and schemas.
-- Triage and evidence-gap artifacts.
-- Upload requests, secure upload, malware scan.
-- Case workspace summary/evidence/uploads tabs.
-- Golden-set evaluation harness.
+- [x] AI provider abstraction and schemas (OpenAI-compatible fetch adapter; deterministic fallback when unconfigured).
+- [x] Triage and evidence-gap artifacts (`ai_runs`, `threat.assess`, validated citations).
+- [x] Upload requests, secure upload, malware scan (expiring hashed token, magic-byte checks, EICAR/PDF active-content rejection, optional fail-closed scanner).
+- [ ] Case workspace summary/evidence/uploads tabs (Phase 2 ships in the evidence dialog; full case tabs land with Phase 3 packets).
+- [ ] Golden-set evaluation harness.
 
-Exit: missing evidence produces a user-facing upload request; AI assessment cites artifacts.
+Exit: missing evidence produces a user-facing upload request; AI assessment cites artifacts. Both are met in the evidence dialog; model quality evaluation remains open until an AI key is configured.
 
 ### Phase 3: Takedown packets and approval (2 weeks)
 

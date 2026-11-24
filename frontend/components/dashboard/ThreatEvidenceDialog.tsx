@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Download, ExternalLink, FileJson, Globe2, Lock, RefreshCw, Server } from "lucide-react";
+import { Camera, CheckCircle2, Download, ExternalLink, FileJson, Globe2, Lock, RefreshCw, Server, Sparkles, Upload } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { notify, describeApiError } from "@/components/ui/status";
@@ -44,6 +44,20 @@ function formatBytes(value: number | null | undefined) {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const comma = result.indexOf(',');
+      if (comma < 0) reject(new Error('Could not read file'));
+      else resolve(result.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error || new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 function artifactSummary(artifact: any) {
   const metadata = artifact.metadata || {};
   if (artifact.kind === 'dns') {
@@ -65,6 +79,9 @@ function artifactSummary(artifact: any) {
   if (artifact.kind === 'screenshot') {
     return metadata.reason || [metadata.width && `${metadata.width}×${metadata.height}`, metadata.engine].filter(Boolean).join(' · ');
   }
+  if (String(artifact.kind).startsWith('upload_')) {
+    return [metadata.label, metadata.original_filename, metadata.scan?.scanner ? `scanned by ${metadata.scan.scanner}` : null].filter(Boolean).join(' · ');
+  }
   return metadata.reason || metadata.error || '';
 }
 
@@ -79,11 +96,23 @@ export default function ThreatEvidenceDialog({
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<any | null>(null);
+  const [assessmentStatus, setAssessmentStatus] = useState('none');
+  const [assessmentActive, setAssessmentActive] = useState(false);
+  const [assessmentProvider, setAssessmentProvider] = useState<string | null>(null);
+  const [assessmentProviderError, setAssessmentProviderError] = useState<string | null>(null);
+  const [assessmentLoading, setAssessmentLoading] = useState(false);
+  const [assessing, setAssessing] = useState(false);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
+  const [uploadRequest, setUploadRequest] = useState<any | null>(null);
+  const [uploadingItem, setUploadingItem] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const apiFetchRef = useRef(apiFetch);
   const onAuthFailureRef = useRef(onAuthFailure);
   const tokenRefRef = useRef(tokenRef);
   const loadSeqRef = useRef(0);
+  const assessmentSeqRef = useRef(0);
   apiFetchRef.current = apiFetch;
   onAuthFailureRef.current = onAuthFailure;
   tokenRefRef.current = tokenRef;
@@ -123,14 +152,49 @@ export default function ThreatEvidenceDialog({
     }
   }, [brandId, threat?.id]);
 
+  const loadAssessment = useCallback(async () => {
+    if (!threat?.id) return null;
+    const seq = ++assessmentSeqRef.current;
+    const requestToken = tokenRefRef.current.current;
+    setAssessmentLoading(true);
+    setAssessmentError(null);
+    try {
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/threats/${threat.id}/assessment`);
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return null;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (seq !== assessmentSeqRef.current) return null;
+      setAssessment(data.assessment || null);
+      setAssessmentStatus(data.assessment_status || 'none');
+      setAssessmentActive(Boolean(data.assessment_active));
+      setAssessmentProvider(data.assessment_provider || null);
+      setAssessmentProviderError(data.assessment_error || null);
+      setUploadRequest(data.upload_request || null);
+      return { active: Boolean(data.assessment_active), status: data.assessment_status || 'none' };
+    } catch (e) {
+      if (seq !== assessmentSeqRef.current) return null;
+      setAssessmentError(describeApiError(e instanceof Error ? e.message : null));
+      return null;
+    } finally {
+      if (seq === assessmentSeqRef.current) setAssessmentLoading(false);
+    }
+  }, [brandId, threat?.id]);
+
   useEffect(() => {
-    if (open && threat?.id) loadEvidence();
+    if (open && threat?.id) {
+      loadEvidence();
+      loadAssessment();
+    }
     return () => {
       // Invalidate any in-flight load when the dialog closes or the
       // selected threat changes.
       loadSeqRef.current += 1;
+      assessmentSeqRef.current += 1;
     };
-  }, [open, threat?.id, loadEvidence]);
+  }, [open, threat?.id, loadEvidence, loadAssessment]);
 
   // Keep refreshing while a collection is still in flight. Without this the
   // dialog would show the pre-collection snapshot forever if the worker
@@ -152,7 +216,11 @@ export default function ThreatEvidenceDialog({
         return;
       }
       const next = status.enrichmentStatus;
-      if (next && next !== 'pending' && next !== 'running') return;
+      if (next && next !== 'pending' && next !== 'running') {
+        // Assessment is enqueued once enrichment finishes.
+        await loadAssessment();
+        return;
+      }
       if (!status.enrichmentActive) return;
       timer = setTimeout(poll, 3000);
     };
@@ -161,7 +229,32 @@ export default function ThreatEvidenceDialog({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [open, threat?.id, enrichmentStatus, enrichmentActive, loadEvidence]);
+  }, [open, threat?.id, enrichmentStatus, enrichmentActive, loadEvidence, loadAssessment]);
+
+  // Assessment runs as a background job after enrichment. Poll only while
+  // that job is actually queued, never just because a status says pending.
+  useEffect(() => {
+    if (!open || !threat?.id || !assessmentActive) return undefined;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      const status = await loadAssessment();
+      if (cancelled) return;
+      // A transient failure returns null; retry while this queued assessment
+      // may still be running rather than freezing the card forever.
+      if (!status) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      if (!status.active) return;
+      timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 2500);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [open, threat?.id, assessmentActive, loadAssessment]);
 
   const screenshot = artifacts.find((artifact) => artifact.kind === 'screenshot' && artifact.storage_key);
   const screenshotId = screenshot?.id;
@@ -218,6 +311,26 @@ export default function ThreatEvidenceDialog({
     }
   };
 
+  const assess = async () => {
+    if (!threat?.id || assessing) return;
+    const requestToken = tokenRefRef.current.current;
+    setAssessing(true);
+    try {
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/threats/${threat.id}/assess`, { method: 'POST' });
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      notify('Assessment queued', 'info');
+      await loadAssessment();
+    } catch (e) {
+      notify('Could not queue assessment', 'error', describeApiError(e instanceof Error ? e.message : null));
+    } finally {
+      setAssessing(false);
+    }
+  };
+
   const downloadArtifact = async (artifact: any) => {
     if (!threat?.id || downloadingId !== null) return;
     const requestToken = tokenRefRef.current.current;
@@ -248,6 +361,45 @@ export default function ThreatEvidenceDialog({
     }
   };
 
+  const uploadEvidence = async (itemKey: string, file: File) => {
+    if (!uploadRequest?.id || uploadingItem) return;
+    const requestToken = tokenRefRef.current.current;
+    setUploadingItem(itemKey);
+    setUploadError(null);
+    try {
+      const tokenRes = await apiFetchRef.current(
+        `${API_BASE}/brands/${brandId}/upload-requests/${uploadRequest.id}/token`,
+        { method: 'POST' }
+      );
+      if (tokenRes.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!tokenRes.ok) throw new Error(`HTTP ${tokenRes.status}`);
+      const { token } = await tokenRes.json();
+      const data_base64 = await fileToBase64(file);
+      const res = await apiFetchRef.current(`${API_BASE}/uploads/${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ item: itemKey, filename: file.name, mime: file.type, data_base64 }),
+      });
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      notify('Evidence uploaded', 'success');
+      await Promise.all([loadEvidence(), loadAssessment()]);
+    } catch (e) {
+      setUploadError(describeApiError(e instanceof Error ? e.message : null));
+    } finally {
+      setUploadingItem(null);
+    }
+  };
+
   if (!open || !threat) return null;
 
   return (
@@ -270,7 +422,115 @@ export default function ThreatEvidenceDialog({
             <RefreshCw className={`w-3.5 h-3.5 ${enriching ? 'animate-spin' : ''}`} />
             {enriching ? 'Collecting' : 'Collect evidence'}
           </Button>
+          <Button size="sm" variant="outline" onClick={assess} disabled={assessing}>
+            <Sparkles className={`w-3.5 h-3.5 ${assessing ? 'animate-pulse' : ''}`} />
+            {assessing ? 'Assessing' : 'Assess'}
+          </Button>
         </div>
+
+        <div className="rounded-lg border border-border/60 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+            <p className="text-[12px] font-medium">Assessment</p>
+            {assessment && (
+              <Badge variant={assessment.generated_by === 'ai' ? 'default' : 'secondary'}>
+                {assessment.generated_by === 'ai' ? 'AI' : 'Rules fallback'}
+              </Badge>
+            )}
+            {assessmentActive && <Badge variant="outline">Queued</Badge>}
+            {assessment?.risk_score != null && <Badge variant="outline">Risk {assessment.risk_score}/100</Badge>}
+            {assessment?.confidence != null && (
+              <span className="text-[10px] text-muted-foreground">confidence {Math.round(assessment.confidence * 100)}%</span>
+            )}
+          </div>
+
+          {assessmentLoading && !assessment ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">Loading assessment…</p>
+          ) : assessmentError ? (
+            <p className="mt-2 text-[11px] text-red-400">{assessmentError}</p>
+          ) : assessment ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-[12px] text-muted-foreground">{assessment.summary}</p>
+              <div className="flex flex-wrap gap-2 text-[11px]">
+                <span className="text-muted-foreground">
+                  Route <span className="text-foreground">{String(assessment.recommended_route || 'unknown').replace(/_/g, ' ')}</span>
+                </span>
+                {Array.isArray(assessment.citations) && assessment.citations.length > 0 && (
+                  <span className="text-muted-foreground">
+                    Cites {assessment.citations.map((id: number) => `#${id}`).join(', ')}
+                  </span>
+                )}
+              </div>
+              {Array.isArray(assessment.signals) && assessment.signals.length > 0 && (
+                <ul className="space-y-1 text-[11px]">
+                  {assessment.signals.map((signal: any) => (
+                    <li key={signal.key} className="flex gap-2">
+                      <span className="shrink-0 font-medium">{signal.label}</span>
+                      <span className="text-muted-foreground">{signal.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {assessmentProviderError && (
+                <p className="text-[10px] text-amber-400">
+                  {assessmentProvider ? `Model fallback (${assessmentProvider}): ` : 'Model fallback: '}
+                  {assessmentProviderError}
+                </p>
+              )}
+              <p className="text-[10px] text-muted-foreground">Assessment {assessmentStatus}</p>
+            </div>
+          ) : (
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              No assessment yet. It is generated after evidence collection, or run it manually.
+            </p>
+          )}
+        </div>
+
+        {uploadRequest && (
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Upload className="h-4 w-4 text-amber-400" />
+              <p className="text-[12px] font-medium">Evidence requested</p>
+              <Badge variant="secondary">{uploadRequest.status}</Badge>
+            </div>
+            {uploadRequest.reason && <p className="mt-1 text-[11px] text-muted-foreground">{uploadRequest.reason}</p>}
+            <div className="mt-2 space-y-2">
+              {uploadRequest.items.map((item: any) => (
+                <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/60 p-2">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-1 text-[11px] font-medium">
+                      {item.uploaded && <CheckCircle2 className="h-3 w-3 text-emerald-400" />}
+                      {item.label || item.key}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">{item.reason}</p>
+                  </div>
+                  {item.uploaded ? (
+                    <Badge variant="default">Uploaded</Badge>
+                  ) : (
+                    <label className={`shrink-0 cursor-pointer rounded-md border border-border/60 px-2 py-1 text-[11px] hover:bg-accent ${uploadingItem ? 'opacity-60' : ''}`}>
+                      {uploadingItem === item.key ? 'Uploading…' : 'Choose file'}
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept={(item.accepted_mime || []).join(',')}
+                        disabled={!!uploadingItem}
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.currentTarget.value = '';
+                          if (file) uploadEvidence(item.key, file);
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
+              ))}
+            </div>
+            {uploadError && <p className="mt-2 text-[11px] text-red-400">{uploadError}</p>}
+            {uploadRequest.expires_at && (
+              <p className="mt-2 text-[10px] text-muted-foreground">Request expires {formatDateTime(uploadRequest.expires_at)}</p>
+            )}
+          </div>
+        )}
 
         {loading && artifacts.length === 0 ? (
           <p className="text-[12px] text-muted-foreground">Loading evidence…</p>
@@ -281,7 +541,10 @@ export default function ThreatEvidenceDialog({
         ) : (
           <div className="space-y-3">
             {artifacts.map((artifact) => {
-              const meta = KIND_META[artifact.kind] || { label: artifact.kind, icon: FileJson };
+              const meta = KIND_META[artifact.kind]
+                || (String(artifact.kind).startsWith('upload_')
+                  ? { label: artifact.metadata?.label || 'Uploaded evidence', icon: Upload }
+                  : { label: artifact.kind, icon: FileJson });
               const Icon = meta.icon;
               return (
                 <div key={artifact.id} className="rounded-lg border border-border/60 p-3">

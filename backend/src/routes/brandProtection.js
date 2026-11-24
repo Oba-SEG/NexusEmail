@@ -5,6 +5,8 @@ const { BrandProtectionService, canonicalDomain } = require('../services/brandPr
 const { performBrandScan, nextScanFor, ALLOWED_SCHEDULES } = require('../services/brandScan');
 const db = require('../db/database');
 const { readArtifact } = require('../services/evidence/storage');
+const { tokenHash, uploadToken, requestExpiry } = require('../services/ai/assessment');
+const { uploadKind } = require('../services/ai/gaps');
 const { captureException } = require('../capture');
 
 const brandService = new BrandProtectionService();
@@ -407,6 +409,89 @@ router.get('/:id/threats/:threatId/evidence', async (req, res, next) => {
       enrichment_active: enrichmentActive,
       artifacts,
     });
+  } catch (err) { next(err); }
+});
+
+function decorateUploadRequest(request, artifacts) {
+  if (!request) return null;
+  const byKind = new Map((artifacts || []).map((artifact) => [artifact.kind, artifact]));
+  const items = request.items.map((item) => {
+    const kind = uploadKind(item.key);
+    const artifact = byKind.get(kind);
+    return { ...item, upload_kind: kind, uploaded: !!artifact, artifact_id: artifact?.id || null };
+  });
+  return {
+    id: request.id,
+    threat_id: request.threat_id,
+    brand_id: request.brand_id,
+    reason: request.reason,
+    status: request.status,
+    expires_at: request.expires_at,
+    items,
+  };
+}
+
+router.get('/:id/threats/:threatId/assessment', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const threatId = parseInt(req.params.threatId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
+    if (!threat) return res.status(404).json({ error: 'Threat not found' });
+    const [run, request, artifacts] = await Promise.all([
+      db.getLatestAiRun(threatId, req.orgId, 'triage'),
+      db.getActiveUploadRequest(threatId, req.orgId),
+      db.getEvidenceArtifacts(threatId, req.orgId),
+    ]);
+    res.json({
+      threat_id: threatId,
+      assessment: run?.output || null,
+      assessment_status: run ? run.status : 'none',
+      assessment_provider: run?.provider || null,
+      assessment_model: run?.model || null,
+      assessment_error: run?.error || null,
+      assessment_created_at: run?.created_at || null,
+      assessment_active: await db.isThreatAssessmentQueued(threatId),
+      upload_request: decorateUploadRequest(request, artifacts),
+    });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/threats/:threatId/assess', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const threatId = parseInt(req.params.threatId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const threat = await db.getBrandThreat(threatId, brandId, req.orgId);
+    if (!threat) return res.status(404).json({ error: 'Threat not found' });
+    const { id: jobId, created } = await db.enqueueJobDetailed({
+      type: 'threat.assess',
+      payload: { orgId: req.orgId, brandId, threatId },
+      dedupeKey: `threat.assess:${threatId}`,
+    });
+    res.status(202).json({ success: true, job_id: jobId, threat_id: threatId, queued: created });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/upload-requests/:requestId/token', async (req, res, next) => {
+  try {
+    const brandId = parseInt(req.params.id);
+    const requestId = parseInt(req.params.requestId);
+    const brand = await db.getBrand(brandId, req.orgId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+    const request = await db.getUploadRequest(requestId, req.orgId);
+    if (!request || request.brand_id !== brandId) return res.status(404).json({ error: 'Upload request not found' });
+    if (request.status !== 'pending') return res.status(409).json({ error: 'Upload request is no longer pending' });
+    if (Date.parse(request.expires_at) <= Date.now()) return res.status(410).json({ error: 'Upload request has expired' });
+    const token = uploadToken();
+    const expiresAt = requestExpiry();
+    const updated = await db.updateUploadRequest(requestId, req.orgId, {
+      token_hash: tokenHash(token),
+      expires_at: expiresAt,
+    });
+    res.json({ success: true, token, expires_at: updated.expires_at, upload_path: `/api/uploads/${token}` });
   } catch (err) { next(err); }
 });
 

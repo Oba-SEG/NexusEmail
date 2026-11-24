@@ -35,6 +35,7 @@ async function main() {
   const domainRoutes = require('./routes/domains');
   const { router: settingsRoutes } = require('./routes/settings');
   const brandProtectionRoutes = require('./routes/brandProtection');
+  const uploadsRoutes = require('./routes/uploads');
   const remediationRoutes = require('./routes/remediation');
   const reportsRoutes = require('./routes/reports');
   const scanRoutes = require('./routes/scans');
@@ -102,7 +103,13 @@ async function main() {
   });
 
   // Body parsing: JSON plus URL-encoded (some clients post forms).
-  app.use(express.json({ limit: '10kb' }));
+  // Evidence uploads carry base64 JSON up to ~35 MB. Skip the small global
+  // parser here; the /api/uploads router applies its own parser after auth.
+  const smallJson = express.json({ limit: '10kb' });
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/uploads/')) return next();
+    return smallJson(req, res, next);
+  });
   app.use(express.urlencoded({ extended: false, limit: '10kb' }));
 
   // No global request sanitizer: stripping < > ' " from every payload
@@ -147,6 +154,7 @@ async function main() {
   app.use('/api/domains', requireAuth, domainRoutes);
   app.use('/api/settings', requireAuth, settingsRoutes);
   app.use('/api/brands', requireAuth, brandProtectionRoutes);
+  app.use('/api/uploads', requireAuth, express.json({ limit: '36mb' }), uploadsRoutes);
   app.use('/api/domains', requireAuth, remediationRoutes);
   // Shared report links are signature-checked and intentionally public —
   // mounted before the auth gate so stakeholders can open them.

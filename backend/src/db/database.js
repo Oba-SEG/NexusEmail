@@ -287,6 +287,48 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_evidence_artifacts_brand ON evidence_artifacts(brand_id);
     CREATE INDEX IF NOT EXISTS idx_evidence_artifacts_org ON evidence_artifacts(org_id);
 
+    -- Phase 2: bounded AI artifacts. One row per run; the latest triage row
+    -- is the assessment the UI shows.
+    CREATE TABLE IF NOT EXISTS ai_runs (
+      id BIGINT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      brand_id BIGINT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+      threat_id BIGINT NOT NULL REFERENCES brand_threats(id) ON DELETE CASCADE,
+      task TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      model TEXT,
+      prompt_version TEXT NOT NULL,
+      input_hash TEXT,
+      output TEXT,
+      tokens_input INTEGER,
+      tokens_output INTEGER,
+      cost_usd REAL,
+      latency_ms INTEGER,
+      status TEXT NOT NULL DEFAULT 'completed',
+      error TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_runs_threat_task ON ai_runs(threat_id, task, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ai_runs_org ON ai_runs(org_id);
+
+    -- Phase 2: secure, expiring upload requests. Only the token hash is
+    -- stored; the raw token is minted when the in-app task opens a link.
+    CREATE TABLE IF NOT EXISTS upload_requests (
+      id BIGINT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      brand_id BIGINT NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+      threat_id BIGINT NOT NULL REFERENCES brand_threats(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      items TEXT NOT NULL,
+      reason TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      fulfilled_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_upload_requests_threat ON upload_requests(threat_id, status);
+    CREATE INDEX IF NOT EXISTS idx_upload_requests_org ON upload_requests(org_id);
+
     CREATE TABLE IF NOT EXISTS jobs (
       id BIGSERIAL PRIMARY KEY,
       type TEXT NOT NULL,
@@ -1027,6 +1069,159 @@ async function getEvidenceArtifact(artifactId, orgId, tx) {
   return hydrateEvidenceArtifact(await exec.one('SELECT * FROM evidence_artifacts WHERE id = $1 AND org_id = $2', [artifactId, orgId]));
 }
 
+function hydrateAiRun(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    brand_id: row.brand_id,
+    threat_id: row.threat_id,
+    task: row.task,
+    provider: row.provider,
+    model: row.model || null,
+    prompt_version: row.prompt_version,
+    input_hash: row.input_hash || null,
+    output: parse(row.output, null),
+    tokens_input: row.tokens_input == null ? null : Number(row.tokens_input),
+    tokens_output: row.tokens_output == null ? null : Number(row.tokens_output),
+    cost_usd: row.cost_usd == null ? null : Number(row.cost_usd),
+    latency_ms: row.latency_ms == null ? null : Number(row.latency_ms),
+    status: row.status,
+    error: row.error || null,
+    created_at: row.created_at,
+  };
+}
+
+async function addAiRun(run, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  if (!run.org_id || !run.brand_id || !run.threat_id) throw new Error('org, brand, and threat are required');
+  const created = {
+    id: run.id || nextNumericId(),
+    org_id: run.org_id,
+    brand_id: run.brand_id,
+    threat_id: run.threat_id,
+    task: run.task || 'triage',
+    provider: run.provider || 'deterministic',
+    model: run.model || null,
+    prompt_version: run.prompt_version || 'triage-v1',
+    input_hash: run.input_hash || null,
+    output: json(run.output || null),
+    tokens_input: run.tokens_input ?? null,
+    tokens_output: run.tokens_output ?? null,
+    cost_usd: run.cost_usd ?? null,
+    latency_ms: run.latency_ms ?? null,
+    status: run.status || 'completed',
+    error: run.error || null,
+    created_at: run.created_at || now(),
+  };
+  const row = await exec.one(
+    `INSERT INTO ai_runs (id, org_id, brand_id, threat_id, task, provider, model, prompt_version, input_hash, output, tokens_input, tokens_output, cost_usd, latency_ms, status, error, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     RETURNING *`,
+    [created.id, created.org_id, created.brand_id, created.threat_id, created.task, created.provider, created.model, created.prompt_version, created.input_hash, created.output, created.tokens_input, created.tokens_output, created.cost_usd, created.latency_ms, created.status, created.error, created.created_at]
+  );
+  return hydrateAiRun(row);
+}
+
+async function getLatestAiRun(threatId, orgId, task = 'triage', tx) {
+  if (!orgId) return null;
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return hydrateAiRun(await exec.one(
+    'SELECT * FROM ai_runs WHERE threat_id = $1 AND org_id = $2 AND task = $3 ORDER BY created_at DESC, id DESC LIMIT 1',
+    [threatId, orgId, task]
+  ));
+}
+
+function hydrateUploadRequest(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    org_id: row.org_id,
+    brand_id: row.brand_id,
+    threat_id: row.threat_id,
+    items: parse(row.items, []),
+    reason: row.reason || null,
+    status: row.status,
+    expires_at: row.expires_at,
+    created_at: row.created_at,
+    fulfilled_at: row.fulfilled_at || null,
+  };
+}
+
+async function addUploadRequest(request, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  if (!request.org_id || !request.brand_id || !request.threat_id || !request.token_hash) {
+    throw new Error('org, brand, threat, and token hash are required');
+  }
+  const created = {
+    id: request.id || nextNumericId(),
+    org_id: request.org_id,
+    brand_id: request.brand_id,
+    threat_id: request.threat_id,
+    token_hash: request.token_hash,
+    items: json(request.items || []),
+    reason: request.reason || null,
+    status: request.status || 'pending',
+    expires_at: request.expires_at,
+    created_at: request.created_at || now(),
+    fulfilled_at: request.fulfilled_at || null,
+  };
+  const row = await exec.one(
+    `INSERT INTO upload_requests (id, org_id, brand_id, threat_id, token_hash, items, reason, status, expires_at, created_at, fulfilled_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING *`,
+    [created.id, created.org_id, created.brand_id, created.threat_id, created.token_hash, created.items, created.reason, created.status, created.expires_at, created.created_at, created.fulfilled_at]
+  );
+  return hydrateUploadRequest(row);
+}
+
+async function getUploadRequest(requestId, orgId, tx) {
+  if (!orgId) return null;
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return hydrateUploadRequest(await exec.one('SELECT * FROM upload_requests WHERE id = $1 AND org_id = $2', [requestId, orgId]));
+}
+
+async function getUploadRequestByTokenHash(tokenHash, tx) {
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return hydrateUploadRequest(await exec.one('SELECT * FROM upload_requests WHERE token_hash = $1', [tokenHash]));
+}
+
+async function getActiveUploadRequest(threatId, orgId, tx) {
+  if (!orgId) return null;
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  return hydrateUploadRequest(await exec.one(
+    "SELECT * FROM upload_requests WHERE threat_id = $1 AND org_id = $2 AND status = 'pending' AND expires_at > $3 ORDER BY created_at DESC, id DESC LIMIT 1",
+    [threatId, orgId, now()]
+  ));
+}
+
+async function updateUploadRequest(requestId, orgId, updates, tx) {
+  if (!orgId) return null;
+  const exec = tx ? bindTx(tx) : { q, one, all };
+  const columns = {
+    token_hash: 'token_hash',
+    items: 'items',
+    reason: 'reason',
+    status: 'status',
+    expires_at: 'expires_at',
+    fulfilled_at: 'fulfilled_at',
+  };
+  const params = [];
+  const set = [];
+  for (const [key, column] of Object.entries(columns)) {
+    if (!(key in updates)) continue;
+    params.push(key === 'items' ? json(updates[key] || []) : updates[key]);
+    set.push(`${column} = $${params.length}`);
+  }
+  if (set.length === 0) return getUploadRequest(requestId, orgId, tx);
+  params.push(requestId, orgId);
+  const row = await exec.one(
+    `UPDATE upload_requests SET ${set.join(', ')} WHERE id = $${params.length - 1} AND org_id = $${params.length} RETURNING *`,
+    params
+  );
+  return hydrateUploadRequest(row);
+}
+
 function hydrateJob(row) {
   if (!row) return null;
   return { ...row, payload: parse(row.payload, {}) };
@@ -1062,12 +1257,20 @@ async function enqueueJob(job, tx) {
   return id;
 }
 
-async function isThreatEnrichmentQueued(threatId) {
+async function isJobQueued(dedupeKey) {
   const row = await one(
     "SELECT 1 FROM jobs WHERE dedupe_key = $1 AND status IN ('pending', 'running') LIMIT 1",
-    [`threat.enrich:${threatId}`]
+    [dedupeKey]
   );
   return !!row;
+}
+
+async function isThreatEnrichmentQueued(threatId) {
+  return isJobQueued(`threat.enrich:${threatId}`);
+}
+
+async function isThreatAssessmentQueued(threatId) {
+  return isJobQueued(`threat.assess:${threatId}`);
 }
 
 async function claimJob(workerId) {
@@ -1090,13 +1293,24 @@ async function claimJob(workerId) {
 
 // Terminal writes are fenced on the per-claim token: if recovery handed the
 // job to another worker, these return false/null instead of stomping it.
-async function completeJob(jobId, claimToken) {
+async function completeJob(jobId, claimToken, successor) {
   if (!claimToken) throw new Error('claimToken required');
-  const result = await q(
-    "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
-    [jobId, now(), claimToken]
-  );
-  return result.rowCount > 0;
+  if (!successor) {
+    const result = await q(
+      "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
+      [jobId, now(), claimToken]
+    );
+    return result.rowCount > 0;
+  }
+  return withTransaction(async (tx) => {
+    const result = await tx.q(
+      "UPDATE jobs SET status = 'completed', locked_at = NULL, locked_by = NULL, claim_token = NULL, last_error = NULL, updated_at = $2 WHERE id = $1 AND claim_token = $3",
+      [jobId, now(), claimToken]
+    );
+    if (result.rowCount === 0) return false;
+    await enqueueJobDetailed(successor, tx);
+    return true;
+  });
 }
 
 async function failJob(jobId, claimToken, error, retrySeconds = 30) {
@@ -1394,6 +1608,28 @@ async function backfillPendingEvidenceJobs() {
   return rows.length;
 }
 
+// Phase 2 starts after threats were already enriched. Queue one assessment
+// for each completed threat that has no assessment and no job history.
+async function backfillAssessmentJobs() {
+  if ((await getSetting('assessment_jobs_backfill_v1')) === 'done') return 0;
+  const ts = now();
+  const rows = await all(
+    `INSERT INTO jobs (type, payload, status, attempts, max_attempts, dedupe_key, run_after, created_at, updated_at)
+     SELECT 'threat.assess',
+            json_build_object('orgId', t.org_id, 'brandId', t.brand_id, 'threatId', t.id)::text,
+            'pending', 0, 3, 'threat.assess:' || t.id, $1, $1, $1
+     FROM brand_threats t
+     WHERE t.enrichment_status = 'complete'
+       AND NOT EXISTS (SELECT 1 FROM ai_runs a WHERE a.threat_id = t.id AND a.task = 'triage')
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.dedupe_key = 'threat.assess:' || t.id)
+     ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('pending', 'running') DO NOTHING
+     RETURNING id`,
+    [ts]
+  );
+  await setSetting('assessment_jobs_backfill_v1', 'done');
+  return rows.length;
+}
+
 // Bump the user's token_version: every previously issued JWT stops
 // verifying on the next request (requireAuth compares the token's tv claim).
 async function bumpUserTokenVersion(userId) {
@@ -1428,6 +1664,8 @@ async function initDatabase() {
   await migrateBrandsFromSettingsBlob();
   const backfilled = await backfillPendingEvidenceJobs();
   if (backfilled > 0) console.log(`[db] queued evidence for ${backfilled} pending threat(s)`);
+  const assessments = await backfillAssessmentJobs();
+  if (assessments > 0) console.log(`[db] queued assessments for ${assessments} threat(s)`);
   if (!(await getOrganization('segbytes'))) await addOrganization({ id: 'segbytes', slug: 'segbytes', name: 'Segbytes Solutions' });
   if (!(await getUserByEmail(process.env.SEED_ADMIN_EMAIL || 'admin@segbytes.xyz'))) {
     if (process.env.NODE_ENV === 'production' && !process.env.SEED_ADMIN_PASSWORD) throw new Error('Set SEED_ADMIN_PASSWORD before first production boot');
@@ -1493,7 +1731,9 @@ module.exports = {
   getBrands, getBrand, getBrandFull, getBrandsFull, addBrand, updateBrand, deleteBrand,
   getBrandThreats, getBrandThreat, addBrandThreat, deleteBrandThreatByDomain, updateBrandThreatEnrichment,
   addEvidenceArtifact, getEvidenceArtifacts, getEvidenceArtifact,
-  enqueueJob, enqueueJobDetailed, claimJob, completeJob, failJob, recoverStaleJobs, heartbeatJob, isThreatEnrichmentQueued,
+  addAiRun, getLatestAiRun,
+  addUploadRequest, getUploadRequest, getUploadRequestByTokenHash, getActiveUploadRequest, updateUploadRequest,
+  enqueueJob, enqueueJobDetailed, claimJob, completeJob, failJob, recoverStaleJobs, heartbeatJob, isJobQueued, isThreatEnrichmentQueued, isThreatAssessmentQueued,
   getBrandTakedowns, addBrandTakedown, updateBrandTakedown, addTakedownReply,
   getBrandSafeList, addSafeEntry, removeSafeEntry,
   getAllBrands, addBrandScan, getBrandScans,
