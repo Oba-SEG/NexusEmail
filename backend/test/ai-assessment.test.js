@@ -53,7 +53,7 @@ describe('deterministic triage assessment', () => {
       artifact.id === 103 ? { ...artifact, metadata: { ...artifact.metadata, title: 'Changed' } } : artifact
     ))), base);
     assert.notEqual(evidenceHash(artifacts.map((artifact) => (
-      artifact.id === 103 ? { ...artifact, metadata: { ...artifact.metadata, headers: { 'cf-ray': 'abc' } } } : artifact
+      artifact.id === 103 ? { ...artifact, metadata: { ...artifact.metadata, headers: { ...artifact.metadata.headers, 'cf-ray': 'abc' } } } : artifact
     ))), base);
   });
 
