@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ExternalLink, FileJson, Globe2, Lock, RefreshCw, Server } from "lucide-react";
+import { Camera, Download, ExternalLink, FileJson, Globe2, Lock, RefreshCw, Server } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { notify, describeApiError } from "@/components/ui/status";
@@ -74,10 +74,12 @@ export default function ThreatEvidenceDialog({
   const [artifacts, setArtifacts] = useState<any[]>([]);
   const [enrichmentStatus, setEnrichmentStatus] = useState('pending');
   const [evidenceStatus, setEvidenceStatus] = useState('pending');
+  const [enrichmentActive, setEnrichmentActive] = useState(false);
   const [loading, setLoading] = useState(false);
   const [enriching, setEnriching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const apiFetchRef = useRef(apiFetch);
   const onAuthFailureRef = useRef(onAuthFailure);
   const tokenRefRef = useRef(tokenRef);
@@ -106,7 +108,12 @@ export default function ThreatEvidenceDialog({
       setArtifacts(Array.isArray(data.artifacts) ? data.artifacts : []);
       setEnrichmentStatus(data.enrichment_status || 'pending');
       setEvidenceStatus(data.evidence_status || 'pending');
-      return { enrichmentStatus: data.enrichment_status || 'pending', evidenceStatus: data.evidence_status || 'pending' };
+      setEnrichmentActive(Boolean(data.enrichment_active));
+      return {
+        enrichmentStatus: data.enrichment_status || 'pending',
+        evidenceStatus: data.evidence_status || 'pending',
+        enrichmentActive: Boolean(data.enrichment_active),
+      };
     } catch (e) {
       if (seq !== loadSeqRef.current) return null;
       setError(describeApiError(e instanceof Error ? e.message : null));
@@ -131,13 +138,22 @@ export default function ThreatEvidenceDialog({
   useEffect(() => {
     if (!open || !threat?.id) return undefined;
     if (enrichmentStatus !== 'pending' && enrichmentStatus !== 'running') return undefined;
+    // `pending` without a queued job is stale state, not work in flight.
+    if (!enrichmentActive) return undefined;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
       const status = await loadEvidence();
       if (cancelled) return;
-      const next = status?.enrichmentStatus;
+      // A transient failure returns null; keep trying while the dialog is
+      // open instead of silently abandoning an active collection.
+      if (!status) {
+        timer = setTimeout(poll, 3000);
+        return;
+      }
+      const next = status.enrichmentStatus;
       if (next && next !== 'pending' && next !== 'running') return;
+      if (!status.enrichmentActive) return;
       timer = setTimeout(poll, 3000);
     };
     timer = setTimeout(poll, 3000);
@@ -145,7 +161,7 @@ export default function ThreatEvidenceDialog({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [open, threat?.id, enrichmentStatus, loadEvidence]);
+  }, [open, threat?.id, enrichmentStatus, enrichmentActive, loadEvidence]);
 
   const screenshot = artifacts.find((artifact) => artifact.kind === 'screenshot' && artifact.storage_key);
   const screenshotId = screenshot?.id;
@@ -202,6 +218,36 @@ export default function ThreatEvidenceDialog({
     }
   };
 
+  const downloadArtifact = async (artifact: any) => {
+    if (!threat?.id || downloadingId !== null) return;
+    const requestToken = tokenRefRef.current.current;
+    setDownloadingId(artifact.id);
+    try {
+      // Fetch through the authenticated client so support impersonation
+      // keeps using the target bearer instead of the admin cookie.
+      const res = await apiFetchRef.current(`${API_BASE}/brands/${brandId}/evidence/${artifact.id}?download=1`);
+      if (res.status === 401) {
+        onAuthFailureRef.current(requestToken);
+        return;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const extension = String(artifact.storage_key || '').match(/\.[a-z0-9]+$/i)?.[0] || '';
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `${artifact.kind}-${artifact.id}${extension}`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (e) {
+      notify('Could not download evidence', 'error', describeApiError(e instanceof Error ? e.message : null));
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   if (!open || !threat) return null;
 
   return (
@@ -217,6 +263,9 @@ export default function ThreatEvidenceDialog({
         <div className="flex flex-wrap items-center gap-2 border-y border-border/60 py-3">
           <Badge variant={statusVariant(evidenceStatus)}>Evidence {evidenceStatus}</Badge>
           <Badge variant="outline">Enrichment {enrichmentStatus}</Badge>
+          {enrichmentStatus === 'pending' && !enrichmentActive && (
+            <span className="text-[11px] text-muted-foreground">Collection not queued</span>
+          )}
           <Button size="sm" variant="outline" onClick={enrich} disabled={enriching}>
             <RefreshCw className={`w-3.5 h-3.5 ${enriching ? 'animate-spin' : ''}`} />
             {enriching ? 'Collecting' : 'Collect evidence'}
@@ -253,6 +302,17 @@ export default function ThreatEvidenceDialog({
                     </a>
                   )}
 
+                  {artifact.storage_key && (
+                    <button
+                      type="button"
+                      className="mt-2 ml-3 inline-flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-60"
+                      onClick={() => downloadArtifact(artifact)}
+                      disabled={downloadingId !== null}
+                    >
+                      <Download className="h-3 w-3" /> {downloadingId === artifact.id ? 'Downloading…' : 'Download'}
+                    </button>
+                  )}
+
                   {artifact.kind === 'screenshot' && previewUrl && (
                     <img src={previewUrl} alt={`Screenshot of ${threat.domain}`} className="mt-3 max-h-72 w-full rounded-md border border-border/60 object-contain" />
                   )}
@@ -264,6 +324,9 @@ export default function ThreatEvidenceDialog({
                     {artifact.collected_at && <span>Collected {formatDateTime(artifact.collected_at)}</span>}
                     {formatBytes(artifact.bytes) && <span>{formatBytes(artifact.bytes)}</span>}
                     {artifact.collector && <span>via {artifact.collector}</span>}
+                    {artifact.sha256 && (
+                      <span className="font-mono" title={artifact.sha256}>sha256 {String(artifact.sha256).slice(0, 12)}…</span>
+                    )}
                   </div>
 
                   <details className="mt-2">

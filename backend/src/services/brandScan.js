@@ -88,6 +88,12 @@ async function enqueueEvidenceForThreats(brandId, orgId, added) {
       enqueued += 1;
     } catch (error) {
       console.error(`[brand-scan] failed to enqueue evidence for threat ${threat.id}:`, error.message || error);
+      await db.updateBrandThreatEnrichment(threat.id, brandId, orgId, {
+        enrichment_status: 'failed',
+        evidence_status: 'failed',
+      }).catch((updateError) => {
+        console.error(`[brand-scan] failed to record evidence failure for threat ${threat.id}:`, updateError.message || updateError);
+      });
     }
   }
   return enqueued;

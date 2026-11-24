@@ -66,11 +66,14 @@ Phase 1 job type: `threat.enrich` with payload `{ orgId, brandId, threatId }`.
 ## API contract
 
 - `GET /api/brands/:brandId/threats/:threatId/evidence`
-  - Returns `{ threat, artifacts }`.
+  - Returns `{ enrichment_status, evidence_status, enrichment_active, artifacts }`.
+  - `enrichment_active` is true only while a `threat.enrich` job is queued or
+    running; the UI polls only in that window.
 - `POST /api/brands/:brandId/threats/:threatId/enrich`
   - Queues a refresh; returns `202 { queued: true }`.
 - `GET /api/brands/:brandId/evidence/:artifactId`
   - Streams a stored binary artifact after org and brand checks.
+  - Add `?download=1` to force an attachment (used for screenshot download).
 
 ## UX contract
 
